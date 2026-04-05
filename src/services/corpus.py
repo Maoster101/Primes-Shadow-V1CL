@@ -62,19 +62,19 @@ class CorpusStore:
         """Persist current state to YAML."""
         _save_yaml(
             self.objects / "anchors.yaml",
-            [a.model_dump() for a in self.anchors.values()],
+            [a.model_dump(mode="json") for a in self.anchors.values()],
         )
         _save_yaml(
             self.objects / "slabs.yaml",
-            [s.model_dump() for s in self.slabs.values()],
+            [s.model_dump(mode="json") for s in self.slabs.values()],
         )
         _save_yaml(
             self.objects / "key_bundles.yaml",
-            [b.model_dump() for b in self.bundles.values()],
+            [b.model_dump(mode="json") for b in self.bundles.values()],
         )
         _save_yaml(
             self.objects / "edges.yaml",
-            [e.model_dump(by_alias=True) for e in self.edges.values()],
+            [e.model_dump(mode="json", by_alias=True) for e in self.edges.values()],
         )
 
     def all_ids(self) -> set[str]:

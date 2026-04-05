@@ -55,6 +55,9 @@
       - BUNDLE_OBLIGATION_UPPER_BOUND_v1
       - BUNDLE_REGULATION_GATES_v1
   version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
   meta: {version: v1, supersedes: null, semantic_change: true, created_at: "2026-04-03T00:00:00Z"}
   depends_on: []
   assumptions:

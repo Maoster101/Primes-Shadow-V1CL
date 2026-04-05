@@ -97,3 +97,22 @@ class MatchTier(int, Enum):
     EXACT_OR_PARTIAL = 1
     AMBIGUOUS_FUZZY = 2
     WEAK_SEMANTIC = 3
+
+
+class SlabType(str, Enum):
+    CONSTITUTIONAL = "CONSTITUTIONAL"
+    INVARIANT = "INVARIANT"
+    REFERENCE = "REFERENCE"
+    CANONICAL = "CANONICAL"
+
+
+class SlabLifecycleStatus(str, Enum):
+    ACTIVE = "ACTIVE"
+    DORMANT = "DORMANT"
+    DEPRECATED = "DEPRECATED"
+
+
+class MentionType(str, Enum):
+    REFERENCE = "REFERENCE"
+    QUESTION = "QUESTION"
+    DELIBERATE_INVOCATION = "DELIBERATE_INVOCATION"

@@ -7,6 +7,7 @@ from .enums import (
     MessageFunction, ChatStatus, DraftStatus, NodeType, EdgeType,
     OLIMode, L4Posture, DriftSeverity, DomainMode, DampeningLevel,
     ClaimTag, VerificationOutcome, MatchTier,
+    SlabType, SlabLifecycleStatus,
 )
 
 
@@ -90,6 +91,9 @@ class Slab(BaseModel):
     canonical_text: str
     links: SlabLinks = Field(default_factory=SlabLinks)
     version: str = "v1"
+    type: SlabType = SlabType.CANONICAL
+    lifecycle_status: SlabLifecycleStatus = SlabLifecycleStatus.ACTIVE
+    requires_oli_mode: Optional[OLIMode] = None
     meta: AnchorMeta = Field(default_factory=AnchorMeta)
     depends_on: list[str] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
