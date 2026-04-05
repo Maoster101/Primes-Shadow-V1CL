@@ -8,6 +8,7 @@ from .enums import (
     OLIMode, L4Posture, DriftSeverity, DomainMode, DampeningLevel,
     ClaimTag, VerificationOutcome, MatchTier,
     SlabType, SlabLifecycleStatus, MentionType,
+    GateStage, GateOutcome,
 )
 
 
@@ -130,6 +131,35 @@ class KeyBundle(BaseModel):
     meta: AnchorMeta = Field(default_factory=AnchorMeta)
     depends_on: list[str] = Field(default_factory=list)
     supports: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+
+
+# §8.4 — Gate + GateRule (v3 declarative gate engine)
+# Gates reify the imperative gate logic currently living in
+# anchor_matcher.gate_check() and the classifier's confidence checks
+# into data that can be edited without touching code. A Gate owns an
+# ordered list of GateRule entries; the evaluator iterates rules in
+# order, returning the outcome of the first rule whose `condition`
+# expression evaluates truthy against a context dict built from the
+# current MessageClassification, Anchor, and session state. If no rule
+# matches, the gate's default_outcome applies.
+class GateRule(BaseModel):
+    id: str
+    condition: str  # simpleeval expression; e.g. "classification.explicit == True"
+    outcome: GateOutcome
+    priority: int = 100  # lower runs first; stable sort within a Gate
+    notes: str = ""
+
+
+class Gate(BaseModel):
+    id: str
+    stage: GateStage
+    description: str = ""
+    rules: list[GateRule] = Field(default_factory=list)
+    default_outcome: GateOutcome = GateOutcome.DENY
+    version: str = "v1"
+    meta: AnchorMeta = Field(default_factory=AnchorMeta)
+    depends_on: list[str] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
 
 

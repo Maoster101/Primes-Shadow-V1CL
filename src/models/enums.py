@@ -116,3 +116,16 @@ class MentionType(str, Enum):
     REFERENCE = "reference"
     QUESTION = "question"
     DELIBERATE_INVOCATION = "deliberate_invocation"
+
+
+class GateStage(str, Enum):
+    FUNCTION = "FUNCTION"
+    EXPLICITNESS = "EXPLICITNESS"
+    CONFIDENCE = "CONFIDENCE"
+
+
+class GateOutcome(str, Enum):
+    ALLOW = "ALLOW"
+    DENY = "DENY"
+    ESCALATE = "ESCALATE"  # surface ambiguity to user instead of silently defaulting
+    DEFER = "DEFER"        # explicit pass-through to next stage without a decision
