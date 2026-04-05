@@ -7,7 +7,7 @@ from .enums import (
     MessageFunction, ChatStatus, DraftStatus, NodeType, EdgeType,
     OLIMode, L4Posture, DriftSeverity, DomainMode, DampeningLevel,
     ClaimTag, VerificationOutcome, MatchTier,
-    SlabType, SlabLifecycleStatus,
+    SlabType, SlabLifecycleStatus, MentionType,
 )
 
 
@@ -16,6 +16,7 @@ class MessageClassification(BaseModel):
     function: MessageFunction
     explicit: bool = False
     confidence: float = Field(ge=0.0, le=1.0)
+    mention_type: Optional[MentionType] = None
     notes: Optional[str] = None
 
 

@@ -113,6 +113,6 @@ class SlabLifecycleStatus(str, Enum):
 
 
 class MentionType(str, Enum):
-    REFERENCE = "REFERENCE"
-    QUESTION = "QUESTION"
-    DELIBERATE_INVOCATION = "DELIBERATE_INVOCATION"
+    REFERENCE = "reference"
+    QUESTION = "question"
+    DELIBERATE_INVOCATION = "deliberate_invocation"

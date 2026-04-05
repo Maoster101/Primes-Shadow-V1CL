@@ -24,6 +24,24 @@ ABOUT the Mirror/OLI/rules).
 Only use this when NONE of the above fit. Substantive content belongs in \
 object_of_work even if the user is being casual about it.
 
+ADDITIONALLY, if the user's message references a concept, anchor, frame, or \
+bundle by name or canonical phrase, classify HOW they are referencing it \
+(mention_type). Otherwise leave mention_type null.
+
+mention_type categories:
+- reference: user is passively mentioning or alluding to a concept without \
+asking about it or invoking it ("anyway, this reminds me of the archer thing"). \
+No activation intent; the mention is incidental to the main message.
+- question: user is asking about a concept, seeking information or clarification \
+("what's the archer bundle about?", "how does epistemic floor work?"). They want \
+to understand it, not load it as a live frame.
+- deliberate_invocation: user is explicitly activating a concept as a live frame \
+for the current turn ("*i am the bone of my sword*", "activate archer frame", \
+"keep the epistemic floor rules on for this"). They want the referenced slab/\
+bundle loaded into active context.
+
+If no concept is referenced at all, mention_type is null.
+
 Return ONLY raw JSON:
 {
   "function": "<category>",
@@ -31,6 +49,7 @@ Return ONLY raw JSON:
   "explicit": <bool — true if the user explicitly asks to persist, save, anchor, \
 bundle, or turn something into a slab/anchor/bundle; also true for explicit \
 "use this as context" / "remember this" signals. False otherwise.>,
+  "mention_type": "<reference | question | deliberate_invocation | null>",
   "notes": "<string or null — surface when confidence is low>"
 }
 
@@ -46,6 +65,14 @@ Examples of explicit=false:
 - "explain Y"
 - "help me with Z"
 - Any general discussion without a persistence verb.
+
+Examples of mention_type:
+- "*i am the bone of my sword*" → deliberate_invocation (archer frame)
+- "what's the epistemic floor again?" → question
+- "anyway this reminds me of the archer thing" → reference
+- "how does claim admissibility work?" → question
+- "engage the regulation gates for this conversation" → deliberate_invocation
+- "hi, how are you?" → null (no concept referenced)
 
 User message: """
 
