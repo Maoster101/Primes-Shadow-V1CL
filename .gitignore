@@ -31,6 +31,7 @@ app/events/*.jsonl
 app/library/tentative/*.json
 app/corpus/cascade/*.yaml
 app/corpus/revisions/*.yaml
+app/corpus/state/*.db
 
 # Claude Code working files
 .claude/
