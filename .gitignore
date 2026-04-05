@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Environment
+.env
+.venv/
+env/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Session data (generated at runtime, not committed)
+app/chats/*.json
+app/workbench/sessions/*/
+app/events/*.jsonl
+app/library/tentative/*.json
+app/corpus/cascade/*.yaml
+app/corpus/revisions/*.yaml
+
+# Claude Code working files
+.claude/
+.remember/
+
+# Raw document extracts (temporary working files)
+*_raw.txt

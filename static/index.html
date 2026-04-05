@@ -1,0 +1,1867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prime's Shadow</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&family=Syne:wght@300;400;600&display=swap');
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0c0e18;--border:rgba(255,255,255,0.06);--text:#e8e8f0;--text-dim:#5a6090;
+    --panel-bg:rgba(12,14,26,0.95);--accent:#4a9eff;
+  }
+  html,body{width:100%;height:100%;background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;overflow:hidden}
+
+  /* ── Layout: sidebar | resize | chat | resize | (canvas + events) ── */
+  #app{display:flex;height:100vh}
+  .resize-h{width:4px;cursor:col-resize;background:transparent;flex-shrink:0;position:relative;z-index:20}
+  .resize-h:hover,.resize-h.dragging{background:rgba(74,158,255,0.3)}
+  .resize-v{height:4px;cursor:row-resize;background:transparent;flex-shrink:0;position:relative;z-index:20}
+  .resize-v:hover,.resize-v.dragging{background:rgba(74,158,255,0.3)}
+
+  /* ── Sidebar ── */
+  .sidebar{width:280px;min-width:180px;display:flex;flex-direction:column;background:var(--panel-bg);border-right:1px solid var(--border);overflow:hidden;flex-shrink:0}
+  .sb-head{padding:16px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+  .sb-head .logo{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:500;color:var(--accent);letter-spacing:.12em;text-transform:uppercase}
+  .sb-head button{background:var(--accent);color:#fff;border:none;width:32px;height:32px;border-radius:6px;cursor:pointer;font-size:18px}
+  .chat-list{flex:1;overflow-y:auto;padding:6px 8px}
+  .chat-item{padding:10px 12px;border-radius:6px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--text-dim);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .1s}
+  .chat-item:hover{background:rgba(255,255,255,0.04);color:var(--text)}
+  .chat-item.active{background:rgba(74,158,255,0.12);color:var(--text)}
+  .sb-controls{padding:12px 14px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:8px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-dim)}
+  .ctrl-row{display:flex;align-items:center;gap:10px}
+  .ctrl-label{min-width:52px}
+  .sw-wrap{display:flex;align-items:center;gap:7px;cursor:pointer}
+  .sw-wrap input{display:none}
+  .sw{width:34px;height:18px;background:rgba(255,255,255,0.06);border:1px solid var(--border);border-radius:9px;position:relative;transition:.2s}
+  .sw::after{content:'';position:absolute;top:2px;left:2px;width:12px;height:12px;background:var(--text-dim);border-radius:50%;transition:.2s}
+  .sw-wrap input:checked+.sw{background:rgba(74,158,255,0.2);border-color:rgba(74,158,255,0.4)}
+  .sw-wrap input:checked+.sw::after{transform:translateX(16px);background:var(--accent)}
+  .sb-controls select{background:#1a1a2e;color:#e8e8f0;border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:4px 8px;font-family:inherit;font-size:12px;flex:1}
+  .sb-controls select option{background:#1a1a2e;color:#e8e8f0}
+
+  /* ── Chat pane ── */
+  .chat-pane{width:420px;min-width:280px;display:flex;flex-direction:column;border-right:1px solid var(--border);background:var(--bg);min-height:0;overflow:hidden;flex-shrink:0}
+  .chat-bar{padding:8px 16px;background:var(--panel-bg);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-dim);flex-shrink:0}
+  .badge{padding:3px 8px;border-radius:4px;background:rgba(255,255,255,0.03);border:1px solid var(--border)}
+  .badge.on{color:#a0f0a0;border-color:rgba(160,240,160,0.3)}
+  .badge.warn{color:#ffc040;border-color:rgba(255,192,64,0.3)}
+  .messages{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;min-height:0;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+  .msg{padding:12px 16px;border-radius:9px;font-size:12px;line-height:1.6;max-width:90%;animation:fadeUp .2s ease;white-space:pre-wrap;word-wrap:break-word}
+  .msg table{border-collapse:collapse;margin:6px 0;font-size:11px;width:100%}
+  .msg th,.msg td{border:1px solid var(--border);padding:4px 8px;text-align:left}
+  .msg th{background:rgba(255,255,255,0.04);color:var(--text);font-weight:500}
+  .msg td{color:var(--text-dim)}
+  .msg code{background:rgba(255,255,255,0.06);padding:1px 4px;border-radius:3px;font-family:'JetBrains Mono',monospace;font-size:11px}
+  .msg pre{background:rgba(255,255,255,0.04);padding:8px 10px;border-radius:6px;overflow-x:auto;margin:6px 0;font-family:'JetBrains Mono',monospace;font-size:11px;white-space:pre;border:1px solid var(--border)}
+  .msg strong,.msg b{color:var(--text);font-weight:600}
+  .msg h1,.msg h2,.msg h3,.msg h4{color:var(--text);margin:8px 0 4px;font-family:'Syne',sans-serif}
+  .msg h3{font-size:13px}.msg h4{font-size:12px}
+  .msg ul,.msg ol{margin:4px 0 4px 18px}
+  .msg li{margin-bottom:2px}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+  .msg.user{background:rgba(74,158,255,0.1);color:#a8d4ff;align-self:flex-end;border-radius:9px 9px 3px 9px;border:1px solid rgba(74,158,255,0.15)}
+  .msg.assistant{background:rgba(255,255,255,0.03);color:var(--text);align-self:flex-start;border-radius:9px 9px 9px 3px;border:1px solid var(--border)}
+  .msg .meta{font-size:11px;color:var(--text-dim);margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;font-family:'JetBrains Mono',monospace}
+  .msg .meta .tag{padding:2px 6px;border-radius:3px;background:rgba(255,255,255,0.03);border:1px solid var(--border)}
+  .composer{padding:12px 14px;border-top:1px solid var(--border);background:var(--panel-bg);display:flex;gap:9px;flex-shrink:0}
+  .composer textarea{flex:1;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:9px;color:var(--text);font-family:'Syne',sans-serif;font-size:15px;padding:10px 14px;resize:none;min-height:40px;max-height:120px;outline:none;transition:border-color .2s}
+  .composer textarea:focus{border-color:rgba(74,158,255,0.35)}
+  .composer textarea::placeholder{color:var(--text-dim)}
+  .composer button{background:rgba(74,158,255,0.12);border:1px solid rgba(74,158,255,0.28);color:var(--accent);border-radius:9px;width:40px;height:40px;cursor:pointer;font-size:16px;transition:.14s}
+  .composer button:hover{background:rgba(74,158,255,0.22);transform:scale(1.05)}
+  .composer button:disabled{opacity:.3;cursor:not-allowed}
+
+  /* ── Right column: canvas + events ── */
+  .right-col{flex:1;display:flex;flex-direction:column;min-height:0;min-width:300px;overflow:hidden}
+  .canvas-wrap{flex:3;position:relative;background:var(--bg);min-height:0}
+  .canvas-wrap canvas{display:block;width:100%;height:100%}
+
+  /* Legend */
+  #legend{position:absolute;top:14px;left:14px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-dim);display:flex;flex-direction:column;gap:12px;pointer-events:none}
+  .leg-section{display:flex;flex-direction:column;gap:5px}
+  .leg-label{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:#3a4060;margin-bottom:2px}
+  .leg-row{display:flex;align-items:center;gap:8px}
+  .leg-swatch{width:10px;height:10px}
+
+  /* Context menu */
+  #ctx-menu{position:fixed;z-index:1000;background:rgba(8,8,18,0.97);border:1px solid var(--border);border-radius:10px;padding:6px;min-width:220px;backdrop-filter:blur(20px);box-shadow:0 8px 28px rgba(0,0,0,0.7);display:none;font-family:'JetBrains Mono',monospace;font-size:13px}
+  .ci{padding:8px 14px;border-radius:6px;cursor:pointer;color:var(--text);display:flex;align-items:center;gap:8px;transition:background .1s}
+  .ci:hover{background:rgba(255,255,255,0.06)}
+  .ci.danger{color:#ff6b6b}
+  .csep{height:1px;background:var(--border);margin:3px 0}
+  .clabel{padding:5px 14px 3px;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.1em}
+
+  /* Inspector */
+  #inspect{position:fixed;top:0;right:0;bottom:0;width:380px;background:var(--panel-bg);border-left:1px solid var(--border);z-index:50;transform:translateX(100%);transition:transform .2s ease;backdrop-filter:blur(24px);font-family:'JetBrains Mono',monospace;font-size:12px;overflow-y:auto;padding:20px;display:flex;flex-direction:column}
+  #inspect.on{transform:translateX(0)}
+  .it{font-size:16px;color:var(--text);font-weight:600;margin-bottom:12px;padding-right:30px}
+  .ir{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);gap:12px}
+  .ik{color:var(--text-dim);white-space:nowrap;flex-shrink:0}.iv{color:var(--text);text-align:right;word-break:break-all}
+  #ixc{position:absolute;top:16px;right:16px;color:var(--text-dim);cursor:pointer;font-size:20px;z-index:51}
+  #ixc:hover{color:var(--text)}
+
+  /* Events pane */
+  .events-pane{flex:2;background:var(--panel-bg);overflow:hidden;display:flex;flex-direction:column;min-height:0;border-top:1px solid var(--border)}
+  .events-head{padding:8px 14px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-dim);border-bottom:1px solid var(--border);flex-shrink:0}
+  .events-head span{font-weight:500;color:#5a6090}
+  .event-list{flex:1;overflow-y:auto;padding:6px 12px;min-height:0;display:flex;flex-direction:column;gap:3px;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+  .ev{font-family:'JetBrains Mono',monospace;font-size:12px;padding:4px 10px;border-radius:4px;color:var(--text-dim);line-height:1.4;border-left:3px solid var(--border)}
+  .ev.gate{border-left-color:var(--accent)}.ev.match{border-left-color:#a0f0a0}.ev.drift{border-left-color:#ffc040}.ev.frame{border-left-color:#c084fc}.ev.proposal{border-left-color:#fbbf24}
+  .tab-btn{cursor:pointer;padding:2px 10px;border-radius:3px;transition:.15s;color:var(--text-dim)}
+  .tab-btn:hover{color:var(--text)}
+  .tab-btn.active{color:var(--text);background:rgba(255,255,255,0.06)}
+  .corpus-canvas-wrap canvas{display:block;width:100%;height:100%}
+
+  /* Loading */
+  #loading{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;z-index:9999;transition:opacity .5s}
+  #loading.done{opacity:0;pointer-events:none}
+  .lt{font-family:'Syne',sans-serif;font-size:22px;color:var(--accent);letter-spacing:.18em}
+  .ls{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-dim)}
+  .lb{width:130px;height:2px;background:var(--border);border-radius:1px;overflow:hidden}
+  .lf{height:100%;background:var(--accent);border-radius:1px;animation:lf 1.2s ease forwards}
+  @keyframes lf{from{width:0}to{width:100%}}
+
+  ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="lt">PRIME'S SHADOW</div>
+  <div class="ls">initialising corpus constellation...</div>
+  <div class="lb"><div class="lf"></div></div>
+</div>
+
+<div id="app">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sb-head">
+      <span class="logo">Prime's Shadow</span>
+      <button id="new-chat-btn" title="New chat">+</button>
+    </div>
+    <div class="chat-list" id="chat-list"></div>
+    <div class="sb-controls">
+      <!-- Context budget gauge — §20.4 -->
+      <div id="ctx-budget" style="padding:6px 2px 8px;border-bottom:1px solid var(--border);margin-bottom:4px">
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-dim);margin-bottom:3px;letter-spacing:.06em;text-transform:uppercase">
+          <span>Context</span>
+          <span id="ctx-budget-text">—</span>
+        </div>
+        <div style="height:4px;background:rgba(255,255,255,0.04);border-radius:2px;overflow:hidden">
+          <div id="ctx-budget-bar" style="height:100%;width:0%;background:var(--accent);transition:width .3s ease,background .3s ease"></div>
+        </div>
+      </div>
+      <div class="ctrl-row">
+        <button id="end-session-btn" style="flex:1;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.3);color:#fbbf24;border-radius:4px;padding:5px 8px;font-family:inherit;font-size:11px;cursor:pointer;letter-spacing:.05em">End &amp; Review Session</button>
+      </div>
+      <div class="ctrl-row">
+        <label class="sw-wrap"><input type="checkbox" id="oli-toggle"><div class="sw"></div></label>
+        <span id="oli-label">OLI OFF</span>
+      </div>
+      <div class="ctrl-row">
+        <span class="ctrl-label">Web</span>
+        <select id="web-mode">
+          <option value="off">Off</option>
+          <option value="on">On</option>
+          <option value="auto">Auto</option>
+        </select>
+      </div>
+      <div class="ctrl-row">
+        <span class="ctrl-label">Think</span>
+        <select id="think-level">
+          <option value="off">Off</option>
+          <option value="low">Low</option>
+          <option value="medium" selected>Med</option>
+          <option value="high">High</option>
+        </select>
+      </div>
+      <div style="border-top:1px solid var(--border);padding-top:6px;margin-top:4px">
+        <div class="ctrl-row">
+          <span class="ctrl-label">Search</span>
+          <select id="search-provider">
+            <option value="duckduckgo">DDG</option>
+            <option value="serper">Serper</option>
+            <option value="google">Google</option>
+            <option value="openai">OpenAI</option>
+            <option value="perplexity">Perplexity</option>
+            <option value="brave">Brave</option>
+          </select>
+        </div>
+        <div class="ctrl-row" style="margin-top:4px">
+          <input id="search-api-key" type="password" placeholder="API key (optional)"
+            style="flex:1;background:rgba(255,255,255,0.04);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-family:inherit;font-size:9px;outline:none">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="resize-h" id="rh1"></div>
+  <!-- Chat -->
+  <div class="chat-pane" id="chat-pane">
+    <div class="chat-bar">
+      <span class="badge" id="gate-badge">gate: —</span>
+      <span class="badge" id="drift-badge">drift: —</span>
+      <span class="badge" id="corpus-badge">corpus: —</span>
+      <span class="badge" id="frame-badge">frame: —</span>
+    </div>
+    <div class="messages" id="messages"></div>
+    <div class="composer">
+      <textarea id="input" placeholder="send a message..." rows="1"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage()}"></textarea>
+      <button id="send-btn" onclick="sendMessage()">↑</button>
+    </div>
+  </div>
+
+  <div class="resize-h" id="rh2"></div>
+  <!-- Right: canvas + events -->
+  <div class="right-col">
+    <div class="canvas-wrap" id="canvas-wrap">
+      <canvas id="c"></canvas>
+
+      <!-- Hover tooltip (moved to fixed position for both canvases) -->
+
+      <div id="legend">
+        <div class="leg-section">
+          <div class="leg-label">Shape → Type</div>
+          <div class="leg-row"><svg width="14" height="14"><circle cx="7" cy="7" r="4" fill="#0AAC00"/><circle cx="7" cy="7" r="6" fill="none" stroke="#0AAC00" stroke-width=".6"/></svg> anchor</div>
+          <div class="leg-row"><svg width="14" height="14"><polygon points="7,1.5 12,4 12,10 7,12.5 2,10 2,4" fill="#B4009E"/></svg> bundle</div>
+          <div class="leg-row"><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="none" stroke="#0050EB" stroke-width="1.5"/><circle cx="7" cy="7" r="1.2" fill="#0050EB"/></svg> slab</div>
+          <div class="leg-row"><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="none" stroke="#ffa050" stroke-width=".8" stroke-dasharray="2.5,2.5"/></svg> concept</div>
+        </div>
+        <div class="leg-section">
+          <div class="leg-label">Radiance → Salience</div>
+          <div class="leg-row"><svg width="28" height="14"><defs><radialGradient id="gH"><stop offset="0%" stop-color="#0AAC00" stop-opacity=".3"/><stop offset="100%" stop-color="#0AAC00" stop-opacity="0"/></radialGradient></defs><circle cx="14" cy="7" r="7" fill="url(#gH)"/><circle cx="14" cy="7" r="3" fill="#0AAC00" opacity="1"/></svg> high salience</div>
+          <div class="leg-row"><svg width="28" height="14"><circle cx="14" cy="7" r="3" fill="#0AAC00" opacity="1"/></svg> low salience</div>
+        </div>
+        <div class="leg-section">
+          <div class="leg-label">Outline → Status</div>
+          <div class="leg-row"><svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="#fbbf24" stroke-width="1" stroke-dasharray="2.5,2.5"/></svg> tentative</div>
+          <div class="leg-row"><svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="#555" stroke-width="1" stroke-dasharray="2.5,2.5"/></svg> rejected</div>
+        </div>
+        <div class="leg-section" style="color:#3a4060;margin-top:2px">
+          <div>drag — orbit</div>
+          <div>middle-drag — pan</div>
+          <div>scroll — zoom to cursor</div>
+          <div>click — inspect</div>
+          <div>dbl-click — heat</div>
+          <div>ctrl+click — multi-select</div>
+          <div>right-click — actions</div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="resize-v" id="rv1"></div>
+    <div class="events-pane" id="events-pane">
+      <div class="events-head">
+        <span class="tab-btn active" id="tab-events" onclick="switchTab('events')">Events</span>
+        <span class="tab-btn" id="tab-corpus" onclick="switchTab('corpus')">Cold Corpus</span>
+      </div>
+      <div class="event-list" id="event-list"></div>
+      <div class="corpus-canvas-wrap" id="corpus-canvas-wrap" style="display:none;flex:1;position:relative;min-height:0">
+        <canvas id="corpus-canvas"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="tooltip" style="position:fixed;display:none;z-index:100;background:rgba(8,8,18,0.95);border:1px solid var(--border);border-radius:7px;padding:8px 12px;font-family:'JetBrains Mono',monospace;font-size:11px;pointer-events:none;max-width:280px;box-shadow:0 4px 16px rgba(0,0,0,0.6)"></div>
+
+<!-- §15.3 Commit Preview — full side panel over right column -->
+<div id="commit-panel" style="display:none;position:fixed;top:0;right:0;bottom:0;width:calc(100vw - 280px - 420px);z-index:60;background:var(--panel-bg);border-left:1px solid var(--border);backdrop-filter:blur(24px);font-family:'JetBrains Mono',monospace;overflow:hidden;flex-direction:column">
+  <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+    <div style="font-size:15px;font-weight:600;color:var(--text)">Commit Preview</div>
+    <div style="display:flex;gap:8px">
+      <button onclick="executeCommit()" id="commit-confirm-btn" style="background:rgba(10,172,0,0.15);border:1px solid rgba(10,172,0,0.4);color:#0AAC00;border-radius:6px;padding:6px 16px;cursor:pointer;font-family:inherit;font-size:12px">Commit</button>
+      <button onclick="closeCommitPanel()" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--text-dim);border-radius:6px;padding:6px 16px;cursor:pointer;font-family:inherit;font-size:12px">Cancel</button>
+    </div>
+  </div>
+  <!-- Top half: node detail list -->
+  <div id="commit-detail" style="flex:1;overflow-y:auto;padding:16px 20px;font-size:11px;border-bottom:1px solid var(--border)"></div>
+  <!-- Bottom half: amended corpus preview (canvas) -->
+  <div id="commit-corpus" style="flex:1;overflow-y:auto;padding:16px 20px;font-size:11px"></div>
+</div>
+<!-- §14.2 End-of-Session Review — full-screen modal over everything -->
+<div id="end-review-panel" style="display:none;position:fixed;inset:0;z-index:80;background:rgba(4,5,12,0.92);backdrop-filter:blur(14px);font-family:'JetBrains Mono',monospace;flex-direction:column">
+  <div style="padding:18px 28px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+    <div>
+      <div style="font-size:17px;font-weight:600;color:var(--text)">Session Review</div>
+      <div id="er-subtitle" style="font-size:11px;color:var(--text-dim);margin-top:2px">–</div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button onclick="erPlayTrajectory()" id="er-replay-btn" style="background:rgba(74,158,255,0.1);border:1px solid rgba(74,158,255,0.35);color:var(--accent);border-radius:6px;padding:7px 14px;cursor:pointer;font-family:inherit;font-size:11px">▶ Replay Thread</button>
+      <button onclick="closeEndReview()" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--text-dim);border-radius:6px;padding:7px 14px;cursor:pointer;font-family:inherit;font-size:11px">Close</button>
+    </div>
+  </div>
+  <div style="flex:1;display:flex;min-height:0;overflow:hidden">
+    <!-- Left: Thread trajectory canvas -->
+    <div style="flex:1;position:relative;border-right:1px solid var(--border);display:flex;flex-direction:column;min-width:0">
+      <div style="padding:10px 18px;font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--text-dim);border-bottom:1px solid var(--border)">Conversation Thread Path</div>
+      <div style="flex:1;position:relative;min-height:0">
+        <canvas id="er-canvas" style="display:block;width:100%;height:100%"></canvas>
+        <div id="er-turn-indicator" style="position:absolute;top:14px;left:14px;font-size:11px;color:var(--text-dim);background:rgba(8,8,18,0.75);padding:4px 10px;border-radius:4px;border:1px solid var(--border)">turn –</div>
+      </div>
+    </div>
+    <!-- Right: Draft stack -->
+    <div style="width:480px;display:flex;flex-direction:column;min-height:0;flex-shrink:0">
+      <div style="padding:10px 18px;font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--text-dim);border-bottom:1px solid var(--border);display:flex;justify-content:space-between">
+        <span>Draft Stack</span>
+        <span id="er-draft-count" style="color:var(--text)">0</span>
+      </div>
+      <div id="er-drafts" style="flex:1;overflow-y:auto;padding:12px 18px;display:flex;flex-direction:column;gap:10px;min-height:0"></div>
+      <div style="padding:10px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0">
+        <button onclick="erBatchAction('discard')" style="background:rgba(255,255,255,0.03);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:10px">Discard All</button>
+        <button onclick="erBatchAction('promote_tentative')" style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.3);color:#fbbf24;border-radius:4px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:10px">Stage All (Tentative)</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="inspect">
+  <span id="ixc" onclick="closeInspect()">×</span>
+  <div class="it" id="ix-name">–</div>
+  <div id="ix-rows"></div>
+</div>
+<div id="ctx-menu"></div>
+
+<script>
+const API='/api';
+let currentChatId=null, currentSessionId=null, oliMode='OFF', sending=false;
+let webMode='off', thinkLevel='medium'; // webMode: 'off' | 'on' | 'auto'
+let selectedNodes=new Set(); // multi-select for bundling
+
+// ═══════════════════════════════════════════════════════════════
+//  TYPE BASE COLOURS (hue per type, brightness driven by temp)
+// ═══════════════════════════════════════════════════════════════
+const TYPE_RGB = {
+  anchor:  {r:10, g:172,b:0},    // Divergent 7 — vivid green #0AAC00
+  bundle:  {r:180,g:0,  b:158},  // High Contrast 8 — vivid magenta #B4009E
+  slab:    {r:0,  g:80, b:235},  // Storm 6 — vivid blue #0050EB
+  concept: {r:255,g:160,b:80},   // warm orange #ffa050
+};
+const STRUCT = {
+  anchor:  {baseR:21,  draw:'anchor'},
+  bundle:  {baseR:16,  draw:'bundle'},
+  slab:    {baseR:13,  draw:'slab'},
+  concept: {baseR:11,  draw:'concept'},
+};
+
+function typeCol(struct, temp) {
+  const base = TYPE_RGB[struct] || TYPE_RGB.concept;
+  // Always max brightness — salience shown via radiance + animation only
+  return { r: base.r, g: base.g, b: base.b };
+}
+
+function tempRadius(temp, baseR, scale) {
+  return baseR * (0.85 + Math.max(0, Math.min(1, temp)) * 0.55) * scale * 1.4;
+}
+
+function tempAlpha(temp) {
+  // Always full opacity — salience via radiance glow + pulse only
+  return 0.85;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  GRAPH STATE
+// ═══════════════════════════════════════════════════════════════
+let gNodes=[], gEdges=[], nidCounter=0;
+const COOLING=0.0002;
+
+// §11.1 axis scaling — maps backend 0-1 values to world coordinates
+const AXIS_SCALE = { x: 500, y: 300, z: 250 };
+
+function makeGNode(id, label, struct, status, temp, restTemp, semX, semY, semZ) {
+  // Semantic position from backend (with small jitter to prevent exact overlap)
+  const jitter = () => (Math.random()-.5)*30;
+  const sx = semX!=null ? (semX-0.5)*AXIS_SCALE.x + jitter() : (Math.random()-.5)*400;
+  const sy = semY!=null ? semY*AXIS_SCALE.y + jitter()        : (Math.random()-.5)*300;
+  const sz = semZ!=null ? (semZ-1.5)*AXIS_SCALE.z + jitter()  : (Math.random()-.5)*250;
+  return {
+    id, label, struct, status: status||'corpus',
+    temp: temp||restTemp||0.15, restTemp: restTemp||0.15,
+    x:sx, y:sy, z:sz,
+    // Semantic anchoring — physics pulls toward this position
+    semX:sx, semY:sy, semZ:sz,
+    vx:0, vy:0, vz:0, rejected:false, _backendData:null,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  RENDERER (2D Canvas + custom 3D projection)
+// ═══════════════════════════════════════════════════════════════
+const canvas=document.getElementById('c');
+const cx=canvas.getContext('2d');
+let cam={theta:0.35, phi:0.25, dist:550, panX:0, panY:0}; // panX/panY = screen-space pan offset for zoom-to-cursor
+
+function project(x,y,z){
+  const ct=Math.cos(cam.theta),st=Math.sin(cam.theta);
+  const cp=Math.cos(cam.phi),sp=Math.sin(cam.phi);
+  const x1=x*ct+z*st, z1=-x*st+z*ct;
+  const y2=y*cp-z1*sp, z2=y*sp+z1*cp;
+  const p=cam.dist/(cam.dist+z2+300);
+  return{sx:canvas.width/2+x1*p+cam.panX, sy:canvas.height/2+y2*p+cam.panY, scale:p, depth:z2};
+}
+
+// ── Shape draw functions — accept context parameter, 50% bigger strokes ──
+function drawAnchor(g,px,py,r,col,a){
+  g.beginPath();g.arc(px,py,r*2.0,0,Math.PI*2);
+  g.strokeStyle=`rgba(${col.r},${col.g},${col.b},${a*0.25})`;g.lineWidth=1.5;g.stroke();
+  g.beginPath();g.arc(px,py,r*1.4,0,Math.PI*2);
+  g.strokeStyle=`rgba(${col.r},${col.g},${col.b},${a*0.45})`;g.lineWidth=1.6;g.stroke();
+  g.beginPath();g.arc(px,py,r,0,Math.PI*2);
+  g.fillStyle=`rgba(${col.r},${col.g},${col.b},${a})`;g.fill();
+}
+function drawBundle(g,px,py,r,col,a){
+  g.beginPath();
+  for(let i=0;i<=6;i++){const ang=i/6*Math.PI*2;const rr=r*(i%2===0?.92:1.0);i===0?g.moveTo(px+Math.cos(ang)*rr,py+Math.sin(ang)*rr):g.lineTo(px+Math.cos(ang)*rr,py+Math.sin(ang)*rr)}
+  g.closePath();g.fillStyle=`rgba(${col.r},${col.g},${col.b},${a})`;g.fill();
+  g.strokeStyle=`rgba(${col.r},${col.g},${col.b},${a*0.7})`;g.lineWidth=1.5;g.stroke();
+}
+function drawSlab(g,px,py,r,col,a){
+  g.beginPath();g.arc(px,py,r,0,Math.PI*2);
+  g.strokeStyle=`rgba(${col.r},${col.g},${col.b},${a})`;g.lineWidth=3;g.stroke();
+  g.beginPath();g.arc(px,py,r*.22,0,Math.PI*2);
+  g.fillStyle=`rgba(${col.r},${col.g},${col.b},${a*0.8})`;g.fill();
+}
+function drawConcept(g,px,py,r,col,a){
+  g.beginPath();g.arc(px,py,r,0,Math.PI*2);
+  g.setLineDash([4,4]);g.strokeStyle=`rgba(${col.r},${col.g},${col.b},${a*0.8})`;g.lineWidth=2;g.stroke();g.setLineDash([]);
+}
+const DRAW={anchor:drawAnchor,bundle:drawBundle,slab:drawSlab,concept:drawConcept};
+
+function draw(){
+  const W=canvas.width, H=canvas.height;
+  cx.clearRect(0,0,W,H); cx.fillStyle='#0c0e18'; cx.fillRect(0,0,W,H);
+
+  const proj=gNodes.map(n=>({n,p:project(n.x,n.y,n.z)})).sort((a,b)=>a.p.depth-b.p.depth);
+  const nMap={}; gNodes.forEach(n=>nMap[n.id]=n);
+
+  // Edges — gradient from endpoint colours, width by strength
+  gEdges.forEach(e=>{
+    const na=nMap[e.from],nb=nMap[e.to]; if(!na||!nb)return;
+    const pa=project(na.x,na.y,na.z), pb=project(nb.x,nb.y,nb.z);
+    const ca=typeCol(na.struct,na.temp), cb=typeCol(nb.struct,nb.temp);
+    const aa=0.15+na.temp*.3, ab=0.15+nb.temp*.3;
+    const isConflict=e.type==='CONFLICTS';
+    const isParent=e.type==='PARENT_OF';
+
+    const g=cx.createLinearGradient(pa.sx,pa.sy,pb.sx,pb.sy);
+    if(isConflict){
+      const t=e.tension||0.5;
+      const cr=t>.6?'255,70,70':t>.3?'255,160,60':'240,200,60';
+      g.addColorStop(0,`rgba(${cr},${.3+t*.5})`);g.addColorStop(1,`rgba(${cr},${.3+t*.5})`);
+    }else{
+      g.addColorStop(0,`rgba(${ca.r},${ca.g},${ca.b},${aa})`);
+      g.addColorStop(1,`rgba(${cb.r},${cb.g},${cb.b},${ab})`);
+    }
+
+    // Line style: PARENT_OF = dotted in parent colour, tentative = dashed, conflict = solid
+    if(isParent){cx.setLineDash([2,3])}
+    else if(na.status==='tentative'||nb.status==='tentative'){cx.setLineDash([3,4])}
+
+    cx.beginPath();cx.moveTo(pa.sx,pa.sy);cx.lineTo(pb.sx,pb.sy);
+    cx.strokeStyle=g;
+    cx.lineWidth=isParent ? 1+(e.strength||.3)*1.5 : 1.5+(e.strength||.3)*3;
+    cx.stroke();
+    cx.setLineDash([]);
+  });
+
+  // Nodes
+  proj.forEach(({n,p})=>{
+    const st=STRUCT[n.struct]||STRUCT.concept;
+    const col=typeCol(n.struct, n.rejected ? 0.08 : n.temp);
+    const r=tempRadius(n.rejected ? 0.05 : n.temp, st.baseR, p.scale);
+    const alpha=n.rejected ? 0.15 : tempAlpha(n.temp);
+
+    // Radiance glow — scales with temp, zero when cold, dramatic when hot
+    if(n.temp>0.05&&!n.rejected){
+      const glowR=r*(1.5+n.temp*4.0);
+      const gi=n.temp*0.25;
+      const g=cx.createRadialGradient(p.sx,p.sy,0,p.sx,p.sy,glowR);
+      g.addColorStop(0,`rgba(${col.r},${col.g},${col.b},${gi})`);
+      g.addColorStop(1,`rgba(${col.r},${col.g},${col.b},0)`);
+      cx.beginPath();cx.arc(p.sx,p.sy,glowR,0,Math.PI*2);cx.fillStyle=g;cx.fill();
+    }
+
+    // Shape — pass cx context explicitly
+    (DRAW[st.draw]||drawConcept)(cx,p.sx,p.sy,r,col,alpha);
+
+    // Status overlay: tentative = yellow dashed ring, rejected = grey dashed ring
+    if(n.status==='tentative'&&!n.rejected){
+      cx.beginPath();cx.arc(p.sx,p.sy,r*1.6,0,Math.PI*2);
+      cx.setLineDash([3,3]);cx.strokeStyle=`rgba(251,191,36,${alpha*.6})`;cx.lineWidth=1.2;cx.stroke();cx.setLineDash([]);
+    }
+    if(n.rejected){
+      cx.beginPath();cx.arc(p.sx,p.sy,r*1.6,0,Math.PI*2);
+      cx.setLineDash([3,3]);cx.strokeStyle=`rgba(100,100,100,.3)`;cx.lineWidth=1;cx.stroke();cx.setLineDash([]);
+    }
+
+    // Expanding pulse ring — from 0.1 temp, thickness scales 1x to 3x with salience
+    if(n.temp>0.1&&!n.rejected){
+      const hash=n.id.split('').reduce((a,c)=>a+c.charCodeAt(0),0);
+      const phase=((Date.now()/1800+hash*.05)%1);
+      const pulseR=r*(1.4+phase*2.5);
+      const pulseA=(1-phase)*Math.min(0.5, n.temp*0.6);
+      const pulseW=1.5+n.temp*3.0; // 1.5px at cold → 4.5px at fire
+      cx.beginPath();cx.arc(p.sx,p.sy,pulseR,0,Math.PI*2);
+      cx.strokeStyle=`rgba(${col.r},${col.g},${col.b},${pulseA})`;cx.lineWidth=pulseW;cx.stroke();
+    }
+
+    // Selection ring (white) for multi-select
+    if(selectedNodes.has(n.id)){
+      cx.beginPath();cx.arc(p.sx,p.sy,r*1.8,0,Math.PI*2);
+      cx.strokeStyle='rgba(255,255,255,0.7)';cx.lineWidth=1.5;cx.stroke();
+    }
+
+    // Label — always show for all visible nodes
+    const showLabel = true;
+    if(showLabel && p.scale>.3){
+      const fs=Math.round(14*p.scale+6);
+      cx.font=`${fs}px JetBrains Mono,monospace`;
+      cx.fillStyle=`rgba(${col.r},${col.g},${col.b},${Math.min(1,alpha*.9)})`;
+      cx.textAlign='center';
+      cx.fillText(n.label.length>22?n.label.slice(0,20)+'..':n.label, p.sx, p.sy+r+9*p.scale);
+    }
+  });
+  canvas._proj=proj;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  PHYSICS
+// ═══════════════════════════════════════════════════════════════
+function physics(){
+  const rep=3000,spring=0.016,damp=0.87,pull=0.003;
+  for(let i=0;i<gNodes.length;i++){
+    for(let j=i+1;j<gNodes.length;j++){
+      const a=gNodes[i],b=gNodes[j];
+      const dx=b.x-a.x,dy=b.y-a.y,dz=b.z-a.z;
+      const d2=dx*dx+dy*dy+dz*dz+1,f=rep/d2,nd=Math.sqrt(d2);
+      a.vx-=f*dx/nd;a.vy-=f*dy/nd;a.vz-=f*dz/nd;
+      b.vx+=f*dx/nd;b.vy+=f*dy/nd;b.vz+=f*dz/nd;
+    }
+  }
+  const nMap={}; gNodes.forEach(n=>nMap[n.id]=n);
+  gEdges.forEach(e=>{
+    const a=nMap[e.from],b=nMap[e.to];if(!a||!b)return;
+    const dx=b.x-a.x,dy=b.y-a.y,dz=b.z-a.z;
+    const d=Math.sqrt(dx*dx+dy*dy+dz*dz)+.1;
+    const rest=100+90*(1-(e.strength||.3));
+    const f=(d-rest)*spring*(e.strength||.3);
+    a.vx+=f*dx/d;a.vy+=f*dy/d;a.vz+=f*dz/d;
+    b.vx-=f*dx/d;b.vy-=f*dy/d;b.vz-=f*dz/d;
+  });
+  const semPull=0.006; // strength of pull toward semantic position
+  gNodes.forEach(n=>{
+    // Pull toward semantic anchor position (§11.1 axes), not origin
+    if(n.semX!=null){
+      n.vx+=(n.semX-n.x)*semPull;
+      n.vy+=(n.semY-n.y)*semPull;
+      n.vz+=(n.semZ-n.z)*semPull;
+    }else{
+      n.vx+=(-n.x)*pull;n.vy+=(-n.y)*pull;n.vz+=(-n.z)*pull;
+    }
+    n.vx*=damp;n.vy*=damp;n.vz*=damp;
+    n.x+=n.vx;n.y+=n.vy;n.z+=n.vz;
+    if(n.temp>n.restTemp) n.temp=Math.max(n.restTemp,n.temp-COOLING*Math.pow(n.temp-n.restTemp+.05,1.3));
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  INTERACTION
+// ═══════════════════════════════════════════════════════════════
+let drag=null;
+function hitTest(mx,my){
+  if(!canvas._proj)return null;
+  for(let i=canvas._proj.length-1;i>=0;i--){
+    const{n,p}=canvas._proj[i];
+    const st=STRUCT[n.struct]||STRUCT.concept;
+    const r=tempRadius(n.temp,st.baseR,p.scale)+6;
+    const dx=mx-p.sx,dy=my-p.sy;
+    if(dx*dx+dy*dy<r*r)return n;
+  }
+  return null;
+}
+
+canvas.addEventListener('mousedown',e=>{
+  if(e.button===0)drag={x:e.clientX,y:e.clientY,th:cam.theta,ph:cam.phi,px:cam.panX,py:cam.panY,btn:0};
+  if(e.button===1){e.preventDefault();drag={x:e.clientX,y:e.clientY,px:cam.panX,py:cam.panY,btn:1}} // middle = pan
+});
+const tooltipEl=document.getElementById('tooltip');
+canvas.addEventListener('mousemove',e=>{
+  if(drag&&drag.btn===0){
+    cam.theta=drag.th+(e.clientX-drag.x)*.005;
+    cam.phi=Math.max(-1.3,Math.min(1.3,drag.ph+(e.clientY-drag.y)*.005));
+    tooltipEl.style.display='none';
+  }else if(drag&&drag.btn===1){
+    cam.panX=drag.px+(e.clientX-drag.x);
+    cam.panY=drag.py+(e.clientY-drag.y);
+    tooltipEl.style.display='none';
+  }else{
+    // Hover = quick inspect (type, salience, bonds, deps)
+    const rect=canvas.getBoundingClientRect();
+    const n=hitTest(e.clientX-rect.left,e.clientY-rect.top);
+    if(n){
+      const tl=n.temp<.2?'cold':n.temp<.4?'cool':n.temp<.65?'warm':n.temp<.82?'hot':'fire';
+      const sal=` ${(n.temp*100).toFixed(0)}% (${tl})`;
+      const bonds=gEdges.filter(e=>e.from===n.id||e.to===n.id).length;
+      const turns=n._backendData?.turns_seen?`turns: ${n._backendData.turns_seen}`:'';
+      const children=n._backendData?.children?.length?`children: ${n._backendData.children.length}`:'';
+      const deps=(n._backendData?.depends_on||[]).length?`deps: ${n._backendData.depends_on.length}`:'';
+      tooltipEl.innerHTML=`<div style="color:var(--text);font-size:12px;font-weight:500;margin-bottom:4px">${n.label}</div>`
+        +`<div style="color:var(--text-dim)">${n.struct} · ${n.status} · sal:${sal}</div>`
+        +`<div style="color:var(--text-dim)">bonds: ${bonds} ${deps} ${turns} ${children}</div>`;
+      tooltipEl.style.display='block';
+      tooltipEl.style.left=(e.clientX+14)+'px';
+      tooltipEl.style.top=(e.clientY-10)+'px';
+    }else{
+      tooltipEl.style.display='none';
+    }
+  }
+});
+canvas.addEventListener('mouseup',e=>{
+  if(drag){
+    if(drag.btn===0 && Math.abs(e.clientX-drag.x)+Math.abs(e.clientY-drag.y)<4){
+      const rect=canvas.getBoundingClientRect();
+      const n=hitTest(e.clientX-rect.left,e.clientY-rect.top);
+      if(e.ctrlKey||e.metaKey){
+        if(n){
+          if(selectedNodes.has(n.id)){selectedNodes.delete(n.id)}
+          else{selectedNodes.add(n.id)}
+          pushEvent('frame',`Selected: ${selectedNodes.size} nodes`);
+        }
+      }else{
+        selectedNodes.clear();
+        if(n){showInspect(n)}else closeInspect();
+      }
+    }
+    drag=null;
+  }
+});
+// Prevent middle-click default (auto-scroll)
+canvas.addEventListener('auxclick',e=>{if(e.button===1)e.preventDefault()});
+canvas.addEventListener('dblclick',e=>{  // double click = heat only (no inspector)
+  const rect=canvas.getBoundingClientRect();
+  const n=hitTest(e.clientX-rect.left,e.clientY-rect.top);
+  if(n){
+    n.temp=Math.min(1,n.temp+0.5);
+    updateInspectSalience();
+    if(currentSessionId){
+      fetch(`${API}/sessions/${currentSessionId}/frame/adjust-salience`,{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({node_id:n.id,delta:0.4})
+      });
+      pushEvent('frame',`Heated ${n.label} (+0.4 salience)`);
+    }
+  }
+});
+canvas.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const oldDist=cam.dist;
+  cam.dist=Math.max(15,Math.min(1800,cam.dist+e.deltaY*.8));
+  // Zoom toward mouse position in screen space
+  const rect=canvas.getBoundingClientRect();
+  const mx=e.clientX-rect.left-canvas.width/2-cam.panX;
+  const my=e.clientY-rect.top-canvas.height/2-cam.panY;
+  const zoomRatio=cam.dist/oldDist;
+  cam.panX+= mx*(1-zoomRatio);
+  cam.panY+= my*(1-zoomRatio);
+},{passive:false});
+canvas.addEventListener('contextmenu',e=>{
+  e.preventDefault();
+  const rect=canvas.getBoundingClientRect();
+  showCtx(e.clientX,e.clientY,hitTest(e.clientX-rect.left,e.clientY-rect.top));
+});
+document.addEventListener('click',()=>document.getElementById('ctx-menu').style.display='none');
+
+function showCtx(mx,my,n){
+  const menu=document.getElementById('ctx-menu');menu.innerHTML='';
+  const items=[];
+
+  if(n){
+    const lbl=document.createElement('div');lbl.className='clabel';
+    lbl.textContent=`${n.struct} · ${n.status} · sal=${n.temp.toFixed(2)}`;
+    menu.appendChild(lbl);
+
+    items.push({i:'🔍',l:'Inspect',fn:()=>showInspect(n)});
+    items.push({i:'🔥',l:'Heat node',fn:()=>{
+      n.temp=Math.min(1,n.temp+.5);
+      updateInspectSalience();
+      if(currentSessionId)fetch(`${API}/sessions/${currentSessionId}/frame/adjust-salience`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({node_id:n.id,delta:0.4})});
+      pushEvent('frame',`Heated ${n.label}`);
+    }});
+    items.push({i:'❄',l:'Cool node',fn:()=>{
+      n.temp=Math.max(0,n.temp-.4);
+      updateInspectSalience();
+      if(currentSessionId)fetch(`${API}/sessions/${currentSessionId}/frame/adjust-salience`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({node_id:n.id,delta:-0.4})});
+      pushEvent('frame',`Cooled ${n.label}`);
+    }});
+
+    // Multi-select: add to selection
+    if(!selectedNodes.has(n.id)){
+      items.push({i:'☐',l:'Add to selection',fn:()=>{selectedNodes.add(n.id);pushEvent('frame',`Selected: ${selectedNodes.size} nodes`)}});
+    }else{
+      items.push({i:'☑',l:'Remove from selection',fn:()=>{selectedNodes.delete(n.id)}});
+    }
+
+    // Bundle from selection (2+ selected)
+    if(selectedNodes.size>=2){
+      items.push('sep');
+      items.push({i:'📦',l:`Create bundle (${selectedNodes.size} nodes)`,fn:()=>ctxAction('create_bundle')});
+    }
+
+    // Promote bundle → anchor (only if not already an anchor)
+    if(n.status==='tentative'&&n.struct!=='anchor'&&n.struct!=='slab'&&(n.struct==='bundle'||n._backendData?.children?.length>0)&&!n.rejected){
+      items.push('sep');
+      items.push({i:'⚓',l:'Promote to anchor',fn:()=>ctxAction('promote_anchor',n.id)});
+    }
+
+    // Commit — only anchors and slabs are corpus-eligible (not concepts, not raw bundles)
+    if(n.status==='tentative'&&!n.rejected&&(n.struct==='anchor'||n.struct==='slab')){
+      items.push('sep');
+      items.push({i:'✓',l:'Commit to corpus',fn:()=>ctxAction('commit',n.id)});
+    }
+    // Reject — any tentative node
+    if(n.status==='tentative'&&!n.rejected){
+      if(n.struct!=='anchor'&&n.struct!=='slab') items.push('sep'); // sep if no commit above
+      items.push({i:'✕',l:'Mark — do not commit',fn:()=>ctxAction('reject',n.id),d:true});
+    }
+
+    items.push('sep');
+    items.push({i:'⊘',l:'Remove from session',fn:()=>ctxAction('remove',n.id),d:true});
+
+  }else if(selectedNodes.size>=2){
+    // Right-click on empty space with selection
+    const lbl=document.createElement('div');lbl.className='clabel';
+    lbl.textContent=`${selectedNodes.size} nodes selected`;menu.appendChild(lbl);
+    items.push({i:'📦',l:'Create bundle from selection',fn:()=>ctxAction('create_bundle')});
+    items.push({i:'✕',l:'Clear selection',fn:()=>{selectedNodes.clear()}});
+  }
+
+  if(!items.length){menu.style.display='none';return}
+  items.forEach(it=>{
+    if(it==='sep'){const s=document.createElement('div');s.className='csep';menu.appendChild(s);return}
+    const el=document.createElement('div');el.className='ci'+(it.d?' danger':'');
+    el.innerHTML=`<span>${it.i||''}</span>${it.l}`;
+    el.onclick=()=>{it.fn();menu.style.display='none'};menu.appendChild(el);
+  });
+  menu.style.display='block';menu.style.left=mx+'px';menu.style.top=my+'px';
+  const r=menu.getBoundingClientRect();
+  if(r.right>window.innerWidth)menu.style.left=(mx-r.width)+'px';
+  if(r.bottom>window.innerHeight)menu.style.top=(my-r.height)+'px';
+}
+
+async function ctxAction(action,nodeId){
+  if(!currentSessionId)return;
+
+  if(action==='create_bundle'){
+    const ids=Array.from(selectedNodes);
+    const res=await fetch(`${API}/sessions/${currentSessionId}/frame/create-bundle`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({node_ids:ids})
+    }).then(r=>r.json());
+    if(res.error){pushEvent('proposal',`Bundle failed: ${res.error}`)}
+    else{pushEvent('proposal',`Created bundle: ${res.label}`);selectedNodes.clear()}
+
+  }else if(action==='promote_anchor'){
+    const res=await fetch(`${API}/sessions/${currentSessionId}/frame/promote-to-anchor`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({node_id:nodeId})
+    }).then(r=>r.json());
+    if(res.error){pushEvent('proposal',`Promote failed: ${res.error}`)}
+    else{pushEvent('proposal',`Promoted ${nodeId} → anchor`)}
+
+  }else if(action==='commit'){
+    // §15.3 — Show commit preview modal before committing
+    showCommitPreview(nodeId);
+    return; // don't refreshGraph yet — modal handles it
+
+  }else if(action==='reject'){
+    await fetch(`${API}/sessions/${currentSessionId}/frame/reject-node`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({node_id:nodeId})
+    });
+    const n=gNodes.find(x=>x.id===nodeId);if(n)n.rejected=true;
+    pushEvent('proposal',`Marked ${nodeId} — do not commit`);
+
+  }else if(action==='remove'){
+    await fetch(`${API}/sessions/${currentSessionId}/frame/remove-node`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({node_id:nodeId})
+    });
+    gNodes=gNodes.filter(x=>x.id!==nodeId);
+    gEdges=gEdges.filter(e=>e.from!==nodeId&&e.to!==nodeId);
+    pushEvent('frame',`Removed ${nodeId}`);
+  }
+
+  await refreshGraph();
+}
+
+let _inspectedNode=null; // tracked for live updates
+
+async function showInspect(n){
+  _inspectedNode=n;
+  const el=document.getElementById('ix-rows');
+  const bd=n._backendData||{};
+
+  document.getElementById('ix-name').textContent=n.label;
+
+  // Live salience header (updates on heat/cool)
+  const tl=n.temp<.2?'cold':n.temp<.4?'cool':n.temp<.65?'warm':n.temp<.82?'hot':'fire';
+  let html=`<div id="ix-salience" class="ir" style="background:rgba(255,255,255,0.02);border-radius:4px;padding:6px;margin-bottom:8px"><span class="ik">salience</span><span class="iv" style="font-size:14px;font-weight:500">${n.temp.toFixed(3)} (${tl})</span></div>`;
+
+  // Core metadata
+  html+=[['id',n.id],['type',n.struct],['status',n.status+(n.rejected?' (rejected)':'')],
+    ['bonds',(n.struct==='slab'?cEdges:gEdges).filter(e=>e.from===n.id||e.to===n.id).length],
+  ].map(([k,v])=>`<div class="ir"><span class="ik">${k}</span><span class="iv">${v}</span></div>`).join('');
+
+  if(bd.depends_on?.length) html+=`<div class="ir"><span class="ik">depends_on</span><span class="iv">${bd.depends_on.join(', ')}</span></div>`;
+  if(bd.invokes?.length) html+=`<div class="ir"><span class="ik">invokes</span><span class="iv">${bd.invokes.join(', ')}</span></div>`;
+  if(bd.children?.length) html+=`<div class="ir"><span class="ik">children</span><span class="iv">${bd.children.join(', ')}</span></div>`;
+  if(bd.parent_id) html+=`<div class="ir"><span class="ik">parent</span><span class="iv">${bd.parent_id}</span></div>`;
+  if(bd.turns_seen) html+=`<div class="ir"><span class="ik">turns</span><span class="iv">${bd.turns_seen}</span></div>`;
+  if(bd.description) html+=`<div class="ir"><span class="ik">desc</span><span class="iv">${bd.description}</span></div>`;
+
+  el.innerHTML=html;
+
+  // Fetch full corpus data for deep content
+  if(n.status==='corpus' && n.id){
+    try{
+      const full=await fetch(`${API}/corpus/full`).then(r=>r.json());
+      const anchor=(full.anchors||[]).find(a=>a.id===n.id);
+      const bundle=(full.bundles||[]).find(b=>b.id===n.id);
+      const slab=(full.slabs||[]).find(s=>s.id===n.id);
+      let deep='';
+
+      if(anchor){
+        deep+=`<div style="border-top:1px solid var(--border);margin-top:10px;padding-top:8px">`
+          +`<div class="ir"><span class="ik" style="color:#0AAC00">phrase</span><span class="iv">"${anchor.canonical_phrase}"</span></div>`;
+        if(anchor.aliases?.length) deep+=`<div class="ir"><span class="ik">aliases</span><span class="iv">${anchor.aliases.join(', ')}</span></div>`;
+        if(anchor.notes) deep+=`<div class="ir"><span class="ik">notes</span><span class="iv">${anchor.notes}</span></div>`;
+        deep+='</div>';
+      }
+
+      if(bundle){
+        const p=bundle.payload||{};
+        deep+=`<div style="border-top:1px solid var(--border);margin-top:10px;padding-top:8px">`;
+        if(p.intent?.length) deep+=`<div style="color:#B4009E;font-size:10px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.08em">Intent</div>`
+          +p.intent.map(i=>`<div style="color:var(--text);padding:2px 0;font-size:11px">• ${i}</div>`).join('');
+        if(p.invariants?.length) deep+=`<div style="color:var(--text-dim);font-size:10px;margin:8px 0 4px;text-transform:uppercase;letter-spacing:.08em">Invariants</div>`
+          +p.invariants.map(i=>`<div style="color:var(--text-dim);padding:2px 0;font-size:11px">• ${i}</div>`).join('');
+        if(p.warnings?.length) deep+=`<div style="color:#ff6b6b;font-size:10px;margin:8px 0 4px;text-transform:uppercase;letter-spacing:.08em">Warnings</div>`
+          +p.warnings.map(w=>`<div style="color:#ff8080;padding:2px 0;font-size:11px">⚠ ${w}</div>`).join('');
+        if(p.heuristics?.length) deep+=`<div style="color:var(--text-dim);font-size:10px;margin:8px 0 4px;text-transform:uppercase;letter-spacing:.08em">Heuristics</div>`
+          +p.heuristics.map(h=>`<div style="color:var(--text-dim);padding:2px 0;font-size:11px">→ ${h}</div>`).join('');
+        if(p.markers?.length) deep+=`<div class="ir" style="margin-top:6px"><span class="ik">markers</span><span class="iv">${p.markers.join(', ')}</span></div>`;
+        if(p.rules?.length) deep+=`<div style="color:var(--text-dim);font-size:10px;margin:8px 0 4px;text-transform:uppercase;letter-spacing:.08em">Rules</div>`
+          +p.rules.map(r=>`<div style="color:var(--text-dim);padding:2px 0;font-size:11px">▪ ${r}</div>`).join('');
+        deep+='</div>';
+      }
+
+      if(slab){
+        deep+=`<div style="border-top:1px solid var(--border);margin-top:10px;padding-top:8px">`;
+        deep+=`<div class="ir"><span class="ik" style="color:#0050EB">title</span><span class="iv">${slab.title||''}</span></div>`;
+        if(slab.canonical_text){
+          deep+=`<div style="margin-top:8px;padding:10px;background:rgba(0,80,235,0.04);border:1px solid rgba(0,80,235,0.12);border-radius:6px;color:var(--text);font-size:11px;line-height:1.6;white-space:pre-wrap">${slab.canonical_text.replace(/</g,'&lt;')}</div>`;
+        }
+        if(slab.links){
+          deep+=`<div style="border-top:1px solid var(--border);margin-top:10px;padding-top:8px">`;
+          if(slab.links.anchors?.length) deep+=`<div class="ir"><span class="ik">linked anchors</span><span class="iv" style="font-size:10px">${slab.links.anchors.join(', ')}</span></div>`;
+          if(slab.links.bundles?.length) deep+=`<div class="ir"><span class="ik">linked bundles</span><span class="iv" style="font-size:10px">${slab.links.bundles.join(', ')}</span></div>`;
+          deep+='</div>';
+        }
+        deep+='</div>';
+      }
+
+      el.innerHTML+=deep;
+    }catch(e){}
+  }
+
+  document.getElementById('inspect').classList.add('on');
+}
+
+// Live update salience in inspector when node is heated/cooled
+function updateInspectSalience(){
+  if(!_inspectedNode)return;
+  const s=document.getElementById('ix-salience');
+  if(!s)return;
+  const n=_inspectedNode;
+  const tl=n.temp<.2?'cold':n.temp<.4?'cool':n.temp<.65?'warm':n.temp<.82?'hot':'fire';
+  s.querySelector('.iv').textContent=`${n.temp.toFixed(3)} (${tl})`;
+}
+
+function closeInspect(){document.getElementById('inspect').classList.remove('on');_inspectedNode=null}
+
+// ═══════════════════════════════════════════════════════════════
+//  §15.3 COMMIT PREVIEW
+// ═══════════════════════════════════════════════════════════════
+let _commitNodeId=null;
+
+async function showCommitPreview(nodeId){
+  _commitNodeId=nodeId;
+  const preview=await fetch(`${API}/sessions/${currentSessionId}/drafts/${nodeId}/preview`).then(r=>r.json());
+
+  // Summary in chat pane
+  const ins=preview.insertion;
+  const blockers=[];
+  if(preview.has_unverified_facts) blockers.push('unverified FACT claims');
+  if(preview.validation_errors?.length) blockers.push(`${preview.validation_errors.length} validation errors`);
+  if(preview.drift_disclosure) blockers.push(`drift: ${preview.drift_disclosure.severity}`);
+  const blocked=blockers.length>0;
+
+  const chatMsg=addBubble('assistant',
+    `[COMMIT PREVIEW] ${ins.type}: "${ins.label}"\n`
+    +`Dependencies: ${preview.dependency_closure.length} | Neighbourhood: ${preview.neighbourhood.length}\n`
+    +`Cascade risk: ${preview.cascade_risk.length} nodes | FACT claims: ${preview.fact_claims.length}\n`
+    +(blocked?`BLOCKED: ${blockers.join(', ')}\n`:'Ready to commit.\n')
+    +'→ Review panel opened on the right.'
+  );
+
+  // Detail panel (top half)
+  const detail=document.getElementById('commit-detail');
+  let html='';
+
+  // Insertion
+  html+=`<div style="margin-bottom:12px"><div style="color:#0AAC00;font-size:10px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Inserting</div>`;
+  html+=`<div style="padding:8px;background:rgba(10,172,0,0.06);border:1px solid rgba(10,172,0,0.15);border-radius:6px">`;
+  html+=`<div style="color:var(--text);font-weight:500">${ins.label}</div>`;
+  html+=`<div style="color:var(--text-dim);margin-top:2px">${ins.type} · ${ins.status}</div>`;
+  if(ins.justification) html+=`<div style="color:var(--text-dim);margin-top:4px;font-size:10px">${ins.justification}</div>`;
+  html+=`</div></div>`;
+
+  // Dependency closure
+  if(preview.dependency_closure.length){
+    html+=`<div style="margin-bottom:12px"><div style="color:var(--accent);font-size:10px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Dependency Closure (pulled in)</div>`;
+    preview.dependency_closure.forEach(d=>{
+      html+=`<div style="padding:4px 8px;border-left:2px solid var(--accent);margin-bottom:2px"><span style="color:var(--text-dim)">${d.type}</span> ${d.label}</div>`;
+    });
+    html+=`</div>`;
+  }
+
+  // Cold neighbourhood
+  if(preview.neighbourhood.length){
+    html+=`<div style="margin-bottom:12px"><div style="color:var(--text-dim);font-size:10px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Existing Neighbourhood</div>`;
+    preview.neighbourhood.forEach(n=>{
+      html+=`<div style="padding:4px 8px;border-left:2px solid var(--border);margin-bottom:2px"><span style="color:var(--text-dim)">${n.type}</span> ${n.label}</div>`;
+    });
+    html+=`</div>`;
+  }
+
+  // Cascade risk
+  if(preview.cascade_risk.length){
+    html+=`<div style="margin-bottom:12px"><div style="color:#ff6b6b;font-size:10px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Cascade Risk</div>`;
+    preview.cascade_risk.forEach(c=>{
+      html+=`<div style="padding:4px 8px;border-left:2px solid #ff6b6b;margin-bottom:2px">${c.node_id} → ${c.dependents.length} dependents</div>`;
+    });
+    html+=`</div>`;
+  }
+
+  // FACT claims
+  if(preview.fact_claims.length){
+    html+=`<div style="margin-bottom:12px"><div style="color:#ffc040;font-size:10px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">FACT Claims (${preview.has_unverified_facts?'UNVERIFIED — BLOCKS COMMIT':'all verified'})</div>`;
+    preview.fact_claims.forEach(f=>{
+      const icon=f.verified?'✓':'✕';
+      const col=f.verified?'#0AAC00':'#ff6b6b';
+      html+=`<div style="padding:4px 8px;border-left:2px solid ${col};margin-bottom:2px"><span style="color:${col}">${icon}</span> ${f.claim}</div>`;
+    });
+    html+=`</div>`;
+  }
+
+  // Drift disclosure
+  if(preview.drift_disclosure){
+    const dd=preview.drift_disclosure;
+    html+=`<div style="margin-bottom:12px"><div style="color:#ffc040;font-size:10px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Drift Disclosure</div>`;
+    html+=`<div style="padding:8px;background:rgba(255,192,64,0.06);border:1px solid rgba(255,192,64,0.15);border-radius:6px">`;
+    html+=`Severity: ${dd.severity} · Composite: ${(dd.composite*100).toFixed(0)}% · Dampening: ${dd.dampening}`;
+    html+=`<div style="color:var(--text-dim);margin-top:4px;font-size:10px">§14.2: Medium/high drift routes to Library/tentative instead of Corpus.</div>`;
+    html+=`</div></div>`;
+  }
+
+  // Validation errors
+  if(preview.validation_errors?.length){
+    html+=`<div style="margin-bottom:12px"><div style="color:#ff6b6b;font-size:10px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Validation Errors</div>`;
+    preview.validation_errors.forEach(e=>{
+      html+=`<div style="padding:4px 8px;border-left:2px solid #ff6b6b;margin-bottom:2px;color:#ff8080">${e}</div>`;
+    });
+    html+=`</div>`;
+  }
+
+  detail.innerHTML=html;
+
+  // Bottom half: amended corpus summary
+  const corpusDiv=document.getElementById('commit-corpus');
+  const corpusData=await fetch(`${API}/corpus/status`).then(r=>r.json());
+  corpusDiv.innerHTML=`<div style="color:var(--text-dim);font-size:10px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Corpus After Commit</div>`
+    +`<div style="display:flex;gap:16px;margin-bottom:12px">`
+    +`<div><span style="color:#0AAC00;font-size:16px;font-weight:600">${corpusData.anchors+(ins.type==='anchor'?1:0)}</span><div style="color:var(--text-dim);font-size:10px">anchors</div></div>`
+    +`<div><span style="color:#B4009E;font-size:16px;font-weight:600">${corpusData.bundles+(ins.type==='bundle'?1:0)}</span><div style="color:var(--text-dim);font-size:10px">bundles</div></div>`
+    +`<div><span style="color:#0050EB;font-size:16px;font-weight:600">${corpusData.slabs+(ins.type==='slab'?1:0)}</span><div style="color:var(--text-dim);font-size:10px">slabs</div></div>`
+    +`<div><span style="color:var(--text);font-size:16px;font-weight:600">${corpusData.edges}</span><div style="color:var(--text-dim);font-size:10px">edges</div></div>`
+    +`</div>`
+    +`<div style="color:var(--text-dim);font-size:10px">${corpusData.valid?'Corpus valid':'Validation errors: '+corpusData.errors.join(', ')}</div>`;
+
+  // Enable/disable commit button
+  document.getElementById('commit-confirm-btn').disabled=!preview.can_commit;
+  document.getElementById('commit-confirm-btn').style.opacity=preview.can_commit?'1':'0.4';
+
+  // Show panel
+  const panel=document.getElementById('commit-panel');
+  panel.style.display='flex';
+
+  pushEvent('proposal',`Commit preview opened for ${nodeId}`);
+}
+
+async function executeCommit(){
+  if(!_commitNodeId||!currentSessionId)return;
+  const res=await fetch(`${API}/sessions/${currentSessionId}/drafts/${_commitNodeId}/review`,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'promote_corpus',oli_mode:oliMode})
+  }).then(r=>r.json());
+  pushEvent('proposal',`Commit ${_commitNodeId}: ${res.status||res.error}`);
+  closeCommitPanel();
+  await refreshGraph();
+  corpusLoaded=false; // force corpus canvas reload
+}
+
+function closeCommitPanel(){
+  document.getElementById('commit-panel').style.display='none';
+  _commitNodeId=null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  GRAPH DATA REFRESH (merge API data into physics nodes)
+// ═══════════════════════════════════════════════════════════════
+async function refreshGraph(){
+  if(!currentSessionId)return;
+  try{
+    const data=await fetch(`${API}/sessions/${currentSessionId}/graph`).then(r=>r.json());
+    const existing={}; gNodes.forEach(n=>existing[n.id]=n);
+
+    // Merge nodes
+    const seen=new Set();
+    data.nodes.forEach(nd=>{
+      seen.add(nd.id);
+      const struct=nd.type==='key_bundle'?'bundle':nd.type;
+      const temp=nd.salience_now||0.1;
+      const restTemp={anchor:0.18,bundle:0.14,slab:0.12,concept:0.10}[struct]||0.12;
+      if(existing[nd.id]){
+        // Update existing — keep position, update temp + metadata
+        const n=existing[nd.id];
+        n.temp=Math.max(n.temp, temp); // take the hotter value
+        n.struct=struct;
+        n.status=nd.status||'corpus';
+        n.rejected=nd.rejected||false;
+        n.label=nd.label;
+        n._backendData=nd;
+      }else{
+        // New node
+        const n=makeGNode(nd.id, nd.label, struct, nd.status, temp, restTemp, nd.x, nd.y, nd.z);
+        n.rejected=nd.rejected||false;
+        n._backendData=nd;
+        gNodes.push(n);
+      }
+    });
+    // Remove nodes no longer in backend (except keep rejected for visual fade)
+    gNodes=gNodes.filter(n=>seen.has(n.id));
+
+    // Rebuild edges — only keep edges where both endpoints are rendered nodes
+    const nodeIds=new Set(gNodes.map(n=>n.id));
+    gEdges=data.edges.filter(e=>nodeIds.has(e.from)&&nodeIds.has(e.to)).map(e=>({
+      from:e.from, to:e.to, type:e.type||'LINKS',
+      strength:e.confidence||e.weight||0.4,
+      tension:e.tension||null,
+    }));
+
+    document.getElementById('frame-badge').textContent=`frame: ${data.frame?.active_nodes?.length||0}`;
+    pushEvent('frame',`Graph loaded: ${gNodes.length} nodes, ${gEdges.length} edges`);
+  }catch(e){pushEvent('gate',`Graph error: ${e.message}`)}
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  EVENT FEED
+// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+//  TAB SWITCHING — Events / Cold Corpus Canvas
+// ═══════════════════════════════════════════════════════════════
+let corpusTab='events';
+let cNodes=[],cEdges=[],cCam={theta:0.3,phi:0.2,dist:480,panX:0,panY:0};
+let cDrag=null, corpusLoaded=false;
+
+function switchTab(tab){
+  corpusTab=tab;
+  document.getElementById('tab-events').classList.toggle('active',tab==='events');
+  document.getElementById('tab-corpus').classList.toggle('active',tab==='corpus');
+  document.getElementById('event-list').style.display=tab==='events'?'flex':'none';
+  document.getElementById('corpus-canvas-wrap').style.display=tab==='corpus'?'block':'none';
+  if(tab==='corpus'){
+    resizeCorpusCanvas();
+    if(!corpusLoaded){loadCorpusGraph()}
+    else{refreshCorpusHits()} // reload access patterns on each tab switch
+    if(!corpusAnimId)corpusLoop();
+  }
+}
+
+async function refreshCorpusHits(){
+  if(!currentSessionId||!cNodes.length)return;
+  try{
+    const fr=await fetch(`${API}/sessions/${currentSessionId}/frame`).then(r=>r.json());
+    const hits=fr.corpus_hits||{};
+    const lastHit=fr.corpus_last_hit||{};
+    const curTurn=fr.last_updated_turn||0;
+    cNodes.forEach(n=>{
+      n.hitCount=hits[n.id]||0;
+      n.lastHitTurn=lastHit[n.id]||0;
+      n.currentTurn=curTurn;
+    });
+  }catch(e){}
+}
+
+const cCanvas=document.getElementById('corpus-canvas');
+const cCx=cCanvas.getContext('2d');
+
+function resizeCorpusCanvas(){
+  const w=document.getElementById('corpus-canvas-wrap');
+  if(w){cCanvas.width=w.clientWidth;cCanvas.height=w.clientHeight}
+}
+
+function cProject(x,y,z){
+  const ct=Math.cos(cCam.theta),st=Math.sin(cCam.theta);
+  const cp=Math.cos(cCam.phi),sp=Math.sin(cCam.phi);
+  const x1=x*ct+z*st,z1=-x*st+z*ct;
+  const y2=y*cp-z1*sp,z2=y*sp+z1*cp;
+  const p=cCam.dist/(cCam.dist+z2+300);
+  return{sx:cCanvas.width/2+x1*p+cCam.panX,sy:cCanvas.height/2+y2*p+cCam.panY,scale:p,depth:z2};
+}
+
+async function loadCorpusGraph(){
+  const data=await fetch(`${API}/corpus/full`).then(r=>r.json());
+  cNodes=[];cEdges=[];
+  const typeMap={};
+
+  // Anchors
+  (data.anchors||[]).forEach(a=>{
+    const n={id:a.id,label:a.canonical_phrase,struct:'anchor',
+      x:(Math.random()-.5)*350,y:(Math.random()-.5)*250,z:(Math.random()-.5)*200,
+      vx:0,vy:0,vz:0,invokes:a.invokes||[],depends_on:a.depends_on||[]};
+    cNodes.push(n);typeMap[a.id]=n;
+  });
+  // Bundles
+  (data.bundles||[]).forEach(b=>{
+    const label=(b.payload?.intent||[])[0]||b.id;
+    const n={id:b.id,label:label.slice(0,50),struct:'bundle',
+      x:(Math.random()-.5)*350,y:(Math.random()-.5)*250,z:(Math.random()-.5)*200,
+      vx:0,vy:0,vz:0,supports:b.supports||[],depends_on:b.depends_on||[]};
+    cNodes.push(n);typeMap[b.id]=n;
+  });
+  // Slabs
+  (data.slabs||[]).forEach(s=>{
+    const n={id:s.id,label:(s.title||s.canonical_text||'').slice(0,50),struct:'slab',
+      x:(Math.random()-.5)*350,y:(Math.random()-.5)*250,z:(Math.random()-.5)*200,
+      vx:0,vy:0,vz:0,depends_on:s.depends_on||[]};
+    cNodes.push(n);typeMap[s.id]=n;
+  });
+  // Edges from corpus
+  (data.edges||[]).forEach(e=>{
+    cEdges.push({from:e.from,to:e.to,type:e.type||'LINKS',strength:e.weight||e.confidence||0.5});
+  });
+
+  // Merge access pattern data from active session frame
+  if(currentSessionId){
+    try{
+      const fr=await fetch(`${API}/sessions/${currentSessionId}/frame`).then(r=>r.json());
+      const hits=fr.corpus_hits||{};
+      const lastHit=fr.corpus_last_hit||{};
+      const curTurn=fr.last_updated_turn||0;
+      cNodes.forEach(n=>{
+        n.hitCount=hits[n.id]||0;
+        n.lastHitTurn=lastHit[n.id]||0;
+        n.currentTurn=curTurn;
+      });
+    }catch(e){}
+  }
+
+  corpusLoaded=true;
+}
+
+function cPhysics(){
+  const rep=3000,spring=0.016,damp=0.87,pull=0.003;
+  for(let i=0;i<cNodes.length;i++){
+    for(let j=i+1;j<cNodes.length;j++){
+      const a=cNodes[i],b=cNodes[j];
+      const dx=b.x-a.x,dy=b.y-a.y,dz=b.z-a.z;
+      const d2=dx*dx+dy*dy+dz*dz+1,f=rep/d2,nd=Math.sqrt(d2);
+      a.vx-=f*dx/nd;a.vy-=f*dy/nd;a.vz-=f*dz/nd;
+      b.vx+=f*dx/nd;b.vy+=f*dy/nd;b.vz+=f*dz/nd;
+    }
+  }
+  const nMap={};cNodes.forEach(n=>nMap[n.id]=n);
+  cEdges.forEach(e=>{
+    const a=nMap[e.from],b=nMap[e.to];if(!a||!b)return;
+    const dx=b.x-a.x,dy=b.y-a.y,dz=b.z-a.z;
+    const d=Math.sqrt(dx*dx+dy*dy+dz*dz)+.1;
+    const rest=100+90*(1-(e.strength||.3));
+    const f=(d-rest)*spring*(e.strength||.3);
+    a.vx+=f*dx/d;a.vy+=f*dy/d;a.vz+=f*dz/d;
+    b.vx-=f*dx/d;b.vy-=f*dy/d;b.vz-=f*dz/d;
+  });
+  cNodes.forEach(n=>{
+    n.vx+=(-n.x)*pull;n.vy+=(-n.y)*pull;n.vz+=(-n.z)*pull;
+    n.vx*=damp;n.vy*=damp;n.vz*=damp;
+    n.x+=n.vx;n.y+=n.vy;n.z+=n.vz;
+  });
+}
+
+function cDraw(){
+  if(corpusTab!=='corpus')return;
+  const W=cCanvas.width,H=cCanvas.height;
+  cCx.clearRect(0,0,W,H);cCx.fillStyle='#0c0e18';cCx.fillRect(0,0,W,H);
+
+  const proj=cNodes.map(n=>({n,p:cProject(n.x,n.y,n.z)})).sort((a,b)=>a.p.depth-b.p.depth);
+  const nMap={};cNodes.forEach(n=>nMap[n.id]=n);
+
+  // Edges
+  cEdges.forEach(e=>{
+    const na=nMap[e.from],nb=nMap[e.to];if(!na||!nb)return;
+    const pa=cProject(na.x,na.y,na.z),pb=cProject(nb.x,nb.y,nb.z);
+    const ca=TYPE_RGB[na.struct]||TYPE_RGB.concept,cb=TYPE_RGB[nb.struct]||TYPE_RGB.concept;
+    const g=cCx.createLinearGradient(pa.sx,pa.sy,pb.sx,pb.sy);
+    g.addColorStop(0,`rgba(${ca.r},${ca.g},${ca.b},0.6)`);
+    g.addColorStop(1,`rgba(${cb.r},${cb.g},${cb.b},0.6)`);
+    cCx.beginPath();cCx.moveTo(pa.sx,pa.sy);cCx.lineTo(pb.sx,pb.sy);
+    cCx.strokeStyle=g;cCx.lineWidth=1.5+(e.strength||.3)*3;cCx.stroke();
+  });
+
+  // Nodes — access pattern driven: hit count → size/glow, recency → intensity
+  proj.forEach(({n,p})=>{
+    const st=STRUCT[n.struct]||STRUCT.concept;
+    const col=TYPE_RGB[n.struct]||TYPE_RGB.concept;
+    const hits=n.hitCount||0;
+    const turnsSince=(n.currentTurn||0)-(n.lastHitTurn||0);
+    const recency=hits>0 ? 1.0/(1.0+(turnsSince/30)) : 0; // slow decay over ~30 turns
+
+    // Size: base + hit count scaling
+    const sizeBoost=hits>0 ? 1.0+Math.min(0.5, hits*0.06) : 1.0;
+    const r=st.baseR*p.scale*1.4*sizeBoost;
+
+    // Alpha: never-hit = dim baseline, hit = brighter
+    const alpha=hits>0 ? 0.5+Math.min(0.35, hits*0.06)+recency*0.15 : 0.35;
+
+    // Radiance glow — only for hit nodes, scales with hits + recency
+    if(hits>0){
+      const glowR=r*(1.5+hits*0.25+recency*2.5);
+      const gi=recency*0.18+hits*0.02;
+      const g=cCx.createRadialGradient(p.sx,p.sy,0,p.sx,p.sy,glowR);
+      g.addColorStop(0,`rgba(${col.r},${col.g},${col.b},${Math.min(0.3,gi)})`);
+      g.addColorStop(1,`rgba(${col.r},${col.g},${col.b},0)`);
+      cCx.beginPath();cCx.arc(p.sx,p.sy,glowR,0,Math.PI*2);cCx.fillStyle=g;cCx.fill();
+    }
+
+    // Shape
+    (DRAW[st.draw]||drawConcept)(cCx,p.sx,p.sy,r,col,alpha);
+
+    // Pulse ring — recently-hit nodes (recency > 0.3)
+    if(recency>0.3&&hits>0){
+      const hash=n.id.split('').reduce((a,c)=>a+c.charCodeAt(0),0);
+      const phase=((Date.now()/1800+hash*.05)%1);
+      const pulseR=r*(1.4+phase*2.0);
+      const pulseA=(1-phase)*recency*0.3;
+      const pulseW=1.0+hits*0.4; // thicker with more hits
+      cCx.beginPath();cCx.arc(p.sx,p.sy,pulseR,0,Math.PI*2);
+      cCx.strokeStyle=`rgba(${col.r},${col.g},${col.b},${pulseA})`;cCx.lineWidth=pulseW;cCx.stroke();
+    }
+
+    // Label — always show, brighter for hit nodes
+    if(p.scale>.25){
+      const fs=Math.round(14*p.scale+5);
+      cCx.font=`${fs}px JetBrains Mono,monospace`;
+      const labelA=hits>0 ? Math.min(1, 0.6+recency*0.4) : 0.4;
+      cCx.fillStyle=`rgba(${col.r},${col.g},${col.b},${labelA})`;
+      cCx.textAlign='center';
+      cCx.fillText(n.label.length>25?n.label.slice(0,23)+'..':n.label,p.sx,p.sy+r+10*p.scale);
+    }
+  });
+  cCanvas._proj=proj;
+}
+
+// Corpus canvas hit test
+function cHitTest(mx,my){
+  if(!cCanvas._proj)return null;
+  for(let i=cCanvas._proj.length-1;i>=0;i--){
+    const{n,p}=cCanvas._proj[i];
+    const st=STRUCT[n.struct]||STRUCT.concept;
+    const r=st.baseR*p.scale*1.4+8;
+    const dx=mx-p.sx,dy=my-p.sy;
+    if(dx*dx+dy*dy<r*r)return n;
+  }
+  return null;
+}
+
+// Corpus canvas interaction — orbit + zoom + hover + click
+cCanvas.addEventListener('mousedown',e=>{
+  if(e.button===0)cDrag={x:e.clientX,y:e.clientY,th:cCam.theta,ph:cCam.phi,btn:0};
+  if(e.button===1){e.preventDefault();cDrag={x:e.clientX,y:e.clientY,px:cCam.panX,py:cCam.panY,btn:1}}
+});
+cCanvas.addEventListener('mousemove',e=>{
+  if(cDrag&&cDrag.btn===0){cCam.theta=cDrag.th+(e.clientX-cDrag.x)*.005;cCam.phi=Math.max(-1.3,Math.min(1.3,cDrag.ph+(e.clientY-cDrag.y)*.005));tooltipEl.style.display='none'}
+  else if(cDrag&&cDrag.btn===1){cCam.panX=cDrag.px+(e.clientX-cDrag.x);cCam.panY=cDrag.py+(e.clientY-cDrag.y);tooltipEl.style.display='none'}
+  else{
+    // Hover tooltip on corpus canvas — quick inspect
+    const rect=cCanvas.getBoundingClientRect();
+    const n=cHitTest(e.clientX-rect.left,e.clientY-rect.top);
+    if(n){
+      const bonds=cEdges.filter(e=>e.from===n.id||e.to===n.id).length;
+      const deps=(n.depends_on||[]).length?` deps:${n.depends_on.length}`:'';
+      const hits=n.hitCount||0;
+      const hitInfo=hits>0?` · hits:${hits} (last: turn ${n.lastHitTurn||'?'})`:'';
+      tooltipEl.innerHTML=`<div style="color:var(--text);font-size:12px;font-weight:500;margin-bottom:4px">${n.label}</div>`
+        +`<div style="color:var(--text-dim)">${n.struct} · corpus · bonds:${bonds}${deps}${hitInfo}</div>`;
+      tooltipEl.style.display='block';
+      tooltipEl.style.left=(e.clientX+14)+'px';
+      tooltipEl.style.top=(e.clientY-10)+'px';
+    }else{tooltipEl.style.display='none'}
+  }
+});
+cCanvas.addEventListener('mouseup',e=>{
+  if(cDrag&&cDrag.btn===0&&Math.abs(e.clientX-cDrag.x)+Math.abs(e.clientY-cDrag.y)<4){
+    const rect=cCanvas.getBoundingClientRect();
+    const n=cHitTest(e.clientX-rect.left,e.clientY-rect.top);
+    if(n){
+      // Full deep inspect — same as main canvas, with corpus backend data
+      const wrapped={...n, temp:0.15, restTemp:0.15, status:'corpus', rejected:false,
+        _backendData:{depends_on:n.depends_on||[],invokes:n.invokes||[],supports:n.supports||[]}};
+      showInspect(wrapped);
+    }else{closeInspect()}
+  }
+  cDrag=null;
+});
+cCanvas.addEventListener('wheel',e=>{e.preventDefault();
+  const old=cCam.dist;cCam.dist=Math.max(15,Math.min(1200,cCam.dist+e.deltaY*.8));
+  const rect=cCanvas.getBoundingClientRect();
+  const mx=e.clientX-rect.left-cCanvas.width/2-cCam.panX;
+  const my=e.clientY-rect.top-cCanvas.height/2-cCam.panY;
+  const r=cCam.dist/old;cCam.panX+=mx*(1-r);cCam.panY+=my*(1-r);
+},{passive:false});
+cCanvas.addEventListener('contextmenu',e=>e.preventDefault());
+
+// ═══════════════════════════════════════════════════════════════
+//  CONTEXT BUDGET GAUGE
+// ═══════════════════════════════════════════════════════════════
+function updateCtxBudget(usage){
+  if(!usage||!usage.budget_tokens)return;
+  const used=usage.used_tokens||0,budget=usage.budget_tokens;
+  const pct=Math.min(1,used/budget);
+  const bar=document.getElementById('ctx-budget-bar');
+  const txt=document.getElementById('ctx-budget-text');
+  const kU=used>=1000?(used/1000).toFixed(1)+'k':used;
+  const kB=(budget/1000).toFixed(0)+'k';
+  txt.textContent=`${kU} / ${kB}`;
+  bar.style.width=(pct*100).toFixed(1)+'%';
+  // Color ramp: accent → amber at 70% → red at 90%
+  let col='var(--accent)';
+  if(pct>0.9)col='#ff6b6b';
+  else if(pct>0.7)col='#fbbf24';
+  bar.style.background=col;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  END-OF-SESSION REVIEW — §14.2
+// ═══════════════════════════════════════════════════════════════
+let erData=null, erAnimHandle=null, erAnimState=null;
+
+async function openEndReview(){
+  if(!currentSessionId){pushEvent('proposal','No active session to review');return}
+  try{
+    erData=await fetch(`${API}/sessions/${currentSessionId}/end-review`).then(r=>r.json());
+  }catch(e){pushEvent('proposal',`Review load failed: ${e.message}`);return}
+
+  const s=erData.summary;
+  document.getElementById('er-subtitle').textContent=
+    `${s.last_turn} turns · ${s.unique_nodes_hit} nodes touched · ${s.total_hits} total hits · ${s.draft_count} drafts`;
+  document.getElementById('er-draft-count').textContent=s.draft_count;
+  renderERDrafts();
+  document.getElementById('end-review-panel').style.display='flex';
+  // Seed canvas + auto-play the trajectory once
+  setTimeout(()=>{erInitCanvas();erPlayTrajectory()},80);
+}
+
+function closeEndReview(){
+  document.getElementById('end-review-panel').style.display='none';
+  if(erAnimHandle){cancelAnimationFrame(erAnimHandle);erAnimHandle=null}
+  erAnimState=null;
+}
+
+function renderERDrafts(){
+  const host=document.getElementById('er-drafts');
+  host.innerHTML='';
+  if(!erData.drafts.length){
+    host.innerHTML='<div style="color:var(--text-dim);font-size:11px;padding:20px;text-align:center">No drafts in this session.<br>The Mirror proposes new structure every 8 turns.</div>';
+    return;
+  }
+  erData.drafts.forEach(d=>{
+    const card=document.createElement('div');
+    card.dataset.draftId=d.id;
+    const statusCol={DRAFT_UNAUTHORIZED:'#fbbf24',PROVISIONAL:'#c084fc',COMMITTED:'#0AAC00',REJECTED:'#555'}[d.status]||'#fbbf24';
+    const typeCol=d.type==='slab'?'#0050EB':d.type==='bundle'?'#B4009E':'#0AAC00';
+    card.style.cssText=`background:rgba(255,255,255,0.02);border:1px solid ${statusCol}33;border-left:3px solid ${statusCol};border-radius:6px;padding:11px 13px;font-size:11px`;
+    card.innerHTML=`
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="color:${typeCol};font-size:9px;text-transform:uppercase;letter-spacing:.08em;font-weight:600">${d.type}</span>
+        <span style="color:${statusCol};font-size:9px;text-transform:uppercase;letter-spacing:.05em">${d.status.replace('_',' ')}</span>
+      </div>
+      <div class="er-label" style="color:var(--text);font-size:12px;font-weight:500;margin-bottom:5px;line-height:1.3">${escapeHtml(d.label||'(untitled)')}</div>
+      ${d.canonical_text?`<div class="er-text" style="color:var(--text-dim);font-size:10px;line-height:1.45;margin-bottom:5px;max-height:60px;overflow:hidden">${escapeHtml(d.canonical_text.slice(0,220))}${d.canonical_text.length>220?'…':''}</div>`:''}
+      ${d.justification?`<div class="er-just" style="color:#7a80a8;font-size:10px;font-style:italic;margin-bottom:6px;line-height:1.4">why: ${escapeHtml(d.justification.slice(0,180))}</div>`:''}
+      <div style="display:flex;gap:5px;font-size:9px;color:var(--text-dim);margin-bottom:8px">
+        <span>conf ${(d.confidence*100).toFixed(0)}%</span>
+        <span>·</span>
+        <span>turns ${(d.source_turns||[]).join(',')||'—'}</span>
+        ${d.has_unverified_facts?'<span>·</span><span style="color:#ff8040">unverified FACT</span>':''}
+      </div>
+      <div class="er-actions" style="display:flex;gap:5px">
+        <button onclick="erDraftAction('${d.id}','discard')" style="flex:1;background:rgba(255,255,255,0.03);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;padding:5px;cursor:pointer;font-family:inherit;font-size:10px">Discard</button>
+        <button onclick="erBeginAmend('${d.id}')" style="flex:1;background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.3);color:#fbbf24;border-radius:4px;padding:5px;cursor:pointer;font-family:inherit;font-size:10px">Amend</button>
+        <button onclick="erDraftAction('${d.id}','promote_corpus')" style="flex:1;background:rgba(10,172,0,0.08);border:1px solid rgba(10,172,0,0.35);color:#0AAC00;border-radius:4px;padding:5px;cursor:pointer;font-family:inherit;font-size:10px">+ Corpus</button>
+      </div>
+    `;
+    host.appendChild(card);
+  });
+}
+
+function escapeHtml(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
+
+function erBeginAmend(draftId){
+  const d=erData.drafts.find(x=>x.id===draftId);if(!d)return;
+  const card=document.querySelector(`#er-drafts [data-draft-id="${draftId}"]`);if(!card)return;
+  // Inline editor
+  card.innerHTML=`
+    <div style="color:#fbbf24;font-size:9px;text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px">Amending — will reset for re-review</div>
+    <label style="display:block;color:var(--text-dim);font-size:9px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Label</label>
+    <input id="amend-label-${draftId}" value="${escapeHtml(d.label||'')}" style="width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:5px 7px;font-family:inherit;font-size:11px;margin-bottom:7px;outline:none">
+    ${d.canonical_text||d.type==='slab'?`
+      <label style="display:block;color:var(--text-dim);font-size:9px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Canonical text</label>
+      <textarea id="amend-text-${draftId}" rows="4" style="width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:5px 7px;font-family:inherit;font-size:10px;margin-bottom:7px;outline:none;resize:vertical">${escapeHtml(d.canonical_text||'')}</textarea>
+    `:''}
+    <label style="display:block;color:var(--text-dim);font-size:9px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Justification</label>
+    <textarea id="amend-just-${draftId}" rows="2" style="width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:5px 7px;font-family:inherit;font-size:10px;margin-bottom:8px;outline:none;resize:vertical">${escapeHtml(d.justification||'')}</textarea>
+    <div style="display:flex;gap:5px">
+      <button onclick="renderERDrafts()" style="flex:1;background:rgba(255,255,255,0.03);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;padding:5px;cursor:pointer;font-family:inherit;font-size:10px">Cancel</button>
+      <button onclick="erSaveAmend('${draftId}')" style="flex:1;background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.4);color:#fbbf24;border-radius:4px;padding:5px;cursor:pointer;font-family:inherit;font-size:10px">Save &amp; Re-review</button>
+    </div>
+  `;
+}
+
+async function erSaveAmend(draftId){
+  const label=document.getElementById(`amend-label-${draftId}`)?.value||'';
+  const textEl=document.getElementById(`amend-text-${draftId}`);
+  const just=document.getElementById(`amend-just-${draftId}`)?.value||'';
+  const body={canonical_phrase:label,justification:just};
+  if(textEl)body.canonical_text=textEl.value;
+  try{
+    const res=await fetch(`${API}/sessions/${currentSessionId}/drafts/${draftId}/amend`,
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
+    if(res.error){pushEvent('proposal',`Amend failed: ${res.error}`);return}
+    pushEvent('proposal',`Amended ${draftId} — reset for re-review`);
+  }catch(e){pushEvent('proposal',`Amend failed: ${e.message}`);return}
+  // Reload the full review data so the amended packet comes back as unauthorized
+  erData=await fetch(`${API}/sessions/${currentSessionId}/end-review`).then(r=>r.json());
+  renderERDrafts();
+}
+
+async function erDraftAction(draftId,action){
+  try{
+    const res=await fetch(`${API}/sessions/${currentSessionId}/drafts/${draftId}/review`,
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,oli_mode:oliMode})}).then(r=>r.json());
+    if(res.error){pushEvent('proposal',`${action} failed: ${res.error}`);return}
+    pushEvent('proposal',`${action}: ${draftId} → ${res.status||'ok'}`);
+  }catch(e){pushEvent('proposal',`${action} failed: ${e.message}`);return}
+  // Refresh draft state
+  erData=await fetch(`${API}/sessions/${currentSessionId}/end-review`).then(r=>r.json());
+  renderERDrafts();
+  if(action==='promote_corpus')await refreshGraph();
+}
+
+async function erBatchAction(action){
+  const actionable=erData.drafts.filter(d=>d.status==='DRAFT_UNAUTHORIZED');
+  if(!actionable.length)return;
+  if(!confirm(`${action.replace('_',' ')} ${actionable.length} draft(s)?`))return;
+  for(const d of actionable){
+    await fetch(`${API}/sessions/${currentSessionId}/drafts/${d.id}/review`,
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,oli_mode:oliMode})}).catch(()=>{});
+  }
+  erData=await fetch(`${API}/sessions/${currentSessionId}/end-review`).then(r=>r.json());
+  renderERDrafts();
+}
+
+// Trajectory animation — project the session's corpus_hit_log against the cold corpus layout
+function erInitCanvas(){
+  const cnv=document.getElementById('er-canvas');
+  const rect=cnv.getBoundingClientRect();
+  cnv.width=rect.width;cnv.height=rect.height;
+  // Use the cold corpus nodes (cNodes) as the substrate, cloned with their projected positions
+  const W=cnv.width,H=cnv.height;
+  const nodes={};
+  if(typeof cNodes!=='undefined'&&cNodes.length){
+    // Simple 2D projection: spread cNodes by their current 3D coords flattened
+    const xs=cNodes.map(n=>n.x),ys=cNodes.map(n=>n.y);
+    const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
+    const spanX=maxX-minX||1,spanY=maxY-minY||1;
+    cNodes.forEach(n=>{
+      nodes[n.id]={
+        x:((n.x-minX)/spanX)*(W-80)+40,
+        y:((n.y-minY)/spanY)*(H-80)+40,
+        label:n.label||n.id,
+        struct:n.struct,
+        heat:0, hits:0, lastTurn:-1,
+      };
+    });
+  }
+  erAnimState={nodes,W,H,currentTurn:0,trajectory:erData.trajectory||[],playIdx:0,done:false,lastStep:performance.now()};
+  erDrawCanvas();
+}
+
+function erPlayTrajectory(){
+  if(!erAnimState){erInitCanvas();if(!erAnimState)return}
+  erAnimState.playIdx=0;erAnimState.done=false;erAnimState.currentTurn=0;
+  // Reset heats
+  Object.values(erAnimState.nodes).forEach(n=>{n.heat=0;n.hits=0;n.lastTurn=-1});
+  erAnimState.lastStep=performance.now();
+  if(erAnimHandle)cancelAnimationFrame(erAnimHandle);
+  const loop=()=>{
+    const now=performance.now();
+    const s=erAnimState;
+    // ~200ms per turn — time-accelerated replay
+    const STEP_MS=200;
+    if(!s.done&&now-s.lastStep>STEP_MS){
+      if(s.playIdx<s.trajectory.length){
+        const [turn,hitIds]=s.trajectory[s.playIdx];
+        s.currentTurn=turn;
+        hitIds.forEach(id=>{
+          if(s.nodes[id]){s.nodes[id].heat=1.0;s.nodes[id].hits++;s.nodes[id].lastTurn=turn}
+        });
+        s.playIdx++;
+        s.lastStep=now;
+      }else{
+        s.done=true;
+      }
+    }
+    // Decay all heats every frame
+    Object.values(s.nodes).forEach(n=>{n.heat=Math.max(0,n.heat*0.955)});
+    erDrawCanvas();
+    if(!s.done||Object.values(s.nodes).some(n=>n.heat>0.02)){
+      erAnimHandle=requestAnimationFrame(loop);
+    }else{erAnimHandle=null}
+  };
+  loop();
+}
+
+function erDrawCanvas(){
+  const cnv=document.getElementById('er-canvas');
+  if(!cnv||!erAnimState)return;
+  const ctx=cnv.getContext('2d');
+  const s=erAnimState;
+  ctx.clearRect(0,0,s.W,s.H);
+  // Draw baseline nodes (cold corpus silhouette)
+  Object.values(s.nodes).forEach(n=>{
+    const col=n.struct==='anchor'?'#0AAC00':n.struct==='slab'?'#0050EB':n.struct==='bundle'?'#B4009E':'#ffa050';
+    // Base dot
+    ctx.globalAlpha=0.25;
+    ctx.fillStyle=col;
+    ctx.beginPath();ctx.arc(n.x,n.y,2.5,0,Math.PI*2);ctx.fill();
+    // Heat glow + pulse for active hits
+    if(n.heat>0.03){
+      const r=3+n.heat*14;
+      const g=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,r*2.2);
+      g.addColorStop(0,col+'dd');g.addColorStop(0.4,col+'55');g.addColorStop(1,col+'00');
+      ctx.globalAlpha=n.heat;
+      ctx.fillStyle=g;
+      ctx.beginPath();ctx.arc(n.x,n.y,r*2.2,0,Math.PI*2);ctx.fill();
+      // Core
+      ctx.globalAlpha=Math.min(1,n.heat+0.3);
+      ctx.fillStyle=col;
+      ctx.beginPath();ctx.arc(n.x,n.y,3+n.heat*2,0,Math.PI*2);ctx.fill();
+    }
+    // Persistent dim marker for any node that's been hit (the wear pattern)
+    if(n.hits>0&&n.heat<0.5){
+      ctx.globalAlpha=Math.min(0.55,0.2+n.hits*0.08);
+      ctx.strokeStyle=col;ctx.lineWidth=1;
+      ctx.beginPath();ctx.arc(n.x,n.y,4,0,Math.PI*2);ctx.stroke();
+    }
+  });
+  ctx.globalAlpha=1;
+  // Turn indicator
+  const ind=document.getElementById('er-turn-indicator');
+  if(ind)ind.textContent=`turn ${s.currentTurn}${s.done?' · done':''}`;
+}
+
+function pushEvent(type,text){
+  const list=document.getElementById('event-list');
+  const el=document.createElement('div');el.className=`ev ${type}`;el.textContent=text;
+  list.appendChild(el);list.scrollTop=list.scrollHeight;
+  while(list.children.length>200)list.removeChild(list.firstChild);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  RESIZE / LOOP
+// ═══════════════════════════════════════════════════════════════
+function resize(){const w=document.getElementById('canvas-wrap');canvas.width=w.clientWidth;canvas.height=w.clientHeight}
+window.addEventListener('resize',()=>{resize();resizeCorpusCanvas()});
+
+let tick=0;
+let corpusAnimId=null;
+function loop(){
+  physics();if(tick++%2===0)draw();
+  requestAnimationFrame(loop);
+}
+function corpusLoop(){
+  if(corpusTab!=='corpus'){corpusAnimId=null;return}
+  cPhysics();cDraw();
+  corpusAnimId=requestAnimationFrame(corpusLoop);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  CHAT LOGIC
+// ═══════════════════════════════════════════════════════════════
+async function init(){
+  const h=await fetch(`${API}/health`).then(r=>r.json());
+  const cb=document.getElementById('corpus-badge');
+  cb.textContent=h.corpus_valid?'corpus: ok':`corpus: ${h.corpus_errors.length}err`;
+  if(h.corpus_valid)cb.classList.add('on');else cb.classList.add('warn');
+  await loadChats();
+  resize();
+  setTimeout(()=>{document.getElementById('loading').classList.add('done');setTimeout(()=>document.getElementById('loading').remove(),500);loop()},800);
+  pushEvent('gate','System initialised');
+}
+
+async function loadChats(){
+  const chats=await fetch(`${API}/chats`).then(r=>r.json());
+  const list=document.getElementById('chat-list');list.innerHTML='';
+  chats.forEach(c=>{
+    const el=document.createElement('div');el.className='chat-item'+(c.id===currentChatId?' active':'');
+    el.dataset.id=c.id;el.textContent=c.title;
+    el.addEventListener('click',()=>selectChat(c.id));list.appendChild(el);
+  });
+}
+async function selectChat(id){
+  currentChatId=id;currentSessionId=null;
+  gNodes=[];gEdges=[]; // clear graph BEFORE loading (not after)
+  document.querySelectorAll('.chat-item').forEach(el=>el.classList.toggle('active',el.dataset.id===id));
+  await loadMessages(); // this restores session_id + refreshGraph()
+}
+document.getElementById('new-chat-btn').addEventListener('click',async()=>{
+  const r=await fetch(`${API}/chats`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'Chat '+new Date().toLocaleTimeString()})}).then(r=>r.json());
+  currentChatId=r.id;currentSessionId=null;await loadChats();
+  document.getElementById('messages').innerHTML='';gNodes=[];gEdges=[];
+  pushEvent('gate',`New chat: ${r.id}`);
+});
+document.getElementById('end-session-btn').addEventListener('click',openEndReview);
+document.getElementById('oli-toggle').addEventListener('change',e=>{oliMode=e.target.checked?'ON':'OFF';document.getElementById('oli-label').textContent=`OLI ${oliMode}`;pushEvent('gate',`OLI: ${oliMode}`)});
+document.getElementById('web-mode').addEventListener('change',e=>{webMode=e.target.value;pushEvent('gate',`Web: ${webMode}`)});
+document.getElementById('think-level').addEventListener('change',e=>{thinkLevel=e.target.value;pushEvent('gate',`Think: ${thinkLevel}`)});
+// Search settings
+document.getElementById('search-provider').addEventListener('change',e=>{
+  const key=document.getElementById('search-api-key').value.trim();
+  fetch(`${API}/settings/search`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:e.target.value,api_key:key||''})});
+  pushEvent('gate',`Search: ${e.target.value}`);
+});
+document.getElementById('search-api-key').addEventListener('change',e=>{
+  const provider=document.getElementById('search-provider').value;
+  const key=e.target.value.trim();
+  fetch(`${API}/settings/search`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider,api_key:key||''})});
+  pushEvent('gate',`Search API key ${key?'set':'cleared'}`);
+});
+
+async function loadMessages(){
+  const data=await fetch(`${API}/chats/${currentChatId}`).then(r=>r.json());
+  const c=document.getElementById('messages');c.innerHTML='';
+  data.messages.forEach(m=>addBubble(m.role,m.content,m.classification));c.scrollTop=c.scrollHeight;
+  // Restore session + graph from persisted frame
+  if(data.session_id){
+    currentSessionId=data.session_id;
+    await refreshGraph();
+    pushEvent('frame',`Restored session ${data.session_id}`);
+  }
+}
+// Simple markdown → HTML for assistant responses (tables, bold, code, headers, lists)
+// Strategy: (1) extract fenced code blocks into placeholders so nothing else mangles
+// them, (2) auto-detect unfenced JSON and wrap it, (3) run inline markdown passes,
+// (4) rehydrate code blocks (pretty-printing JSON where applicable).
+function _escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function _tryPrettyJson(raw){
+  const t=raw.trim();
+  if(!t||(t[0]!=='{'&&t[0]!=='['))return null;
+  // Cheap guard: balanced braces
+  if((t.match(/\{/g)||[]).length<1&&(t.match(/\[/g)||[]).length<1)return null;
+  try{return JSON.stringify(JSON.parse(t),null,2)}catch(e){return null}
+}
+function renderMd(text){
+  if(!text)return '';
+  // Normalise line endings
+  text=text.replace(/\r\n/g,'\n');
+
+  // 1. Extract fenced code blocks (``` or ~~~, lang optional, newline optional after lang)
+  const blocks=[];
+  text=text.replace(/(```|~~~)([a-zA-Z0-9_+-]*)[ \t]*\n?([\s\S]*?)\1/g,(m,_f,lang,code)=>{
+    const idx=blocks.length;
+    let body=code.replace(/^\n/,'').replace(/\n$/,'');
+    let rendered;
+    if(lang==='json'||(!lang&&_tryPrettyJson(body))){
+      const pretty=_tryPrettyJson(body);
+      if(pretty){rendered=`<pre><code>${_escHtml(pretty)}</code></pre>`}
+      else{rendered=`<pre><code>${_escHtml(body)}</code></pre>`}
+    }else{
+      rendered=`<pre><code>${_escHtml(body)}</code></pre>`;
+    }
+    blocks.push(rendered);
+    return `\u0000BLOCK${idx}\u0000`;
+  });
+
+  // 2. Auto-detect: if the entire remaining text (outside placeholders) is raw JSON,
+  //    wrap it as a pretty code block. This catches models that emit JSON without a fence.
+  const stripped=text.replace(/\u0000BLOCK\d+\u0000/g,'').trim();
+  if(stripped.length>40&&(stripped[0]==='{'||stripped[0]==='[')){
+    const pretty=_tryPrettyJson(stripped);
+    if(pretty){
+      const idx=blocks.length;
+      blocks.push(`<pre><code>${_escHtml(pretty)}</code></pre>`);
+      // Replace only the stripped portion, preserving any surrounding whitespace/placeholders
+      text=text.replace(stripped,`\u0000BLOCK${idx}\u0000`);
+    }
+  }
+
+  // 3. Escape remaining text, then run inline markdown rules
+  let h=_escHtml(text)
+    // Inline code
+    .replace(/`([^`\n]+)`/g,'<code>$1</code>')
+    // Bold
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    // Headers
+    .replace(/^####\s+(.+)$/gm,'<h4>$1</h4>')
+    .replace(/^###\s+(.+)$/gm,'<h3>$1</h3>')
+    .replace(/^##\s+(.+)$/gm,'<h2>$1</h2>')
+    // Horizontal rules
+    .replace(/^---+$/gm,'<hr style="border:none;border-top:1px solid var(--border);margin:8px 0">')
+    // Tables
+    .replace(/^(\|.+\|)\n(\|[-| :]+\|)\n((?:\|.+\|\n?)*)/gm,(m,header,sep,body)=>{
+      const th=header.split('|').filter(c=>c.trim()).map(c=>`<th>${c.trim()}</th>`).join('');
+      const rows=body.trim().split('\n').map(row=>{
+        const cells=row.split('|').filter(c=>c.trim()).map(c=>`<td>${c.trim()}</td>`).join('');
+        return `<tr>${cells}</tr>`;
+      }).join('');
+      return `<table><thead><tr>${th}</tr></thead><tbody>${rows}</tbody></table>`;
+    })
+    // Unordered lists
+    .replace(/^- (.+)$/gm,'<li>$1</li>')
+    .replace(/(<li>.*<\/li>\n?)+/g,m=>`<ul>${m}</ul>`);
+
+  // 4. Rehydrate extracted code blocks (already HTML — do NOT re-escape)
+  h=h.replace(/\u0000BLOCK(\d+)\u0000/g,(_,i)=>blocks[+i]||'');
+  return h;
+}
+
+function addBubble(role,content,classification){
+  const c=document.getElementById('messages');
+  const div=document.createElement('div');div.className=`msg ${role}`;
+  const txt=document.createElement('span');txt.className='msg-text';
+  if(role==='assistant'&&content){
+    txt.innerHTML=renderMd(content);txt.style.whiteSpace='normal';
+  }else{
+    txt.textContent=content;
+  }
+  div.appendChild(txt);
+  if(classification&&role==='assistant'){
+    const meta=document.createElement('div');meta.className='meta';
+    meta.innerHTML=`<span class="tag">${classification.function||'—'}</span><span class="tag">${classification.confidence!=null?(classification.confidence*100).toFixed(0)+'%':'—'}</span>`;
+    div.appendChild(meta);
+  }
+  c.appendChild(div);c.scrollTop=c.scrollHeight;return div;
+}
+
+async function sendMessage(){
+  if(sending)return;const inp=document.getElementById('input');const text=inp.value.trim();
+  if(!text||!currentChatId)return;
+  sending=true;document.getElementById('send-btn').disabled=true;inp.value='';
+  addBubble('user',text);const aDiv=addBubble('assistant','');aDiv.style.opacity='.5';
+
+  try{
+    const res=await fetch(`${API}/chats/${currentChatId}/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:text,oli_mode:oliMode,web_mode:webMode,think_level:thinkLevel})});
+    const reader=res.body.getReader();const dec=new TextDecoder();let buf='';
+    while(true){
+      const{done,value}=await reader.read();if(done)break;
+      buf+=dec.decode(value,{stream:true});const lines=buf.split('\n\n');buf=lines.pop()||'';
+      for(const line of lines){
+        if(!line.startsWith('data: '))continue;const data=JSON.parse(line.slice(6));
+        if(data.done){
+          if(data.classification){const cl=data.classification;document.getElementById('gate-badge').textContent=`gate: ${cl.function}`;pushEvent('gate',`${cl.function} (${(cl.confidence*100).toFixed(0)}%${cl.explicit?' explicit':''})`)}
+          if(data.drift_window){
+            const dw=data.drift_window;
+            document.getElementById('drift-badge').textContent=`drift: ${(dw.composite*100).toFixed(0)}% ${dw.severity}`;
+            if(dw.severity!=='low')pushEvent('drift',`${dw.severity} (${(dw.composite*100).toFixed(0)}%) damp:${dw.dampening} win:${dw.window_size}`);
+            if(dw.severity==='medium')document.getElementById('drift-badge').classList.add('warn');
+            else if(dw.severity==='high'){document.getElementById('drift-badge').classList.add('warn');document.getElementById('drift-badge').style.color='#ff6b6b'}
+            else{document.getElementById('drift-badge').classList.remove('warn');document.getElementById('drift-badge').style.color=''}
+          }else if(data.drift_estimate){const d=data.drift_estimate;const comp=((d.affect_density+d.claim_volatility+d.rigor_drop)/3*100).toFixed(0);document.getElementById('drift-badge').textContent=`drift: ${comp}%`}
+          if(data.match_result){(data.match_result.auto_activate||[]).forEach(m=>pushEvent('match',`T1: ${m.matched_phrase} (${(m.confidence*100).toFixed(0)}%)`));(data.match_result.candidates||[]).forEach(m=>pushEvent('match',`T2: ${m.matched_phrase} (${(m.confidence*100).toFixed(0)}%)`))}
+          if(data.frame_summary){document.getElementById('frame-badge').textContent=`frame: ${data.frame_summary.active_nodes?.length||0}`;if(data.frame_summary.active_nodes?.length)pushEvent('frame',`${data.frame_summary.active_nodes.length} active, mismatch: ${(data.frame_summary.mismatch_score*100).toFixed(0)}%`)}
+          if(data.oli_flags)(data.oli_flags).forEach(f=>pushEvent('gate',`OLI [${f.layer}] ${f.name}: "${f.pattern}"`));
+          if(data.context_usage)updateCtxBudget(data.context_usage);
+          if(data.session_id)currentSessionId=data.session_id;
+          aDiv.style.opacity='1';
+          // Render markdown now that full response is in
+          const mtxt=aDiv.querySelector('.msg-text');
+          if(mtxt&&mtxt.textContent){mtxt.innerHTML=renderMd(mtxt.textContent);mtxt.style.whiteSpace='normal'}
+          if(data.classification){let meta=aDiv.querySelector('.meta');if(!meta){meta=document.createElement('div');meta.className='meta';aDiv.appendChild(meta)}meta.innerHTML=`<span class="tag">${data.classification.function}</span><span class="tag">${(data.classification.confidence*100).toFixed(0)}%</span>`+
+            ((data.match_result?.auto_activate||[]).map(m=>`<span class="tag" style="color:#a0f0a0">hit: ${m.matched_phrase}</span>`).join(''))+
+            ((data.match_result?.candidates||[]).map(m=>`<span class="tag" style="color:#ffc040">~${m.matched_phrase}</span>`).join(''))}
+          await refreshGraph();
+        }else{aDiv.querySelector('.msg-text').textContent+=data.content;document.getElementById('messages').scrollTop=document.getElementById('messages').scrollHeight}
+      }
+    }
+  }catch(err){aDiv.querySelector('.msg-text').textContent=`Error: ${err.message}`;aDiv.style.color='#ff6b6b';aDiv.style.opacity='1';pushEvent('gate',`Error: ${err.message}`)}
+  sending=false;document.getElementById('send-btn').disabled=false;document.getElementById('input').focus();
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  RESIZABLE PANELS
+// ═══════════════════════════════════════════════════════════════
+(function(){
+  function setupH(handleId, leftSel, prop){
+    const handle=document.getElementById(handleId);
+    if(!handle)return;
+    const left=handle.previousElementSibling;
+    let startX,startW;
+    handle.addEventListener('mousedown',e=>{
+      e.preventDefault();startX=e.clientX;startW=left.offsetWidth;
+      handle.classList.add('dragging');
+      const onMove=e2=>{left.style.width=Math.max(140,startW+(e2.clientX-startX))+'px';resize()};
+      const onUp=()=>{handle.classList.remove('dragging');document.removeEventListener('mousemove',onMove);document.removeEventListener('mouseup',onUp)};
+      document.addEventListener('mousemove',onMove);document.addEventListener('mouseup',onUp);
+    });
+  }
+  function setupV(handleId){
+    const handle=document.getElementById(handleId);
+    if(!handle)return;
+    const top=handle.previousElementSibling;
+    const bottom=handle.nextElementSibling;
+    const parent=handle.parentElement;
+    let startY,startTopH;
+    handle.addEventListener('mousedown',e=>{
+      e.preventDefault();startY=e.clientY;startTopH=top.offsetHeight;
+      handle.classList.add('dragging');
+      const onMove=e2=>{
+        const newH=Math.max(100,startTopH+(e2.clientY-startY));
+        const pct=newH/parent.offsetHeight;
+        top.style.flex=`${pct*10} 0 0`;bottom.style.flex=`${(1-pct)*10} 0 0`;
+        resize();
+      };
+      const onUp=()=>{handle.classList.remove('dragging');document.removeEventListener('mousemove',onMove);document.removeEventListener('mouseup',onUp)};
+      document.addEventListener('mousemove',onMove);document.addEventListener('mouseup',onUp);
+    });
+  }
+  setupH('rh1');setupH('rh2');setupV('rv1');
+})();
+
+init();
+</script>
+</body>
+</html>

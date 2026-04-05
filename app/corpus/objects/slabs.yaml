@@ -1,0 +1,68 @@
+- id: SLAB_REGULATION_SYSTEM_V1_v1
+  title: "Personal Regulation & Reasoning System"
+  canonical_text: |-
+    # Personal Regulation & Reasoning System
+
+    ## Core Model
+    - Operate via a codex of axioms (callable constraints), not beliefs.
+    - Phrases/metaphors are compression handles: intent, scope, failure modes.
+    - No axiom is identity-bearing; all are situational.
+
+    ## Activation Modes
+    Epistemic Rise: Triggered by clean adversarial logical pressure.
+      Behavior: precision, scope expansion, structural critique. Cost: low if bounded.
+    Emotional Rise: Triggered by weak logic asserted with confidence.
+      Behavior: over-scoped response, global invalidation. Cost: high (vent, norm enforcement, inhibition loss).
+
+    ## Transition Markers
+    "they need to be helped" = truth-seeking → assumed responsibility.
+      Note: consent boundary; escalation beyond is not help.
+
+    ## Boundary Rule
+    Engage only while the interaction performs its stated function.
+    Functions: mutual truth-seeking, containment/correction, pressure discharge.
+    Mnemonic: "not my circus, not my monkeys"
+
+    ## Codex Dynamics
+    - Motivation and warning co-activate; neither is optional.
+    - Warning intensity scales with applied force.
+    - Warning is a load sensor, not guilt.
+    - Sitting in the warning enables deliberate downshift without suppressing capability.
+
+    ## Archetypes
+    Spider-Man: responsibility → failure boundary: responsibility without exit →
+      warning: infinite moral debt → chronic self-denial → constraint: upper bound on obligation.
+    Archer: system builder under cost → links to BUNDLE_ARCHER_SYSTEMNESS.
+
+    ## Use Policy
+    - Deploy rigor only under clean logic and consented adversarial structure.
+    - Avoid incoherent social pressure and status-driven enforcement.
+    - Curiosity regulates activation; pauses preserve control.
+    - No obligation to provide unpaid maintenance for broken systems.
+
+    ## Meta
+    - Earlier description (many mantras) was lossy proxy.
+    - Mechanism-first, not belief-first.
+    - Insight emerges via observation under load, not introspection.
+  links:
+    anchors:
+      - ANCHOR_ARCHER_CHANT_v1
+      - ANCHOR_SPIDERMAN_RESP_v1
+      - ANCHOR_NOT_MY_CIRCUS_v1
+      - ANCHOR_REGULATION_GATES_v1
+    bundles:
+      - BUNDLE_ARCHER_SYSTEMNESS_v1
+      - BUNDLE_OBLIGATION_UPPER_BOUND_v1
+      - BUNDLE_REGULATION_GATES_v1
+  version: v1
+  meta: {version: v1, supersedes: null, semantic_change: true, created_at: "2026-04-03T00:00:00Z"}
+  depends_on: []
+  assumptions:
+    - "Axioms are situational, not identity-bearing"
+    - "Warning is a load sensor, not guilt"
+    - "Mechanism-first, not belief-first"
+  provenance_refs:
+    - ref_id: "WB_2026-01-24_regulation"
+      store: "workbench"
+      type: "conversation_segment"
+      note: "Original regulation system derivation"

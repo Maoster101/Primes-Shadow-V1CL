@@ -1,0 +1,264 @@
+"""Core runtime pipeline — §6.
+
+On each user turn: ingest → classify → match → frame+drift → header → respond.
+LLM = sensor, code = actuator throughout.
+"""
+from __future__ import annotations
+import asyncio
+import json
+from typing import Optional, AsyncIterator, TYPE_CHECKING
+
+from ..models.schemas import (
+    ChatMessage, MessageClassification, DriftEstimate,
+    RuntimeHeader, FrameState, FrameStateSummary, GateState,
+    EnforcementFlags,
+)
+from ..models.enums import MessageFunction, OLIMode, DampeningLevel
+from ..prompts.classification import FUNCTION_GATE_PROMPT, DRIFT_ESTIMATE_PROMPT
+from . import ollama
+from .context_packer import build_system_prompt, build_messages
+from .oli_validator import validate_output
+from .event_log import EventLog
+
+if TYPE_CHECKING:
+    from .anchor_matcher import AnchorMatcher, AnchorMatchResult
+    from .frame_manager import FrameManager
+    from .drift_monitor import DriftMonitor
+    from .draft_manager import DraftManager
+
+_event_log = EventLog()
+
+
+async def classify_message(user_text: str) -> MessageClassification:
+    """§7 — Function gate. Classify the dominant function of a user message."""
+    prompt = FUNCTION_GATE_PROMPT + json.dumps(user_text)
+    try:
+        result = await ollama.structured_extract(prompt)
+        classification = MessageClassification(**result)
+    except Exception:
+        classification = MessageClassification(
+            function=MessageFunction.NEUTRAL,
+            confidence=0.3,
+            explicit=False,
+            notes="Classification failed — defaulting to neutral with low confidence",
+        )
+
+    _event_log.log_gate_event(
+        function=classification.function.value,
+        confidence=classification.confidence,
+        explicit=classification.explicit,
+        notes=classification.notes,
+    )
+    return classification
+
+
+async def estimate_drift(
+    user_text: str,
+    recent_context: str = "",
+) -> DriftEstimate:
+    """§17.7 — Drift signal estimation. Model proposes; code computes window."""
+    prompt = DRIFT_ESTIMATE_PROMPT.replace("$CONTEXT", recent_context) + json.dumps(user_text)
+    try:
+        result = await ollama.structured_extract(prompt)
+        return DriftEstimate(**result)
+    except Exception:
+        return DriftEstimate(
+            affect_density=0.0,
+            claim_volatility=0.0,
+            rigor_drop=0.0,
+        )
+
+
+def build_runtime_header(
+    oli_mode: OLIMode,
+    classification: MessageClassification,
+    frame_state: Optional[FrameState],
+    drift: DriftEstimate,
+    dampening: DampeningLevel = DampeningLevel.NONE,
+    match_result: Optional["AnchorMatchResult"] = None,
+) -> RuntimeHeader:
+    """§26.3 — Assemble per-turn runtime control header."""
+    gate = GateState(
+        message_function=classification.function,
+        anchor_resolution_allowed=(
+            classification.function == MessageFunction.CONTEXT_COMPRESSION
+            or classification.explicit
+        ),
+        confidence_flag=(
+            "low" if classification.confidence < 0.5
+            else "ambiguous" if classification.confidence < 0.7
+            else "normal"
+        ),
+    )
+
+    frame_summary = FrameStateSummary()
+    if frame_state:
+        frame_summary = FrameStateSummary(
+            active_nodes=frame_state.active_nodes[:24],
+            high_tension_pairs=[
+                [c.node_a, c.node_b]
+                for c in frame_state.conflicts
+                if c.tension > 0.5
+            ],
+            mismatch_score=frame_state.mismatch_score,
+        )
+
+    # OP_01 operator state — every wrapped span carries its feature
+    # set, and the unclosed-tail correction hint is threaded separately.
+    from ..models.schemas import OperatorState
+    op_state = OperatorState()
+    if match_result is not None:
+        op_state = OperatorState(
+            wrapped_spans=[w.model_dump() for w in match_result.wrapped_spans],
+            correction_hint=match_result.correction_hint,
+        )
+
+    return RuntimeHeader(
+        oli_mode=oli_mode,
+        gate_state=gate,
+        frame_state_summary=frame_summary,
+        drift_estimate=drift,
+        enforcement_flags=EnforcementFlags(
+            claim_admissibility_required=(oli_mode == OLIMode.ON),
+            dampening_level=dampening,
+        ),
+        operator_state=op_state,
+    )
+
+
+async def process_turn(
+    user_text: str,
+    chat_messages: list[ChatMessage],
+    oli_mode: OLIMode = OLIMode.OFF,
+    frame_state: Optional[FrameState] = None,
+    *,
+    session_id: Optional[str] = None,
+    chat_id: Optional[str] = None,
+    anchor_matcher: Optional[AnchorMatcher] = None,
+    frame_manager: Optional[FrameManager] = None,
+    drift_monitor: Optional[DriftMonitor] = None,
+    web_mode: str = "off",  # "off" | "on" | "auto"
+    think_level: str = "medium",
+) -> AsyncIterator[dict]:
+    """Full pipeline for one user turn. Yields streaming response chunks.
+
+    Steps per §6:
+    1. Classify message function
+    2. Anchor matching (if matcher provided)
+    3. Frame update + drift estimation (parallel)
+    4. Build runtime header
+    5. Assemble context
+    6. Stream response from GPT-OSS
+    7. Yield classification + drift + match + frame metadata
+    """
+    turn = len(chat_messages) + 1
+    match_result = None
+
+    # Step 1: Classify (fast, structured extraction)
+    classification = await classify_message(user_text)
+
+    # Step 2: Anchor matching — OP_01 hard-gated wraps + residue fuzzy
+    if anchor_matcher:
+        match_result = await anchor_matcher.match_all(user_text, classification)
+
+    # Step 3: Frame update + drift estimation in parallel
+    recent = "\n".join(
+        f"[{m.role}] {m.content[:200]}" for m in chat_messages[-10:]
+    )
+
+    if frame_manager and session_id:
+        # Run frame update and drift estimation concurrently
+        frame_task = frame_manager.update_turn(
+            session_id, turn, user_text, match_result, classification
+        )
+        drift_task = estimate_drift(user_text, recent)
+        updated_frame, drift = await asyncio.gather(frame_task, drift_task)
+        frame_state = updated_frame
+    else:
+        drift = await estimate_drift(user_text, recent)
+
+    # Step 3a: Augment affect_density from wrapped-span features.
+    # Orthographic/emote signals inside `*...*` are a more reliable
+    # affect channel than neutral prose. A user who types `*sighs*` or
+    # `*oh my GAAAHHHD*` is emitting affect the LLM drift estimator
+    # often misses because the prose around it stays flat.
+    if match_result is not None:
+        from .anchor_matcher import compute_wrap_affect_boost
+        bump = compute_wrap_affect_boost(match_result)
+        if bump > 0:
+            drift.affect_density = min(1.0, drift.affect_density + bump)
+
+    # Step 3b: Compute windowed drift severity (§17.7-17.8)
+    drift_assessment = None
+    dampening = DampeningLevel.NONE
+    if drift_monitor and session_id:
+        drift_assessment = drift_monitor.record_and_compute(session_id, drift, turn)
+        dampening = drift_assessment["dampening"]
+
+    # Step 4: Runtime header (with dampening + OP_01 operator state)
+    header = build_runtime_header(
+        oli_mode, classification, frame_state, drift, dampening,
+        match_result=match_result,
+    )
+
+    # Step 5: Context packing
+    system_prompt = build_system_prompt(oli_mode, header)
+    messages = build_messages(system_prompt, chat_messages, frame_state)
+    messages.append({"role": "user", "content": user_text})
+
+    # Estimate context usage (chars → tokens) for status bar display
+    from .context_packer import CHARS_PER_TOKEN, TARGET_CONTEXT_TOKENS
+    _used_chars = sum(len(m.get("content", "")) + 20 for m in messages)
+    context_usage = {
+        "used_tokens": _used_chars // CHARS_PER_TOKEN,
+        "budget_tokens": TARGET_CONTEXT_TOKENS,
+        "packed_messages": len(messages),
+    }
+
+    # Step 6: Stream response (with thinking level)
+    use_think = think_level != "off"
+    full_response = ""
+    async for chunk in ollama.chat_stream(messages, think=use_think, think_level=think_level, web_mode=web_mode):
+        if chunk.get("done"):
+            # Step 7: Final metadata
+            meta: dict = {
+                "done": True,
+                "content": "",
+                "classification": classification.model_dump(),
+                "drift_estimate": drift.model_dump(),
+                "full_response": full_response,
+                "turn": turn,
+                "context_usage": context_usage,
+            }
+            if drift_assessment:
+                meta["drift_window"] = {
+                    "composite": drift_assessment["composite"],
+                    "severity": drift_assessment["severity"].value,
+                    "dampening": drift_assessment["dampening"].value,
+                    "window_size": drift_assessment["window_size"],
+                }
+            if match_result:
+                meta["match_result"] = {
+                    "auto_activate": [m.model_dump() for m in match_result.auto_activate],
+                    "candidates": [m.model_dump() for m in match_result.candidates],
+                    "wrapped_spans": [w.model_dump() for w in match_result.wrapped_spans],
+                    "correction_hint": match_result.correction_hint,
+                }
+            if frame_state:
+                meta["frame_summary"] = {
+                    "active_nodes": frame_state.active_nodes[:12],
+                    "mismatch_score": frame_state.mismatch_score,
+                    "conflict_count": len(frame_state.conflicts),
+                }
+            # Step 7b: §26.4 Post-generation validation (code-side)
+            validation = validate_output(full_response, oli_mode)
+            if validation.flags:
+                meta["oli_flags"] = [
+                    {"layer": f["layer"], "name": f["name"], "pattern": f["pattern"]}
+                    for f in validation.flags
+                ]
+            yield meta
+        else:
+            content = chunk.get("content", "")
+            full_response += content
+            yield {"done": False, "content": content}
