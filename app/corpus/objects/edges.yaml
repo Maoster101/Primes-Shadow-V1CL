@@ -91,3 +91,48 @@
   to: BUNDLE_REGULATION_GATES_v1
   weight: 0.9
   confidence: 0.9
+
+# Phase 2: New anchor → slab invocations (peer model)
+- id: edge_ironmouse_invoke_regulation_v1
+  type: INVOKES
+  from: ANCHOR_IRONMOUSE_v1
+  to: SLAB_REGULATION_SYSTEM_V1_v1
+  weight: 1.0
+  confidence: 1.0
+
+- id: edge_external_over_internal_invoke_floor_v1
+  type: INVOKES
+  from: ANCHOR_EXTERNAL_OVER_INTERNAL_v1
+  to: SLAB_EPISTEMIC_FLOOR_v1
+  weight: 1.0
+  confidence: 1.0
+
+- id: edge_absence_signal_invoke_pushback_v1
+  type: INVOKES
+  from: ANCHOR_ABSENCE_IS_SIGNAL_v1
+  to: SLAB_PUSHBACK_INVARIANT_v1
+  weight: 1.0
+  confidence: 1.0
+
+# Phase 2: Existing-anchor → new-slab LINKS (soft co-activation)
+# Note: slab dependency relationships are captured in slab.depends_on; no dedicated edge type needed.
+- id: edge_archer_links_systemness_core_v1
+  type: LINKS
+  from: ANCHOR_ARCHER_CHANT_v1
+  to: SLAB_SYSTEMNESS_CORE_v1
+  weight: 0.9
+  confidence: 0.9
+
+- id: edge_keepup_links_protocol_v1
+  type: LINKS
+  from: ANCHOR_KEEP_UP_v1
+  to: SLAB_KEEP_UP_PROTOCOL_v1
+  weight: 0.9
+  confidence: 0.9
+
+- id: edge_handwave_links_keepup_protocol_v1
+  type: LINKS
+  from: ANCHOR_HANDWAVE_v1
+  to: SLAB_KEEP_UP_PROTOCOL_v1
+  weight: 0.8
+  confidence: 0.8

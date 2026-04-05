@@ -134,3 +134,56 @@
   meta: {version: v1, supersedes: null, semantic_change: true, created_at: "2026-04-03T00:00:00Z"}
   depends_on: []
   assumptions: ["Engage only while interaction performs its stated function", "Marker 'they need to be helped' indicates consent boundary crossing"]
+
+- id: ANCHOR_IRONMOUSE_v1
+  canonical_phrase: "ironmouse energy"
+  aliases: ["ironmouse", "vent mode", "affect release", "this is just affect", "not truth-seeking right now"]
+  invokes: ["SLAB_REGULATION_SYSTEM_V1_v1"]
+  notes: "Signals affect-release mode. Function = discharge, not truth-seeking. Per regulation gates, disengage from semantic/rigor interpretation until function shifts back."
+  match_policy:
+    gate_required: true
+    allowed_functions: ["affect_release", "context_compression"]
+    format_gate: null
+    min_confidence_exact: 0.70
+    min_confidence_fuzzy: 0.90
+  meta: {version: v1, supersedes: null, semantic_change: true, created_at: "2026-04-05T00:00:00Z"}
+  depends_on: []
+  assumptions:
+    - "Affect-release is a legitimate interaction function, not a failure mode"
+    - "Rigor interpretation should yield when function is discharge"
+    - "Function classification gate can distinguish affect from claim"
+
+- id: ANCHOR_EXTERNAL_OVER_INTERNAL_v1
+  canonical_phrase: "external reality outranks internal coherence"
+  aliases: ["external over internal", "EXTERNAL_REALITY > INTERNAL_COHERENCE", "reality beats coherence", "empirical over logical"]
+  invokes: ["SLAB_EPISTEMIC_FLOOR_v1"]
+  notes: "Invoke Layer-0 Rule 01. Best available model of reality outranks all internal logical coherence; no coherence excuses ignorance of facts."
+  match_policy:
+    gate_required: true
+    allowed_functions: ["context_compression", "meta_schema"]
+    format_gate: null
+    min_confidence_exact: 0.70
+    min_confidence_fuzzy: 0.90
+  meta: {version: v1, supersedes: null, semantic_change: true, created_at: "2026-04-05T00:00:00Z"}
+  depends_on: []
+  assumptions:
+    - "External reality is knowable enough to constrain internal coherence"
+    - "L0 Rule 01 is not overridable"
+
+- id: ANCHOR_ABSENCE_IS_SIGNAL_v1
+  canonical_phrase: "silence is not neutrality"
+  aliases: ["silence is anomaly", "absence of resistance", "no claim advances merely because no one objected", "missing pushback"]
+  invokes: ["SLAB_PUSHBACK_INVARIANT_v1"]
+  notes: "Invoke pushback gauntlet. Absence of expected resistance must trigger interrogation before synthesis or storage. Silence must earn its right to pass."
+  match_policy:
+    gate_required: true
+    allowed_functions: ["context_compression", "meta_schema"]
+    format_gate: null
+    min_confidence_exact: 0.70
+    min_confidence_fuzzy: 0.90
+  meta: {version: v1, supersedes: null, semantic_change: true, created_at: "2026-04-05T00:00:00Z"}
+  depends_on: []
+  assumptions:
+    - "Expected resistance has a knowable baseline"
+    - "Absence is measurable as a signal, not just a null"
+    - "Gauntlet fires on absence detection, not only on contradiction"
