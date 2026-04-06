@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 import yaml
 
-from ..models.schemas import Anchor, Slab, KeyBundle, Edge
+from ..models.schemas import Anchor, Slab, KeyBundle, Edge, Gate
 
 CORPUS_ROOT = Path("app/corpus")
 OBJECTS = CORPUS_ROOT / "objects"
@@ -39,6 +39,7 @@ class CorpusStore:
         self.slabs: dict[str, Slab] = {}
         self.bundles: dict[str, KeyBundle] = {}
         self.edges: dict[str, Edge] = {}
+        self.gates: dict[str, Gate] = {}
 
     def load(self) -> list[str]:
         """Load corpus from disk. Returns list of validation errors (empty = OK)."""
@@ -46,6 +47,7 @@ class CorpusStore:
         raw_slabs = _load_yaml(self.objects / "slabs.yaml")
         raw_bundles = _load_yaml(self.objects / "key_bundles.yaml")
         raw_edges = _load_yaml(self.objects / "edges.yaml")
+        raw_gates = _load_yaml(self.objects / "gates.yaml")
 
         self.anchors = {a["id"]: Anchor(**a) for a in raw_anchors}
         self.slabs = {s["id"]: Slab(**s) for s in raw_slabs}
@@ -55,6 +57,7 @@ class CorpusStore:
             # Handle the 'from'/'to' alias
             edge = Edge.model_validate(e)
             self.edges[edge.id] = edge
+        self.gates = {g["id"]: Gate(**g) for g in raw_gates}
 
         return self.validate()
 
@@ -76,9 +79,13 @@ class CorpusStore:
             self.objects / "edges.yaml",
             [e.model_dump(mode="json", by_alias=True) for e in self.edges.values()],
         )
+        _save_yaml(
+            self.objects / "gates.yaml",
+            [g.model_dump(mode="json") for g in self.gates.values()],
+        )
 
     def all_ids(self) -> set[str]:
-        return set(self.anchors) | set(self.slabs) | set(self.bundles)
+        return set(self.anchors) | set(self.slabs) | set(self.bundles) | set(self.gates)
 
     def validate(self) -> list[str]:
         """Run the 6 checks from §24.1. Returns list of errors."""
@@ -86,14 +93,17 @@ class CorpusStore:
         all_ids = self.all_ids()
 
         # Check 1: Unique IDs across all object types
-        anchor_ids = set(self.anchors)
-        slab_ids = set(self.slabs)
-        bundle_ids = set(self.bundles)
-        overlap_ab = anchor_ids & bundle_ids
-        overlap_as = anchor_ids & slab_ids
-        overlap_bs = bundle_ids & slab_ids
-        for dup in overlap_ab | overlap_as | overlap_bs:
-            errors.append(f"Duplicate ID across object types: {dup}")
+        id_sets = {
+            "anchor": set(self.anchors),
+            "slab":   set(self.slabs),
+            "bundle": set(self.bundles),
+            "gate":   set(self.gates),
+        }
+        type_names = list(id_sets)
+        for i, a in enumerate(type_names):
+            for b in type_names[i + 1:]:
+                for dup in id_sets[a] & id_sets[b]:
+                    errors.append(f"Duplicate ID across object types ({a}/{b}): {dup}")
 
         # Check 2: Invokes targets exist
         for anchor in self.anchors.values():
@@ -109,7 +119,8 @@ class CorpusStore:
 
         # Check 4: Version suffix match — id ends _vN, meta.version = vN
         for obj_id, obj in [
-            *self.anchors.items(), *self.slabs.items(), *self.bundles.items()
+            *self.anchors.items(), *self.slabs.items(),
+            *self.bundles.items(), *self.gates.items(),
         ]:
             version = obj.meta.version if hasattr(obj, "meta") else getattr(obj, "version", None)
             if version:
@@ -121,7 +132,8 @@ class CorpusStore:
 
         # Check 5: depends_on targets exist
         for obj_id, obj in [
-            *self.anchors.items(), *self.slabs.items(), *self.bundles.items()
+            *self.anchors.items(), *self.slabs.items(),
+            *self.bundles.items(), *self.gates.items(),
         ]:
             for dep in getattr(obj, "depends_on", []):
                 if dep not in all_ids:
@@ -129,7 +141,8 @@ class CorpusStore:
 
         # Check 6: Supersedes exists
         for obj_id, obj in [
-            *self.anchors.items(), *self.slabs.items(), *self.bundles.items()
+            *self.anchors.items(), *self.slabs.items(),
+            *self.bundles.items(), *self.gates.items(),
         ]:
             meta = getattr(obj, "meta", None)
             if meta and meta.supersedes and meta.supersedes not in all_ids:
@@ -141,7 +154,8 @@ class CorpusStore:
         """§4.4 CascadeIndex — compute who depends on this node."""
         dependents = []
         for obj_id, obj in [
-            *self.anchors.items(), *self.slabs.items(), *self.bundles.items()
+            *self.anchors.items(), *self.slabs.items(),
+            *self.bundles.items(), *self.gates.items(),
         ]:
             if node_id in getattr(obj, "depends_on", []):
                 dependents.append(obj_id)
