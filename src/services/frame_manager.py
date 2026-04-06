@@ -10,7 +10,7 @@ from typing import Optional
 from ..models.schemas import (
     FrameState, ActivationSource, ConflictPair,
 )
-from ..models.enums import EdgeType
+from ..models.enums import EdgeType, OLIMode, SlabType
 from ..models.enums import MessageFunction
 from ..prompts.classification import SALIENCE_PROMPT, CONCEPT_DETECT_PROMPT
 from .corpus import CorpusStore
@@ -37,12 +37,120 @@ class FrameManager:
         # Session-scoped tentative edges (not in corpus until commit)
         self._tentative_edges: dict[str, list[dict]] = {}  # session_id -> [{from, to, type, ...}]
 
-    def get_or_create(self, chat_id: str, session_id: str) -> FrameState:
+    def get_or_create(self, chat_id: str, session_id: str,
+                       oli_mode: OLIMode = OLIMode.OFF) -> FrameState:
         if session_id in self._frames:
             return self._frames[session_id]
         frame = FrameState(chat_id=chat_id, session_id=session_id)
+        # §Phase 5 — Seed base set: CONSTITUTIONAL + CANONICAL slabs
+        self._seed_base_set(frame, oli_mode)
         self._frames[session_id] = frame
         return frame
+
+    def _seed_base_set(self, frame: FrameState, oli_mode: OLIMode) -> None:
+        """Populate a new frame with the corpus base set.
+
+        CONSTITUTIONAL and CANONICAL slabs (filtered by OLI mode and lifecycle)
+        are loaded at weight 1.0. Their linked anchors and bundles are also
+        activated at weight 0.5 (lower than match-triggered activation).
+        """
+        base_slabs = self.corpus.base_set_slabs(oli_mode)
+        for slab in base_slabs:
+            frame.active_slabs[slab.id] = 1.0
+            if slab.id not in frame.active_nodes:
+                frame.active_nodes.append(slab.id)
+            frame.activation_sources[slab.id] = [
+                ActivationSource(source_type="base_set", source_ref=f"type={slab.type.value}")
+            ]
+            # Follow slab links → activate linked anchors and bundles at 0.5
+            for anchor_id in (slab.links.anchors if slab.links else []):
+                if anchor_id in self.corpus.anchors:
+                    frame.active_anchors.setdefault(anchor_id, 0.5)
+                    if anchor_id not in frame.active_nodes:
+                        frame.active_nodes.append(anchor_id)
+            for bundle_id in (slab.links.bundles if slab.links else []):
+                if bundle_id in self.corpus.bundles:
+                    frame.active_bundles.setdefault(bundle_id, 0.5)
+                    if bundle_id not in frame.active_nodes:
+                        frame.active_nodes.append(bundle_id)
+
+        _event_log.log_frame_event(
+            event="base_set_seeded",
+            slabs=len(base_slabs),
+            oli_mode=oli_mode.value,
+            total_active=len(frame.active_nodes),
+        )
+
+    def _check_invariant_activation(
+        self, frame: FrameState,
+        match_result: Optional[AnchorMatchResult],
+        classification: Optional[object],
+        turn: int,
+    ) -> None:
+        """§Phase 5 — Conditional activation rules for INVARIANT slabs.
+
+        INVARIANT slabs don't load in the base set. They activate when:
+          1. An anchor that links TO them fires (anchor match → slab.links.anchors)
+          2. A slab's linked anchor is already active with weight >= 0.8
+          3. Drift-based escalation: mismatch_score > 0.6 activates pushback invariants
+
+        Once activated, an INVARIANT slab stays in the frame (subject to normal decay).
+        """
+        invariant_slabs = self.corpus.invariant_slabs()
+        activated = []
+
+        for slab in invariant_slabs:
+            # Skip if already active
+            if slab.id in frame.active_slabs:
+                continue
+
+            triggered = False
+            trigger_reason = ""
+
+            # Rule 1: Anchor match invokes chain — the anchor explicitly INVOKES this slab
+            if match_result:
+                for match in match_result.auto_activate:
+                    anchor = self.corpus.anchors.get(match.anchor_id)
+                    if anchor and slab.id in anchor.invokes:
+                        triggered = True
+                        trigger_reason = f"anchor_invokes:{anchor.id}"
+                        break
+
+            # Rule 2: Linked anchor is active with high weight
+            if not triggered and slab.links:
+                for anchor_id in slab.links.anchors:
+                    if frame.active_anchors.get(anchor_id, 0) >= 0.8:
+                        triggered = True
+                        trigger_reason = f"linked_anchor_active:{anchor_id}"
+                        break
+
+            # Rule 3: High mismatch triggers pushback-type invariant slabs
+            if not triggered and frame.mismatch_score > 0.6:
+                # Only auto-load slabs that have "pushback" or "gauntlet" in their ID
+                if "pushback" in slab.id.lower() or "gauntlet" in slab.id.lower():
+                    triggered = True
+                    trigger_reason = f"mismatch_escalation:{frame.mismatch_score:.2f}"
+
+            if triggered:
+                frame.active_slabs[slab.id] = 1.0
+                if slab.id not in frame.active_nodes:
+                    frame.active_nodes.append(slab.id)
+                frame.activation_sources[slab.id] = [
+                    ActivationSource(source_type="invariant_rule", source_ref=trigger_reason)
+                ]
+                # Also activate linked bundles
+                for bundle_id in (slab.links.bundles if slab.links else []):
+                    if bundle_id in self.corpus.bundles:
+                        frame.active_bundles.setdefault(bundle_id, 0.8)
+                        if bundle_id not in frame.active_nodes:
+                            frame.active_nodes.append(bundle_id)
+                activated.append(slab.id)
+
+        if activated:
+            _event_log.log_frame_event(
+                event="invariant_activated",
+                slabs=activated,
+            )
 
     def restore(self, session_id: str, frame: FrameState,
                 registry: dict = None, edges: list = None) -> None:
@@ -154,6 +262,9 @@ class FrameManager:
         # Append this turn's hit batch for trajectory replay
         if turn_hits:
             frame.corpus_hit_log.append([turn, turn_hits])
+
+        # --- Step 1a: Conditional activation rules for INVARIANT slabs ---
+        self._check_invariant_activation(frame, match_result, classification, turn)
 
         # --- Step 1b: Novel concept detection → tentative nodes ---
         # Concept detection is a sensor — cheap, near-unconditional. The

@@ -201,8 +201,11 @@ async def process_turn(
         match_result=match_result,
     )
 
-    # Step 5: Context packing
-    system_prompt = build_system_prompt(oli_mode, header)
+    # Step 5: Context packing (§Phase 5 — base set slab text injection)
+    base_slabs = None
+    if frame_manager:
+        base_slabs = frame_manager.corpus.base_set_slabs(oli_mode)
+    system_prompt = build_system_prompt(oli_mode, header, base_set_slabs=base_slabs)
     messages = build_messages(system_prompt, chat_messages, frame_state)
     messages.append({"role": "user", "content": user_text})
 

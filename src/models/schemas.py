@@ -75,6 +75,7 @@ class Anchor(BaseModel):
     aliases: list[str] = Field(default_factory=list)
     invokes: list[str] = Field(default_factory=list)
     notes: str = ""
+    lifecycle_status: SlabLifecycleStatus = SlabLifecycleStatus.ACTIVE
     match_policy: AnchorMatchPolicy = Field(default_factory=AnchorMatchPolicy)
     meta: AnchorMeta = Field(default_factory=AnchorMeta)
     depends_on: list[str] = Field(default_factory=list)
@@ -128,6 +129,7 @@ class KeyBundle(BaseModel):
     id: str
     payload: BundlePayload
     version: str = "v1"
+    lifecycle_status: SlabLifecycleStatus = SlabLifecycleStatus.ACTIVE
     meta: AnchorMeta = Field(default_factory=AnchorMeta)
     depends_on: list[str] = Field(default_factory=list)
     supports: list[str] = Field(default_factory=list)

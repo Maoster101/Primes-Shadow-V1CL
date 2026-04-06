@@ -1,100 +1,96 @@
 - id: GATE_FUNCTION_v1
   stage: FUNCTION
-  description: >-
-    Ports anchor_matcher.gate_check() to declarative form. Decides whether an
-    anchor is eligible to resolve against the current turn based on its
-    match_policy (gate_required, allowed_functions) and the message
-    classification (explicit, function). Runs per-anchor during matching.
+  description: Ports anchor_matcher.gate_check() to declarative form. Decides whether
+    an anchor is eligible to resolve against the current turn based on its match_policy
+    (gate_required, allowed_functions) and the message classification (explicit, function).
+    Runs per-anchor during matching.
   rules:
-    - id: FUNCTION_gate_not_required
-      condition: "anchor.match_policy.gate_required == False"
-      outcome: ALLOW
-      priority: 10
-      notes: Anchor has opted out of gating entirely.
-    - id: FUNCTION_explicit_user_intent
-      condition: "classification.explicit == True"
-      outcome: ALLOW
-      priority: 20
-      notes: User explicitly invoked persistence/anchoring — always passes function gate.
-    - id: FUNCTION_allowed_function
-      condition: "classification.function in anchor.match_policy.allowed_functions"
-      outcome: ALLOW
-      priority: 30
-      notes: Current message function is in the anchor's allow-list.
+  - id: FUNCTION_gate_not_required
+    condition: anchor.match_policy.gate_required == False
+    outcome: ALLOW
+    priority: 10
+    notes: Anchor has opted out of gating entirely.
+  - id: FUNCTION_explicit_user_intent
+    condition: classification.explicit == True
+    outcome: ALLOW
+    priority: 20
+    notes: User explicitly invoked persistence/anchoring — always passes function
+      gate.
+  - id: FUNCTION_allowed_function
+    condition: classification.function in anchor.match_policy.allowed_functions
+    outcome: ALLOW
+    priority: 30
+    notes: Current message function is in the anchor's allow-list.
   default_outcome: DENY
   version: v1
   meta:
     version: v1
     supersedes: null
     semantic_change: true
-    created_at: "2026-04-06T00:00:00Z"
+    created_at: '2026-04-06T00:00:00Z'
   depends_on: []
   assumptions:
-    - Evaluator context provides `anchor` (Anchor) and `classification` (MessageClassification).
-    - Rules evaluated in priority order (lowest first); first match wins.
-
+  - Evaluator context provides `anchor` (Anchor) and `classification` (MessageClassification).
+  - Rules evaluated in priority order (lowest first); first match wins.
 - id: GATE_EXPLICITNESS_v1
   stage: EXPLICITNESS
-  description: >-
-    Secondary gate that separates explicit deliberate invocations from
-    implicit mentions. Explicit signals bypass confidence scrutiny; ambiguous
-    mentions are escalated to the user rather than silently resolved. Runs
-    after FUNCTION gate has said ALLOW.
+  description: Secondary gate that separates explicit deliberate invocations from
+    implicit mentions. Explicit signals bypass confidence scrutiny; ambiguous mentions
+    are escalated to the user rather than silently resolved. Runs after FUNCTION gate
+    has said ALLOW.
   rules:
-    - id: EXPLICITNESS_user_was_explicit
-      condition: "classification.explicit == True"
-      outcome: ALLOW
-      priority: 10
-      notes: User explicitly asked to invoke/persist — skip confidence scrutiny.
-    - id: EXPLICITNESS_deliberate_invocation_mention
-      condition: "classification.mention_type == 'deliberate_invocation'"
-      outcome: ALLOW
-      priority: 20
-      notes: Classifier flagged this as a deliberate frame activation.
-    - id: EXPLICITNESS_high_confidence_implicit
-      condition: "classification.confidence >= 0.85"
-      outcome: DEFER
-      priority: 30
-      notes: Implicit but confidence is high — defer to CONFIDENCE stage.
+  - id: EXPLICITNESS_user_was_explicit
+    condition: classification.explicit == True
+    outcome: ALLOW
+    priority: 10
+    notes: User explicitly asked to invoke/persist — skip confidence scrutiny.
+  - id: EXPLICITNESS_deliberate_invocation_mention
+    condition: classification.mention_type == 'deliberate_invocation'
+    outcome: ALLOW
+    priority: 20
+    notes: Classifier flagged this as a deliberate frame activation.
+  - id: EXPLICITNESS_high_confidence_implicit
+    condition: classification.confidence >= 0.85
+    outcome: DEFER
+    priority: 30
+    notes: Implicit but confidence is high — defer to CONFIDENCE stage.
   default_outcome: ESCALATE
   version: v1
   meta:
     version: v1
     supersedes: null
     semantic_change: true
-    created_at: "2026-04-06T00:00:00Z"
+    created_at: '2026-04-06T00:00:00Z'
   depends_on:
-    - GATE_FUNCTION_v1
+  - GATE_FUNCTION_v1
   assumptions:
-    - Evaluator context provides `classification` (MessageClassification).
-    - Default ESCALATE surfaces ambiguity to the user rather than silently denying.
-
+  - Evaluator context provides `classification` (MessageClassification).
+  - Default ESCALATE surfaces ambiguity to the user rather than silently denying.
 - id: GATE_CONFIDENCE_v1
   stage: CONFIDENCE
-  description: >-
-    Final gate on classifier confidence. Bands the confidence scalar into
-    ALLOW / DEFER / ESCALATE outcomes. Low confidence escalates to the user
-    so the Mirror can ask rather than guess. Runs after EXPLICITNESS.
+  description: Final gate on classifier confidence. Bands the confidence scalar into
+    ALLOW / DEFER / ESCALATE outcomes. Low confidence escalates to the user so the
+    Mirror can ask rather than guess. Runs after EXPLICITNESS.
   rules:
-    - id: CONFIDENCE_high
-      condition: "classification.confidence >= 0.80"
-      outcome: ALLOW
-      priority: 10
-      notes: High classifier confidence — proceed.
-    - id: CONFIDENCE_medium
-      condition: "classification.confidence >= 0.60"
-      outcome: DEFER
-      priority: 20
-      notes: Medium confidence — defer to downstream (e.g. ambiguous_fuzzy tier).
+  - id: CONFIDENCE_high
+    condition: classification.confidence >= 0.80
+    outcome: ALLOW
+    priority: 10
+    notes: High classifier confidence — proceed.
+  - id: CONFIDENCE_medium
+    condition: classification.confidence >= 0.60
+    outcome: DEFER
+    priority: 20
+    notes: Medium confidence — defer to downstream (e.g. ambiguous_fuzzy tier).
   default_outcome: ESCALATE
   version: v1
   meta:
     version: v1
     supersedes: null
     semantic_change: true
-    created_at: "2026-04-06T00:00:00Z"
+    created_at: '2026-04-06T00:00:00Z'
   depends_on:
-    - GATE_EXPLICITNESS_v1
+  - GATE_EXPLICITNESS_v1
   assumptions:
-    - Evaluator context provides `classification` (MessageClassification).
-    - Thresholds mirror Anchor.match_policy.min_confidence_exact/fuzzy defaults.
+  - Evaluator context provides `classification` (MessageClassification).
+  - Thresholds mirror Anchor.match_policy.min_confidence_exact/fuzzy defaults.

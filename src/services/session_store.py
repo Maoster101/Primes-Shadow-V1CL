@@ -109,9 +109,14 @@ class SessionStore:
             return []
         packets = []
         for f in sorted(d.glob("*.json")):
+            if f.name.endswith("_raw.json"):
+                continue  # Skip raw proposal files — not DraftPackets
             data = self._read_json(f)
             if data:
-                packets.append(DraftPacket(**data))
+                try:
+                    packets.append(DraftPacket(**data))
+                except Exception:
+                    continue  # Skip malformed drafts rather than crashing review
         return packets
 
     # --- Helpers ---

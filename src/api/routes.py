@@ -2,7 +2,7 @@
 from __future__ import annotations
 import asyncio
 from datetime import datetime
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import json
@@ -126,6 +126,110 @@ async def health():
     }
 
 
+# --- File upload ---
+
+# Supported text-extractable file types
+_TEXT_EXTENSIONS = {
+    ".txt", ".md", ".csv", ".tsv", ".json", ".yaml", ".yml",
+    ".py", ".js", ".ts", ".jsx", ".tsx", ".html", ".css",
+    ".c", ".cpp", ".h", ".hpp", ".java", ".go", ".rs", ".rb",
+    ".sh", ".bash", ".zsh", ".ps1", ".bat",
+    ".toml", ".ini", ".cfg", ".conf", ".env", ".xml",
+    ".sql", ".r", ".m", ".swift", ".kt", ".scala", ".lua",
+    ".log", ".tex",
+}
+_MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
+@router.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    """Extract text content from an uploaded file.
+
+    Supports plaintext/code files directly and PDFs via pdfplumber.
+    Returns extracted text for the frontend to prepend to the user message.
+    """
+    import os
+    ext = os.path.splitext(file.filename or "")[1].lower()
+
+    # Read file bytes (with size guard)
+    data = await file.read()
+    if len(data) > _MAX_FILE_SIZE:
+        raise HTTPException(413, f"File too large ({len(data)} bytes). Max is {_MAX_FILE_SIZE}.")
+
+    extracted = ""
+
+    if ext == ".pdf":
+        try:
+            import pdfplumber
+            import io
+            with pdfplumber.open(io.BytesIO(data)) as pdf:
+                pages = []
+                for i, page in enumerate(pdf.pages):
+                    text = page.extract_text() or ""
+                    if text.strip():
+                        pages.append(f"--- Page {i+1} ---\n{text}")
+                extracted = "\n\n".join(pages)
+                if not extracted.strip():
+                    raise HTTPException(422, "PDF appears to contain no extractable text (scanned/image PDF).")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(422, f"Failed to extract PDF text: {exc}")
+
+    elif ext in (".docx", ".doc"):
+        try:
+            import docx
+            import io
+            doc = docx.Document(io.BytesIO(data))
+            paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+            # Also extract text from tables
+            for table in doc.tables:
+                for row in table.rows:
+                    cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                    if cells:
+                        paragraphs.append(" | ".join(cells))
+            extracted = "\n\n".join(paragraphs)
+            if not extracted.strip():
+                raise HTTPException(422, "DOCX appears to contain no extractable text.")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(422, f"Failed to extract DOCX text: {exc}")
+
+    elif ext in _TEXT_EXTENSIONS or ext == "":
+        # Try decoding as text
+        for encoding in ("utf-8", "utf-8-sig", "latin-1"):
+            try:
+                extracted = data.decode(encoding)
+                break
+            except (UnicodeDecodeError, ValueError):
+                continue
+        else:
+            raise HTTPException(422, f"Could not decode file as text.")
+
+    else:
+        raise HTTPException(
+            415,
+            f"Unsupported file type '{ext}'. Supported: PDF, DOCX, and text/code files "
+            f"({', '.join(sorted(list(_TEXT_EXTENSIONS)[:12]))}...)"
+        )
+
+    # Truncate very long files to avoid blowing up context
+    char_limit = 80_000  # ~20k tokens
+    truncated = False
+    if len(extracted) > char_limit:
+        extracted = extracted[:char_limit]
+        truncated = True
+
+    return {
+        "filename": file.filename,
+        "extension": ext,
+        "chars": len(extracted),
+        "truncated": truncated,
+        "content": extracted,
+    }
+
+
 # --- Chat CRUD ---
 
 @router.post("/chats")
@@ -183,6 +287,9 @@ async def send_message(chat_id: str, req: SendMessageRequest):
     user_msg = ChatMessage(role="user", content=req.content, turn=turn)
     chat_store.append_message(chat_id, user_msg)
 
+    # Resolve OLI mode early (needed for base set seeding)
+    oli_mode = OLIMode(req.oli_mode)
+
     # Resolve or create session
     session_id = session_store.get_active_session(chat_id)
     if not session_id:
@@ -194,9 +301,7 @@ async def send_message(chat_id: str, req: SendMessageRequest):
         reg, edges = session_store.load_registry(session_id)
         frame_manager.restore(session_id, saved_frame, reg or None, edges or None)
     else:
-        frame_manager.get_or_create(chat_id, session_id)
-
-    oli_mode = OLIMode(req.oli_mode)
+        frame_manager.get_or_create(chat_id, session_id, oli_mode=oli_mode)
 
     async def stream():
         assistant_text = ""
@@ -782,7 +887,141 @@ async def corpus_full():
         "bundles": [b.model_dump() for b in corpus.bundles.values()],
         "slabs": [s.model_dump() for s in corpus.slabs.values()],
         "edges": [e.model_dump(by_alias=True) for e in corpus.edges.values()],
+        "gates": [g.model_dump() for g in corpus.gates.values()],
     }
+
+
+# --- Corpus management (dashboard) ---
+
+class UpdateLifecycleRequest(BaseModel):
+    lifecycle_status: str  # "ACTIVE" | "DORMANT" | "DEPRECATED"
+
+
+class UpdateNodeRequest(BaseModel):
+    canonical_phrase: Optional[str] = None
+    canonical_text: Optional[str] = None
+    notes: Optional[str] = None
+    title: Optional[str] = None
+    aliases: Optional[list[str]] = None
+
+
+def _find_corpus_node(node_id: str):
+    """Locate a node across all corpus object types. Returns (obj, type_name)."""
+    if node_id in corpus.anchors:
+        return corpus.anchors[node_id], "anchor"
+    if node_id in corpus.slabs:
+        return corpus.slabs[node_id], "slab"
+    if node_id in corpus.bundles:
+        return corpus.bundles[node_id], "bundle"
+    if node_id in corpus.gates:
+        return corpus.gates[node_id], "gate"
+    return None, None
+
+
+@router.get("/corpus/nodes/{node_id}/deps")
+async def get_node_deps(node_id: str):
+    """Return everything that depends on or references this node."""
+    node, ntype = _find_corpus_node(node_id)
+    if not node:
+        raise HTTPException(404, f"Node '{node_id}' not found in corpus")
+
+    dependents = corpus.get_reverse_deps(node_id)
+    # Also find edges that reference this node
+    edge_refs = [
+        {"edge_id": e.id, "from": e.from_node, "to": e.to_node, "type": e.type.value}
+        for e in corpus.edges.values()
+        if e.from_node == node_id or e.to_node == node_id
+    ]
+    return {
+        "node_id": node_id,
+        "node_type": ntype,
+        "dependents": dependents,
+        "edges": edge_refs,
+        "safe_to_delete": len(dependents) == 0,
+    }
+
+
+@router.patch("/corpus/nodes/{node_id}/lifecycle")
+async def update_node_lifecycle(node_id: str, req: UpdateLifecycleRequest):
+    """Set lifecycle status on any corpus node (anchor, slab, bundle)."""
+    from ..models.enums import SlabLifecycleStatus
+    node, ntype = _find_corpus_node(node_id)
+    if not node:
+        raise HTTPException(404, f"Node '{node_id}' not found in corpus")
+    try:
+        new_status = SlabLifecycleStatus(req.lifecycle_status)
+    except ValueError:
+        raise HTTPException(400, f"Invalid status '{req.lifecycle_status}'. Must be ACTIVE, DORMANT, or DEPRECATED.")
+
+    node.lifecycle_status = new_status
+    corpus.save()
+    return {"node_id": node_id, "type": ntype, "lifecycle_status": new_status.value}
+
+
+@router.patch("/corpus/nodes/{node_id}")
+async def update_node_fields(node_id: str, req: UpdateNodeRequest):
+    """Edit fields on a corpus node."""
+    node, ntype = _find_corpus_node(node_id)
+    if not node:
+        raise HTTPException(404, f"Node '{node_id}' not found in corpus")
+
+    updated = []
+    if req.canonical_phrase is not None and hasattr(node, 'canonical_phrase'):
+        node.canonical_phrase = req.canonical_phrase
+        updated.append('canonical_phrase')
+    if req.canonical_text is not None and hasattr(node, 'canonical_text'):
+        node.canonical_text = req.canonical_text
+        updated.append('canonical_text')
+    if req.notes is not None and hasattr(node, 'notes'):
+        node.notes = req.notes
+        updated.append('notes')
+    if req.title is not None and hasattr(node, 'title'):
+        node.title = req.title
+        updated.append('title')
+    if req.aliases is not None and hasattr(node, 'aliases'):
+        node.aliases = req.aliases
+        updated.append('aliases')
+
+    if not updated:
+        raise HTTPException(400, "No applicable fields to update on this node type.")
+
+    corpus.save()
+    return {"node_id": node_id, "type": ntype, "updated_fields": updated}
+
+
+@router.delete("/corpus/nodes/{node_id}")
+async def delete_node(node_id: str):
+    """Hard-delete a node from the corpus. Checks dependencies first."""
+    node, ntype = _find_corpus_node(node_id)
+    if not node:
+        raise HTTPException(404, f"Node '{node_id}' not found in corpus")
+
+    deps = corpus.get_reverse_deps(node_id)
+    if deps:
+        raise HTTPException(
+            409,
+            f"Cannot delete '{node_id}': {len(deps)} node(s) depend on it: {deps[:5]}. "
+            "Deprecate it instead, or remove the dependencies first."
+        )
+
+    # Remove from the appropriate dict
+    if ntype == "anchor":
+        del corpus.anchors[node_id]
+    elif ntype == "slab":
+        del corpus.slabs[node_id]
+    elif ntype == "bundle":
+        del corpus.bundles[node_id]
+    elif ntype == "gate":
+        del corpus.gates[node_id]
+
+    # Remove edges that reference this node
+    dead_edges = [eid for eid, e in corpus.edges.items()
+                  if e.from_node == node_id or e.to_node == node_id]
+    for eid in dead_edges:
+        del corpus.edges[eid]
+
+    corpus.save()
+    return {"deleted": node_id, "type": ntype, "edges_removed": len(dead_edges)}
 
 
 # --- Graph data for 3D renderer ---

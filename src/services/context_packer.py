@@ -14,6 +14,7 @@ from ..models.schemas import (
     ChatMessage, RuntimeHeader, FrameState, FrameStateSummary, GateState,
 )
 from ..models.enums import OLIMode
+from ..models.schemas import Slab
 from ..prompts.oli_constitutional import OLI_CONSTITUTIONAL_PROMPT, BMD_SCAFFOLD
 
 
@@ -26,8 +27,14 @@ TARGET_CONTEXT_CHARS = TARGET_CONTEXT_TOKENS * CHARS_PER_TOKEN
 def build_system_prompt(
     oli_mode: OLIMode = OLIMode.OFF,
     runtime_header: Optional[RuntimeHeader] = None,
+    base_set_slabs: Optional[list[Slab]] = None,
 ) -> str:
-    """Build the full system message: constitutional prompt + runtime header."""
+    """Build the full system message: constitutional prompt + base set + runtime header.
+
+    Phase 5: base_set_slabs injects CONSTITUTIONAL/CANONICAL slab text into
+    the system prompt so the model has access to layer rules and domain context
+    from turn 0, before any anchor fires.
+    """
     parts = []
 
     if oli_mode == OLIMode.ON:
@@ -37,6 +44,10 @@ def build_system_prompt(
         parts.append(BMD_SCAFFOLD)
 
     parts.append(_build_base_system())
+
+    # §Phase 5 — Base set slab injection
+    if base_set_slabs:
+        parts.append(_format_base_set_slabs(base_set_slabs))
 
     if runtime_header:
         parts.append(_format_runtime_header(runtime_header))
@@ -236,6 +247,30 @@ def _format_runtime_header(header: RuntimeHeader) -> str:
         )
 
     lines.append("[/RUNTIME HEADER]")
+    return "\n".join(lines)
+
+
+def _format_base_set_slabs(slabs: list[Slab]) -> str:
+    """§Phase 5 — Format base set slab canonical text for system prompt injection.
+
+    Each slab's canonical_text is injected under a [CORPUS BASE SET] block so
+    the model has access to constitutional layer rules and domain context from
+    turn 0. Slabs are already dependency-sorted by CorpusStore.base_set_slabs().
+    """
+    if not slabs:
+        return ""
+    lines = ["[CORPUS BASE SET]"]
+    for slab in slabs:
+        lines.append(f"--- {slab.id} ({slab.type.value}) ---")
+        if slab.title:
+            lines.append(f"# {slab.title}")
+        # Inject canonical text (truncate very long slabs to preserve budget)
+        text = slab.canonical_text or ""
+        if len(text) > 8000:
+            text = text[:8000] + "\n[... truncated ...]"
+        lines.append(text)
+        lines.append("")  # blank line separator
+    lines.append("[/CORPUS BASE SET]")
     return "\n".join(lines)
 
 

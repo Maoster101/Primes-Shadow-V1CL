@@ -72,6 +72,14 @@
   .composer button{background:rgba(74,158,255,0.12);border:1px solid rgba(74,158,255,0.28);color:var(--accent);border-radius:9px;width:40px;height:40px;cursor:pointer;font-size:16px;transition:.14s}
   .composer button:hover{background:rgba(74,158,255,0.22);transform:scale(1.05)}
   .composer button:disabled{opacity:.3;cursor:not-allowed}
+  .composer .attach-btn{background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-dim);font-size:18px;width:40px;height:40px;border-radius:9px;cursor:pointer;transition:.14s;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .composer .attach-btn:hover{background:rgba(255,255,255,0.08);color:var(--text)}
+  .attach-preview{display:none;padding:4px 14px 0;border-top:none}
+  .attach-preview .attach-chip{display:inline-flex;align-items:center;gap:6px;background:rgba(74,158,255,0.08);border:1px solid rgba(74,158,255,0.22);border-radius:6px;padding:4px 10px;font-size:11px;color:var(--accent);font-family:'Syne',sans-serif}
+  .attach-chip .attach-name{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .attach-chip .attach-size{color:var(--text-dim)}
+  .attach-chip .attach-remove{cursor:pointer;color:var(--text-dim);font-size:14px;margin-left:2px;transition:.14s}
+  .attach-chip .attach-remove:hover{color:#ff6b6b}
 
   /* ── Right column: canvas + events ── */
   .right-col{flex:1;display:flex;flex-direction:column;min-height:0;min-width:300px;overflow:hidden}
@@ -124,6 +132,37 @@
   @keyframes lf{from{width:0}to{width:100%}}
 
   ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+  /* ── Dashboard nav ── */
+  .dn-item{padding:8px 12px;border-radius:6px;cursor:pointer;font-size:11px;color:var(--text-dim);margin-bottom:1px;display:flex;align-items:center;gap:8px;transition:background .12s,color .12s}
+  .dn-item:hover{background:rgba(255,255,255,0.04);color:var(--text)}
+  .dn-item.active{background:rgba(251,191,36,0.12);color:#fbbf24}
+  .dn-icon{width:16px;text-align:center;font-size:12px}
+  /* Dashboard stat cards */
+  .ds-card{background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:4px;min-width:0;flex:1;transition:border-color .2s}
+  .ds-card:hover{border-color:rgba(255,255,255,0.12)}
+  .ds-card .ds-label{font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--text-dim)}
+  .ds-card .ds-value{font-size:28px;font-weight:600;color:var(--text)}
+  .ds-card .ds-icon{position:absolute;top:18px;right:18px;font-size:18px;opacity:0.4}
+  /* Dashboard table */
+  .dtable{width:100%;border-collapse:collapse;font-size:11px}
+  .dtable thead tr{border-bottom:1px solid var(--border)}
+  .dtable th{padding:10px 14px;text-align:left;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em;font-size:9px;font-weight:500}
+  .dtable td{padding:9px 14px;border-bottom:1px solid rgba(255,255,255,0.03);color:var(--text)}
+  .dtable tbody tr{transition:background .1s}
+  .dtable tbody tr:hover{background:rgba(255,255,255,0.02)}
+  .dbtn{border-radius:4px;padding:3px 8px;cursor:pointer;font-family:inherit;font-size:9px;border:1px solid;transition:.14s}
+  .dbtn:hover{filter:brightness(1.2)}
+  .dbtn-green{background:rgba(10,172,0,0.1);border-color:rgba(10,172,0,0.3);color:#0AAC00}
+  .dbtn-amber{background:rgba(251,191,36,0.1);border-color:rgba(251,191,36,0.3);color:#fbbf24}
+  .dbtn-grey{background:rgba(128,128,128,0.1);border-color:rgba(128,128,128,0.3);color:#888}
+  .dbtn-red{background:rgba(255,50,50,0.06);border-color:rgba(255,50,50,0.2);color:#ff4444}
+  .dbtn-blue{background:rgba(74,158,255,0.1);border-color:rgba(74,158,255,0.3);color:var(--accent)}
+  /* Dashboard info panels */
+  .dpanel{background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:10px;padding:18px 22px}
+  .dpanel-title{font-size:12px;font-weight:600;color:var(--text);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+  .dpanel-title .dpanel-icon{font-size:14px;opacity:0.6}
+  .dpanel-empty{color:var(--text-dim);font-size:11px;padding:12px 0;text-align:center}
 </style>
 </head>
 <body>
@@ -207,7 +246,16 @@
       <span class="badge" id="frame-badge">frame: —</span>
     </div>
     <div class="messages" id="messages"></div>
+    <div class="attach-preview" id="attach-preview">
+      <div class="attach-chip" id="attach-chip">
+        <span class="attach-name" id="attach-name"></span>
+        <span class="attach-size" id="attach-size"></span>
+        <span class="attach-remove" onclick="clearAttachment()">&times;</span>
+      </div>
+    </div>
     <div class="composer">
+      <input type="file" id="file-input" style="display:none" onchange="handleFileSelect(this)">
+      <button class="attach-btn" onclick="document.getElementById('file-input').click()" title="Attach file">&#128206;</button>
       <textarea id="input" placeholder="send a message..." rows="1"
         onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage()}"></textarea>
       <button id="send-btn" onclick="sendMessage()">↑</button>
@@ -216,7 +264,8 @@
 
   <div class="resize-h" id="rh2"></div>
   <!-- Right: canvas + events -->
-  <div class="right-col">
+  <div class="right-col" style="position:relative">
+    <button onclick="openDashboard()" style="position:absolute;top:8px;right:12px;z-index:20;background:rgba(74,158,255,0.08);border:1px solid rgba(74,158,255,0.25);color:var(--accent);border-radius:5px;padding:5px 14px;font-family:'JetBrains Mono',monospace;font-size:10px;cursor:pointer;letter-spacing:.06em;text-transform:uppercase;transition:.14s" onmouseover="this.style.background='rgba(74,158,255,0.18)'" onmouseout="this.style.background='rgba(74,158,255,0.08)'">Dashboard</button>
     <div class="canvas-wrap" id="canvas-wrap">
       <canvas id="c"></canvas>
 
@@ -268,6 +317,39 @@
 </div>
 
 <div id="tooltip" style="position:fixed;display:none;z-index:100;background:rgba(8,8,18,0.95);border:1px solid var(--border);border-radius:7px;padding:8px 12px;font-family:'JetBrains Mono',monospace;font-size:11px;pointer-events:none;max-width:280px;box-shadow:0 4px 16px rgba(0,0,0,0.6)"></div>
+
+<!-- Corpus Dashboard — full-window admin panel (base-44 style) -->
+<div id="dashboard-panel" style="display:none;position:fixed;inset:0;z-index:90;background:#080a14;font-family:'JetBrains Mono',monospace;flex-direction:column">
+  <div style="display:flex;height:100%">
+    <!-- Dashboard sidebar -->
+    <div id="dash-sidebar" style="width:200px;background:rgba(12,14,26,0.98);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0">
+      <div style="padding:18px 18px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px">
+        <div style="width:28px;height:28px;border-radius:6px;background:rgba(74,158,255,0.15);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--accent)">PS</div>
+        <div>
+          <div style="font-size:12px;font-weight:600;color:var(--text)">Prime's Shadow</div>
+        </div>
+        <span onclick="closeDashboard()" style="margin-left:auto;cursor:pointer;color:var(--text-dim);font-size:16px;transition:.14s" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text-dim)'">&lt;</span>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:6px 8px" id="dash-nav">
+        <div class="dn-item active" data-page="dashboard" onclick="dashNav('dashboard')"><span class="dn-icon">&#9638;</span> Dashboard</div>
+        <div class="dn-item" data-page="anchors" onclick="dashNav('anchors')"><span class="dn-icon">&#9875;</span> Anchors</div>
+        <div class="dn-item" data-page="bundles" onclick="dashNav('bundles')"><span class="dn-icon">&#11044;</span> Bundles</div>
+        <div class="dn-item" data-page="slabs" onclick="dashNav('slabs')"><span class="dn-icon">&#9635;</span> Slabs</div>
+        <div class="dn-item" data-page="graph" onclick="dashNav('graph')"><span class="dn-icon">&#10132;</span> Graph</div>
+        <div class="dn-item" data-page="frame" onclick="dashNav('frame')"><span class="dn-icon">&#8776;</span> Frame State</div>
+        <div class="dn-item" data-page="drafts" onclick="dashNav('drafts')"><span class="dn-icon">&#9633;</span> Drafts</div>
+        <div class="dn-item" data-page="gates" onclick="dashNav('gates')"><span class="dn-icon">&#9711;</span> Gates</div>
+        <div class="dn-item" data-page="stale" onclick="dashNav('stale')"><span class="dn-icon">&#9888;</span> Stale Review</div>
+        <div class="dn-item" data-page="export" onclick="dashNav('export')"><span class="dn-icon">&#8681;</span> Export</div>
+        <div class="dn-item" data-page="settings" onclick="dashNav('settings')"><span class="dn-icon">&#9881;</span> Settings</div>
+      </div>
+    </div>
+    <!-- Dashboard content -->
+    <div style="flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden">
+      <div id="dash-content" style="flex:1;overflow-y:auto;padding:28px 36px"></div>
+    </div>
+  </div>
+</div>
 
 <!-- §15.3 Commit Preview — full side panel over right column -->
 <div id="commit-panel" style="display:none;position:fixed;top:0;right:0;bottom:0;width:calc(100vw - 280px - 420px);z-index:60;background:var(--panel-bg);border-left:1px solid var(--border);backdrop-filter:blur(24px);font-family:'JetBrains Mono',monospace;overflow:hidden;flex-direction:column">
@@ -331,6 +413,48 @@ const API='/api';
 let currentChatId=null, currentSessionId=null, oliMode='OFF', sending=false;
 let webMode='off', thinkLevel='medium'; // webMode: 'off' | 'on' | 'auto'
 let selectedNodes=new Set(); // multi-select for bundling
+let pendingAttachment=null; // {filename, chars, truncated, content}
+
+// ═══════════════════════════════════════════════════════════════
+//  FILE UPLOAD
+// ═══════════════════════════════════════════════════════════════
+async function handleFileSelect(input){
+  const file=input.files[0];
+  if(!file)return;
+  input.value=''; // reset so same file can be re-selected
+
+  // Show uploading state
+  const chip=document.getElementById('attach-chip');
+  const preview=document.getElementById('attach-preview');
+  document.getElementById('attach-name').textContent=file.name;
+  document.getElementById('attach-size').textContent='uploading...';
+  preview.style.display='block';
+
+  try{
+    const form=new FormData();
+    form.append('file',file);
+    const res=await fetch(`${API}/upload`,{method:'POST',body:form});
+    if(!res.ok){
+      const err=await res.json().catch(()=>({detail:res.statusText}));
+      throw new Error(err.detail||'Upload failed');
+    }
+    const data=await res.json();
+    pendingAttachment=data;
+    document.getElementById('attach-size').textContent=
+      `${(data.chars/1000).toFixed(1)}k chars`+(data.truncated?' (truncated)':'');
+  }catch(err){
+    document.getElementById('attach-size').textContent='';
+    document.getElementById('attach-name').textContent=`Error: ${err.message}`;
+    document.getElementById('attach-chip').style.borderColor='#ff6b6b';
+    setTimeout(clearAttachment,3000);
+  }
+}
+
+function clearAttachment(){
+  pendingAttachment=null;
+  document.getElementById('attach-preview').style.display='none';
+  document.getElementById('attach-chip').style.borderColor='';
+}
 
 // ═══════════════════════════════════════════════════════════════
 //  TYPE BASE COLOURS (hue per type, brightness driven by temp)
@@ -825,14 +949,32 @@ async function showInspect(n){
 
   el.innerHTML=html;
 
-  // Fetch full corpus data for deep content
+  // Fetch full corpus data for deep content + dashboard controls
   if(n.status==='corpus' && n.id){
     try{
       const full=await fetch(`${API}/corpus/full`).then(r=>r.json());
       const anchor=(full.anchors||[]).find(a=>a.id===n.id);
       const bundle=(full.bundles||[]).find(b=>b.id===n.id);
       const slab=(full.slabs||[]).find(s=>s.id===n.id);
+      const obj=anchor||bundle||slab;
       let deep='';
+
+      // Lifecycle status badge + controls
+      if(obj){
+        const ls=obj.lifecycle_status||'ACTIVE';
+        const lsColor=ls==='ACTIVE'?'#0AAC00':ls==='DORMANT'?'#fbbf24':'#ff6b6b';
+        deep+=`<div style="border-top:1px solid var(--border);margin-top:10px;padding-top:8px">`;
+        deep+=`<div class="ir"><span class="ik">lifecycle</span><span class="iv" style="color:${lsColor};font-weight:600">${ls}</span></div>`;
+        // Lifecycle action buttons
+        deep+=`<div style="display:flex;gap:5px;margin-top:6px;margin-bottom:8px">`;
+        if(ls!=='ACTIVE') deep+=`<button onclick="setNodeLifecycle('${n.id}','ACTIVE')" style="flex:1;background:rgba(10,172,0,0.08);border:1px solid rgba(10,172,0,0.3);color:#0AAC00;border-radius:4px;padding:4px 6px;cursor:pointer;font-family:inherit;font-size:10px">Activate</button>`;
+        if(ls!=='DORMANT') deep+=`<button onclick="setNodeLifecycle('${n.id}','DORMANT')" style="flex:1;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.3);color:#fbbf24;border-radius:4px;padding:4px 6px;cursor:pointer;font-family:inherit;font-size:10px">Dormant</button>`;
+        if(ls!=='DEPRECATED') deep+=`<button onclick="setNodeLifecycle('${n.id}','DEPRECATED')" style="flex:1;background:rgba(255,107,107,0.08);border:1px solid rgba(255,107,107,0.3);color:#ff6b6b;border-radius:4px;padding:4px 6px;cursor:pointer;font-family:inherit;font-size:10px">Deprecate</button>`;
+        deep+=`</div>`;
+        // Delete button (danger zone)
+        deep+=`<button onclick="deleteCorpusNode('${n.id}')" style="width:100%;background:rgba(255,50,50,0.06);border:1px solid rgba(255,50,50,0.2);color:#ff4444;border-radius:4px;padding:4px 6px;cursor:pointer;font-family:inherit;font-size:10px;margin-bottom:8px">Delete Node</button>`;
+        deep+=`</div>`;
+      }
 
       if(anchor){
         deep+=`<div style="border-top:1px solid var(--border);margin-top:10px;padding-top:8px">`
@@ -862,8 +1004,10 @@ async function showInspect(n){
       if(slab){
         deep+=`<div style="border-top:1px solid var(--border);margin-top:10px;padding-top:8px">`;
         deep+=`<div class="ir"><span class="ik" style="color:#0050EB">title</span><span class="iv">${slab.title||''}</span></div>`;
+        if(slab.type) deep+=`<div class="ir"><span class="ik">slab type</span><span class="iv">${slab.type}</span></div>`;
+        if(slab.requires_oli_mode) deep+=`<div class="ir"><span class="ik">requires OLI</span><span class="iv">${slab.requires_oli_mode}</span></div>`;
         if(slab.canonical_text){
-          deep+=`<div style="margin-top:8px;padding:10px;background:rgba(0,80,235,0.04);border:1px solid rgba(0,80,235,0.12);border-radius:6px;color:var(--text);font-size:11px;line-height:1.6;white-space:pre-wrap">${slab.canonical_text.replace(/</g,'&lt;')}</div>`;
+          deep+=`<div style="margin-top:8px;padding:10px;background:rgba(0,80,235,0.04);border:1px solid rgba(0,80,235,0.12);border-radius:6px;color:var(--text);font-size:11px;line-height:1.6;white-space:pre-wrap;max-height:200px;overflow-y:auto">${slab.canonical_text.replace(/</g,'&lt;')}</div>`;
         }
         if(slab.links){
           deep+=`<div style="border-top:1px solid var(--border);margin-top:10px;padding-top:8px">`;
@@ -892,6 +1036,697 @@ function updateInspectSalience(){
 }
 
 function closeInspect(){document.getElementById('inspect').classList.remove('on');_inspectedNode=null}
+
+// --- Corpus dashboard actions ---
+async function setNodeLifecycle(nodeId, status){
+  try{
+    const res=await fetch(`${API}/corpus/nodes/${nodeId}/lifecycle`,{
+      method:'PATCH',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({lifecycle_status:status})
+    });
+    if(!res.ok){const err=await res.json();pushEvent('corpus',`Error: ${err.detail}`);return}
+    const data=await res.json();
+    pushEvent('corpus',`${nodeId} -> ${status}`);
+    // Update the cNode in the cold corpus for visual feedback
+    const cn=cNodes.find(n=>n.id===nodeId);
+    if(cn)cn.lifecycle_status=status;
+    // Re-inspect to refresh the panel
+    if(_inspectedNode&&_inspectedNode.id===nodeId){
+      _inspectedNode.lifecycle_status=status;
+      showInspect(_inspectedNode);
+    }
+    // Reload corpus graph to reflect changes
+    corpusLoaded=false;
+    if(typeof loadCorpusGraph==='function')loadCorpusGraph();
+  }catch(e){pushEvent('corpus',`Error: ${e.message}`)}
+}
+
+async function deleteCorpusNode(nodeId){
+  // Check dependencies first
+  try{
+    const deps=await fetch(`${API}/corpus/nodes/${nodeId}/deps`).then(r=>r.json());
+    if(!deps.safe_to_delete){
+      const msg=`Cannot delete: ${deps.dependents.length} node(s) depend on ${nodeId}:\n${deps.dependents.slice(0,5).join(', ')}\n\nDeprecate it instead?`;
+      if(!confirm(msg))return;
+      // Offer to deprecate instead
+      await setNodeLifecycle(nodeId,'DEPRECATED');
+      return;
+    }
+    if(!confirm(`Delete ${nodeId} permanently? This will also remove ${deps.edges.length} edge(s). This cannot be undone.`))return;
+    const res=await fetch(`${API}/corpus/nodes/${nodeId}`,{method:'DELETE'});
+    if(!res.ok){const err=await res.json();pushEvent('corpus',`Error: ${err.detail}`);return}
+    const data=await res.json();
+    pushEvent('corpus',`Deleted ${nodeId} (${data.edges_removed} edges removed)`);
+    closeInspect();
+    // Reload corpus graph
+    corpusLoaded=false;
+    if(typeof loadCorpusGraph==='function')loadCorpusGraph();
+  }catch(e){pushEvent('corpus',`Error: ${e.message}`)}
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  CORPUS DASHBOARD
+// ═══════════════════════════════════════════════════════════════
+let dashData=null;
+
+let dashPage='dashboard';
+
+async function openDashboard(){
+  try{
+    dashData=await fetch(`${API}/corpus/full`).then(r=>r.json());
+  }catch(e){pushEvent('corpus',`Dashboard load failed: ${e.message}`);return}
+  document.getElementById('dashboard-panel').style.display='flex';
+  dashNav('dashboard');
+}
+
+function closeDashboard(){
+  document.getElementById('dashboard-panel').style.display='none';
+}
+
+function dashNav(page){
+  dashPage=page;
+  document.querySelectorAll('#dash-nav .dn-item').forEach(el=>{
+    el.classList.toggle('active',el.dataset.page===page);
+  });
+  const c=document.getElementById('dash-content');
+  const render={
+    dashboard:dashPageOverview,
+    anchors:dashPageAnchors,
+    bundles:dashPageBundles,
+    slabs:dashPageSlabs,
+    graph:dashPageGraph,
+    frame:dashPageFrame,
+    drafts:dashPageDrafts,
+    gates:dashPageGates,
+    stale:dashPageStale,
+    export:dashPageExport,
+    settings:dashPageSettings,
+  };
+  (render[page]||dashPageOverview)(c);
+}
+
+// ── Helpers ──
+const _tc={anchor:'#0AAC00',slab:'#0050EB',bundle:'#B4009E',gate:'#ffa050'};
+const _sc={ACTIVE:'#0AAC00',DORMANT:'#fbbf24',DEPRECATED:'#888'};
+
+function _lifecycleActions(id,status){
+  let h='';
+  if(status!=='ACTIVE')h+=`<button class="dbtn dbtn-green" onclick="dashSetLifecycle('${id}','ACTIVE')">Activate</button> `;
+  if(status!=='DORMANT')h+=`<button class="dbtn dbtn-amber" onclick="dashSetLifecycle('${id}','DORMANT')">Dormant</button> `;
+  if(status!=='DEPRECATED')h+=`<button class="dbtn dbtn-grey" onclick="dashSetLifecycle('${id}','DEPRECATED')">Deprecate</button> `;
+  h+=`<button class="dbtn dbtn-red" onclick="dashDelete('${id}')">Del</button>`;
+  return h;
+}
+
+function _statusBadge(s){return `<span style="color:${_sc[s]||'#888'};font-weight:600">${s}</span>`}
+function _dimRow(s){return s==='DEPRECATED'?'opacity:0.45;text-decoration:line-through':s==='DORMANT'?'opacity:0.65':''}
+
+// ── Dashboard Overview ──
+function dashPageOverview(c){
+  const d=dashData;
+  const na=(d.anchors||[]).length, nb=(d.bundles||[]).length, ns=(d.slabs||[]).length, ne=(d.edges||[]).length, ng=(d.gates||[]).length;
+  // Count pending drafts
+  let draftHtml='<div class="dpanel-empty">No pending drafts</div>';
+  let recentHtml='<div class="dpanel-empty">No recent activity</div>';
+
+  c.innerHTML=`
+    <div style="margin-bottom:6px">
+      <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:600;color:var(--text)">Corpus Dashboard</div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:3px">Prime's Shadow — semantic persistence layer</div>
+    </div>
+
+    <div style="display:flex;gap:14px;margin:22px 0">
+      <div class="ds-card" style="position:relative;cursor:pointer" onclick="dashNav('anchors')">
+        <div class="ds-label">ANCHORS</div>
+        <div class="ds-value">${na}</div>
+        <div class="ds-icon" style="color:#fbbf24">&#9875;</div>
+      </div>
+      <div class="ds-card" style="position:relative;cursor:pointer" onclick="dashNav('bundles')">
+        <div class="ds-label">BUNDLES</div>
+        <div class="ds-value">${nb}</div>
+        <div class="ds-icon" style="color:#fbbf24">&#11044;</div>
+      </div>
+      <div class="ds-card" style="position:relative;cursor:pointer" onclick="dashNav('slabs')">
+        <div class="ds-label">SLABS</div>
+        <div class="ds-value">${ns}</div>
+        <div class="ds-icon" style="color:#fbbf24">&#9635;</div>
+      </div>
+      <div class="ds-card" style="position:relative;cursor:pointer" onclick="dashNav('graph')">
+        <div class="ds-label">EDGES</div>
+        <div class="ds-value">${ne}</div>
+        <div class="ds-icon" style="color:#fbbf24">&#10132;</div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:14px;margin-top:18px">
+      <div class="dpanel" style="flex:2">
+        <div class="dpanel-title"><span class="dpanel-icon">&#9633;</span> Draft Stack (${currentSessionId?'loading...':'no session'})</div>
+        <div id="dash-draft-body">${draftHtml}</div>
+      </div>
+      <div class="dpanel" style="flex:1">
+        <div class="dpanel-title"><span class="dpanel-icon">&#10132;</span> Recent Activity</div>
+        ${recentHtml}
+      </div>
+    </div>
+
+    <div style="display:flex;gap:14px;margin-top:14px">
+      <div class="dpanel" style="flex:1">
+        <div class="dpanel-title"><span class="dpanel-icon">&#9711;</span> Gates</div>
+        <div style="font-size:11px;color:var(--text-dim)">${ng} gate${ng!==1?'s':''} configured</div>
+        ${(d.gates||[]).map(g=>`<div style="margin-top:6px;padding:6px 10px;background:rgba(255,255,255,0.02);border-radius:5px;border:1px solid rgba(255,255,255,0.04)">
+          <div style="font-size:10px;color:var(--text)">${g.id}</div>
+          <div style="font-size:9px;color:var(--text-dim);margin-top:2px">${g.description?.slice(0,80)||''}...</div>
+          <div style="font-size:9px;color:var(--text-dim);margin-top:2px">${(g.rules||[]).length} rules | stage: ${g.stage} | default: ${g.default_outcome}</div>
+        </div>`).join('')}
+      </div>
+      <div class="dpanel" style="flex:1">
+        <div class="dpanel-title"><span class="dpanel-icon">&#9881;</span> Corpus Health</div>
+        <div id="dash-health-body" style="font-size:11px;color:var(--text-dim)">Loading...</div>
+      </div>
+    </div>`;
+
+  // Async load drafts
+  if(currentSessionId){
+    fetch(`${API}/sessions/${currentSessionId}/drafts`).then(r=>r.json()).then(drafts=>{
+      const el=document.getElementById('dash-draft-body');
+      if(!el)return;
+      if(!drafts.length){el.innerHTML='<div class="dpanel-empty">No pending drafts</div>';return}
+      const parent=el.closest('.dpanel');
+      if(parent)parent.querySelector('.dpanel-title').innerHTML=`<span class="dpanel-icon">&#9633;</span> Draft Stack (${drafts.length} pending)`;
+      el.innerHTML=drafts.map(d=>`<div style="padding:6px 10px;background:rgba(255,255,255,0.02);border-radius:5px;border:1px solid rgba(255,255,255,0.04);margin-bottom:4px">
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--text);font-size:10px">${d.id}</span><span style="font-size:9px;color:${_sc[d.status]||'var(--text-dim)'}">${d.status}</span></div>
+        <div style="font-size:9px;color:var(--text-dim);margin-top:2px">conf: ${(d.confidence*100).toFixed(0)}% | turns: ${(d.source_turns||[]).join(',')}</div>
+      </div>`).join('');
+    }).catch(()=>{});
+  }
+
+  // Async load health
+  fetch(`${API}/health`).then(r=>r.json()).then(h=>{
+    const el=document.getElementById('dash-health-body');
+    if(!el)return;
+    const st=h.status==='ok'?'<span style="color:#0AAC00">Healthy</span>':'<span style="color:#fbbf24">Degraded</span>';
+    el.innerHTML=`<div>Status: ${st}</div>
+      <div style="margin-top:4px">Ollama chat: ${h.ollama?.chat_model?'<span style="color:#0AAC00">'+h.ollama.chat_model+'</span>':'<span style="color:#ff4444">offline</span>'}</div>
+      <div style="margin-top:2px">Corpus valid: ${h.corpus_valid?'<span style="color:#0AAC00">yes</span>':'<span style="color:#ff4444">'+h.corpus_errors?.length+' errors</span>'}</div>`;
+  }).catch(()=>{});
+}
+
+// ── Expandable edit form helpers ──
+let _editingNode=null; // currently expanded node ID
+
+function _inputRow(label,id,val,placeholder='',opts={}){
+  const type=opts.type||'text';
+  const mono=opts.mono?'font-family:JetBrains Mono,monospace;':'';
+  const ro=opts.readonly?'readonly':'';
+  const sv=String(val==null?'':val);
+  if(opts.textarea)return `<div style="margin-bottom:10px"><label style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px">${label}</label><textarea id="${id}" ${ro} placeholder="${placeholder}" style="width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:11px;${mono}resize:vertical;min-height:80px;outline:none">${sv}</textarea></div>`;
+  return `<div style="margin-bottom:10px"><label style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px">${label}</label><input type="${type}" id="${id}" value="${sv.replace(/"/g,'&quot;')}" ${ro} placeholder="${placeholder}" style="width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:11px;${mono}outline:none"></div>`;
+}
+
+function _selectRow(label,id,val,options){
+  return `<div style="margin-bottom:10px"><label style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px">${label}</label><select id="${id}" style="width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:11px;outline:none">${options.map(o=>`<option value="${o}" ${o===val?'selected':''}>${o}</option>`).join('')}</select></div>`;
+}
+
+function _tagList(label,items,removeFunc){
+  if(!items||!items.length)return '';
+  return `<div style="margin-bottom:10px"><label style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px">${label}</label><div style="display:flex;flex-wrap:wrap;gap:4px">${items.map((t,i)=>`<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:rgba(74,158,255,0.08);border:1px solid rgba(74,158,255,0.2);border-radius:5px;font-size:10px;color:var(--accent);font-family:JetBrains Mono,monospace">${t}<span onclick="${removeFunc}(${i})" style="cursor:pointer;color:var(--text-dim);font-size:12px">&times;</span></span>`).join('')}</div></div>`;
+}
+
+// ── Anchors page ──
+function dashPageAnchors(c){
+  const anchors=dashData.anchors||[];
+  c.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text)">Anchors <span style="font-size:13px;color:var(--text-dim);font-weight:400">(${anchors.length})</span></div>
+    </div>
+    <div id="dash-anchor-list"></div>`;
+  _renderAnchorCards(anchors);
+}
+
+function _renderAnchorCards(anchors){
+  const container=document.getElementById('dash-anchor-list');
+  if(!container)return;
+  container.innerHTML=anchors.map(a=>{
+    const s=a.lifecycle_status||'ACTIVE';
+    const isEditing=_editingNode===a.id;
+    const aliasStr=(a.aliases||[]).join(', ')||'none';
+    const invokeStr=(a.invokes||[]).join(', ')||'none';
+    return `<div style="background:rgba(255,255,255,0.02);border:1px solid ${isEditing?'rgba(74,158,255,0.3)':'var(--border)'};border-radius:10px;margin-bottom:8px;transition:border-color .2s;${_dimRow(s)}" ${isEditing?'':'onmouseover="this.style.borderColor=\'rgba(74,158,255,0.2)\'" onmouseout="this.style.borderColor=\'var(--border)\'"'}>
+      <div style="display:flex;align-items:center;padding:12px 18px;cursor:pointer;gap:12px" onclick="_editingNode=_editingNode==='${a.id}'?null:'${a.id}';dashNav('anchors')">
+        <div style="width:8px;height:8px;border-radius:50%;background:#0AAC00;flex-shrink:0"></div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;color:#0AAC00;font-weight:500">${a.canonical_phrase}</div>
+          <div style="font-size:9px;color:var(--text-dim);margin-top:1px;font-family:JetBrains Mono,monospace">${a.id}</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+          <span style="font-size:9px;color:var(--text-dim)">${(a.aliases||[]).length} aliases</span>
+          <span style="font-size:9px;color:var(--text-dim)">|</span>
+          <span style="font-size:9px;color:var(--text-dim)">${(a.invokes||[]).length} invokes</span>
+          ${_statusBadge(s)}
+          <span style="font-size:10px;color:var(--text-dim);margin-left:4px">${isEditing?'&#9650;':'&#9660;'}</span>
+        </div>
+      </div>
+      ${isEditing?`<div style="padding:0 18px 18px;border-top:1px solid var(--border)">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 18px;margin-top:14px">
+          ${_inputRow('Canonical Phrase','_ae_phrase',a.canonical_phrase,'Primary phrase')}
+          ${_selectRow('Status','_ae_status',s,['ACTIVE','DORMANT','DEPRECATED'])}
+          ${_inputRow('Notes','_ae_notes',a.notes,'Freeform notes...',{textarea:true})}
+          <div>
+            ${_inputRow('Confidence Threshold','_ae_conf',(a.match_policy?.min_confidence_exact||0.8),'0.80',{type:'number'})}
+            ${_inputRow('Version','_ae_ver',a.version||'v1','v1',{readonly:true,mono:true})}
+          </div>
+        </div>
+        <div style="margin-bottom:10px">
+          <label style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px">Aliases</label>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">
+            ${(a.aliases||[]).map((al,i)=>`<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:5px;font-size:10px;color:var(--text);font-family:JetBrains Mono,monospace">${al}</span>`).join('')||'<span style="font-size:10px;color:var(--text-dim)">No aliases</span>'}
+          </div>
+        </div>
+        <div style="margin-bottom:10px">
+          <label style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px">Invokes</label>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">
+            ${(a.invokes||[]).map(inv=>`<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.2);border-radius:5px;font-size:10px;color:var(--accent);font-family:JetBrains Mono,monospace">${inv}</span>`).join('')||'<span style="font-size:10px;color:var(--text-dim)">No invocations</span>'}
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+          ${_lifecycleActions(a.id,s)}
+          <button class="dbtn dbtn-blue" onclick="dashSaveAnchor('${a.id}')">Save Changes</button>
+        </div>
+      </div>`:''}
+    </div>`;
+  }).join('');
+}
+
+async function dashSaveAnchor(nodeId){
+  const phrase=document.getElementById('_ae_phrase')?.value;
+  const notes=document.getElementById('_ae_notes')?.value;
+  const status=document.getElementById('_ae_status')?.value;
+  try{
+    // Update fields
+    const res=await fetch(`${API}/corpus/nodes/${nodeId}`,{
+      method:'PATCH',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({canonical_phrase:phrase||undefined,notes:notes||undefined})
+    });
+    if(!res.ok){const err=await res.json();alert(err.detail);return}
+    // Update status if changed
+    const orig=(dashData.anchors||[]).find(a=>a.id===nodeId);
+    if(orig&&status&&status!==(orig.lifecycle_status||'ACTIVE')){
+      await fetch(`${API}/corpus/nodes/${nodeId}/lifecycle`,{
+        method:'PATCH',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({lifecycle_status:status})
+      });
+    }
+    pushEvent('corpus',`Updated ${nodeId}`);
+    dashData=await fetch(`${API}/corpus/full`).then(r=>r.json());
+    dashNav('anchors');
+    corpusLoaded=false;
+  }catch(e){alert(e.message)}
+}
+
+// ── Bundles page ──
+function dashPageBundles(c){
+  const bundles=dashData.bundles||[];
+  c.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text)">Bundles <span style="font-size:13px;color:var(--text-dim);font-weight:400">(${bundles.length})</span></div>
+    </div>
+    <div id="dash-bundle-list"></div>`;
+
+  document.getElementById('dash-bundle-list').innerHTML=bundles.map(b=>{
+    const s=b.lifecycle_status||'ACTIVE';
+    const isEditing=_editingNode===b.id;
+    const intents=(b.payload?.intent||[]);
+    const invariants=(b.payload?.invariants||[]);
+    const warnings=(b.payload?.warnings||[]);
+    const heuristics=(b.payload?.heuristics||[]);
+    return `<div style="background:rgba(255,255,255,0.02);border:1px solid ${isEditing?'rgba(180,0,158,0.3)':'var(--border)'};border-radius:10px;margin-bottom:8px;${_dimRow(s)}">
+      <div style="display:flex;align-items:center;padding:12px 18px;cursor:pointer;gap:12px" onclick="_editingNode=_editingNode==='${b.id}'?null:'${b.id}';dashNav('bundles')">
+        <svg width="10" height="10"><polygon points="5,0 10,3 10,7 5,10 0,7 0,3" fill="#B4009E"/></svg>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;color:#B4009E;font-weight:500">${intents[0]||b.id}</div>
+          <div style="font-size:9px;color:var(--text-dim);margin-top:1px;font-family:JetBrains Mono,monospace">${b.id}</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+          <span style="font-size:9px;color:var(--text-dim)">${invariants.length} inv</span>
+          <span style="font-size:9px;color:var(--text-dim)">|</span>
+          <span style="font-size:9px;color:var(--text-dim)">${(b.supports||[]).length} supports</span>
+          ${_statusBadge(s)}
+          <span style="font-size:10px;color:var(--text-dim);margin-left:4px">${isEditing?'&#9650;':'&#9660;'}</span>
+        </div>
+      </div>
+      ${isEditing?`<div style="padding:0 18px 18px;border-top:1px solid var(--border)">
+        <div style="margin-top:14px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 18px">
+            ${_selectRow('Status','_be_status',s,['ACTIVE','DORMANT','DEPRECATED'])}
+            ${_inputRow('Version','_be_ver',b.version||'v1','v1',{readonly:true,mono:true})}
+          </div>
+          <div style="margin-bottom:12px">
+            <label style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:6px">Intent</label>
+            ${intents.map(t=>`<div style="padding:6px 10px;background:rgba(180,0,158,0.06);border:1px solid rgba(180,0,158,0.15);border-radius:5px;font-size:11px;color:var(--text);margin-bottom:3px">${t}</div>`).join('')}
+          </div>
+          ${invariants.length?`<div style="margin-bottom:12px">
+            <label style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:6px">Invariants</label>
+            ${invariants.map(t=>`<div style="padding:6px 10px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:5px;font-size:10px;color:var(--text);margin-bottom:3px;font-family:JetBrains Mono,monospace">${t}</div>`).join('')}
+          </div>`:''}
+          ${warnings.length?`<div style="margin-bottom:12px">
+            <label style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:6px">Warnings</label>
+            ${warnings.map(t=>`<div style="padding:6px 10px;background:rgba(255,192,64,0.04);border:1px solid rgba(255,192,64,0.15);border-radius:5px;font-size:10px;color:#ffc040;margin-bottom:3px">${t}</div>`).join('')}
+          </div>`:''}
+          ${heuristics.length?`<div style="margin-bottom:12px">
+            <label style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:6px">Heuristics</label>
+            ${heuristics.map(t=>`<div style="padding:6px 10px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:5px;font-size:10px;color:var(--text-dim);margin-bottom:3px">${t}</div>`).join('')}
+          </div>`:''}
+          <div style="margin-bottom:12px">
+            <label style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:6px">Supports</label>
+            <div style="display:flex;flex-wrap:wrap;gap:4px">
+              ${(b.supports||[]).map(s=>`<span style="padding:3px 8px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.2);border-radius:5px;font-size:10px;color:var(--accent);font-family:JetBrains Mono,monospace">${s}</span>`).join('')||'<span style="font-size:10px;color:var(--text-dim)">None</span>'}
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+          ${_lifecycleActions(b.id,s)}
+        </div>
+      </div>`:''}
+    </div>`;
+  }).join('');
+}
+
+// ── Slabs page ──
+function dashPageSlabs(c){
+  const slabs=dashData.slabs||[];
+  c.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text)">Slabs <span style="font-size:13px;color:var(--text-dim);font-weight:400">(${slabs.length})</span></div>
+    </div>
+    <div id="dash-slab-list"></div>`;
+
+  document.getElementById('dash-slab-list').innerHTML=slabs.map(s=>{
+    const st=s.lifecycle_status||'ACTIVE';
+    const isEditing=_editingNode===s.id;
+    const title=s.title||s.id;
+    const typeColor=s.type==='CONSTITUTIONAL'?'#ff6b6b':s.type==='INVARIANT'?'#fbbf24':s.type==='REFERENCE'?'#c084fc':'var(--accent)';
+    const linkedAnchors=s.links?.anchors||[];
+    const linkedBundles=s.links?.bundles||[];
+    return `<div style="background:rgba(255,255,255,0.02);border:1px solid ${isEditing?'rgba(0,80,235,0.3)':'var(--border)'};border-radius:10px;margin-bottom:8px;${_dimRow(st)}">
+      <div style="display:flex;align-items:center;padding:12px 18px;cursor:pointer;gap:12px" onclick="_editingNode=_editingNode==='${s.id}'?null:'${s.id}';dashNav('slabs')">
+        <div style="width:8px;height:8px;border-radius:50%;border:2px solid #0050EB;flex-shrink:0"></div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;color:#0050EB;font-weight:500">${title}</div>
+          <div style="font-size:9px;color:var(--text-dim);margin-top:1px;font-family:JetBrains Mono,monospace">${s.id}</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+          <span style="font-size:9px;color:${typeColor};font-weight:600">${s.type||'CANONICAL'}</span>
+          <span style="font-size:9px;color:var(--text-dim)">|</span>
+          <span style="font-size:9px;color:var(--text-dim)">${s.requires_oli_mode||'always'}</span>
+          ${_statusBadge(st)}
+          <span style="font-size:10px;color:var(--text-dim);margin-left:4px">${isEditing?'&#9650;':'&#9660;'}</span>
+        </div>
+      </div>
+      ${isEditing?`<div style="padding:0 18px 18px;border-top:1px solid var(--border)">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 18px;margin-top:14px">
+          ${_inputRow('Title','_se_title',s.title,'Human-readable title')}
+          ${_selectRow('Status','_se_status',st,['ACTIVE','DORMANT','DEPRECATED'])}
+          ${_selectRow('Type','_se_type',s.type||'CANONICAL',['CONSTITUTIONAL','INVARIANT','REFERENCE','CANONICAL'])}
+          ${_selectRow('OLI Mode Requirement','_se_oli',s.requires_oli_mode||'',['','ON','OFF'])}
+        </div>
+        <div style="margin-bottom:12px">
+          <label style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:6px">Canonical Text</label>
+          <div style="padding:10px 12px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:6px;font-size:10px;color:var(--text);font-family:JetBrains Mono,monospace;white-space:pre-wrap;max-height:200px;overflow-y:auto;line-height:1.5">${(s.canonical_text||'').slice(0,2000)}</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 18px">
+          <div style="margin-bottom:12px">
+            <label style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:6px">Linked Anchors</label>
+            <div style="display:flex;flex-wrap:wrap;gap:4px">
+              ${linkedAnchors.map(a=>`<span style="padding:3px 8px;background:rgba(10,172,0,0.06);border:1px solid rgba(10,172,0,0.2);border-radius:5px;font-size:10px;color:#0AAC00;font-family:JetBrains Mono,monospace">${a}</span>`).join('')||'<span style="font-size:10px;color:var(--text-dim)">None</span>'}
+            </div>
+          </div>
+          <div style="margin-bottom:12px">
+            <label style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:6px">Linked Bundles</label>
+            <div style="display:flex;flex-wrap:wrap;gap:4px">
+              ${linkedBundles.map(b=>`<span style="padding:3px 8px;background:rgba(180,0,158,0.06);border:1px solid rgba(180,0,158,0.2);border-radius:5px;font-size:10px;color:#B4009E;font-family:JetBrains Mono,monospace">${b}</span>`).join('')||'<span style="font-size:10px;color:var(--text-dim)">None</span>'}
+            </div>
+          </div>
+        </div>
+        ${(s.depends_on||[]).length?`<div style="margin-bottom:12px">
+          <label style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:6px">Dependencies</label>
+          <div style="display:flex;flex-wrap:wrap;gap:4px">
+            ${s.depends_on.map(d=>`<span style="padding:3px 8px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:5px;font-size:10px;color:var(--text);font-family:JetBrains Mono,monospace">${d}</span>`).join('')}
+          </div>
+        </div>`:''}
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+          ${_lifecycleActions(s.id,st)}
+          <button class="dbtn dbtn-blue" onclick="dashSaveSlab('${s.id}')">Save Changes</button>
+        </div>
+      </div>`:''}
+    </div>`;
+  }).join('');
+}
+
+async function dashSaveSlab(nodeId){
+  const title=document.getElementById('_se_title')?.value;
+  const status=document.getElementById('_se_status')?.value;
+  try{
+    if(title){
+      const res=await fetch(`${API}/corpus/nodes/${nodeId}`,{
+        method:'PATCH',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({title:title})
+      });
+      if(!res.ok){const err=await res.json();alert(err.detail);return}
+    }
+    const orig=(dashData.slabs||[]).find(s=>s.id===nodeId);
+    if(orig&&status&&status!==(orig.lifecycle_status||'ACTIVE')){
+      await fetch(`${API}/corpus/nodes/${nodeId}/lifecycle`,{
+        method:'PATCH',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({lifecycle_status:status})
+      });
+    }
+    pushEvent('corpus',`Updated ${nodeId}`);
+    dashData=await fetch(`${API}/corpus/full`).then(r=>r.json());
+    dashNav('slabs');
+    corpusLoaded=false;
+  }catch(e){alert(e.message)}
+}
+
+// ── Graph page (edges) ──
+function dashPageGraph(c){
+  const edges=dashData.edges||[];
+  c.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text)">Graph Edges <span style="font-size:13px;color:var(--text-dim);font-weight:400">(${edges.length})</span></div>
+    </div>
+    <table class="dtable"><thead><tr>
+      <th>ID</th><th>From</th><th>To</th><th>Type</th><th>Weight</th>
+    </tr></thead><tbody></tbody></table>`;
+
+  const tbody=c.querySelector('tbody');
+  edges.forEach(e=>{
+    tbody.innerHTML+=`<tr>
+      <td style="font-size:10px;color:var(--text-dim)">${e.id||'—'}</td>
+      <td style="font-size:10px">${e.from||'—'}</td>
+      <td style="font-size:10px">${e.to||'—'}</td>
+      <td style="font-size:10px;color:var(--text-dim)">${e.type||'—'}</td>
+      <td style="font-size:10px;color:var(--text-dim)">${(e.weight||e.confidence||0).toFixed(2)}</td>
+    </tr>`;
+  });
+}
+
+// ── Frame State page ──
+function dashPageFrame(c){
+  if(!currentSessionId){
+    c.innerHTML='<div style="font-family:\'Syne\',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Frame State</div><div class="dpanel-empty">No active session. Start a chat to see frame state.</div>';
+    return;
+  }
+  c.innerHTML='<div style="font-family:\'Syne\',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Frame State</div><div class="dpanel-empty">Loading...</div>';
+  fetch(`${API}/sessions/${currentSessionId}/frame`).then(r=>r.json()).then(f=>{
+    const activeNodes=Object.keys(f.active_anchors||{}).concat(Object.keys(f.active_bundles||{})).concat(Object.keys(f.active_slabs||{}));
+    const conflicts=f.conflicts||[];
+    c.innerHTML=`
+      <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Frame State <span style="font-size:13px;color:var(--text-dim);font-weight:400">session: ${currentSessionId}</span></div>
+      <div style="display:flex;gap:14px;margin-bottom:18px">
+        <div class="ds-card" style="position:relative"><div class="ds-label">ACTIVE NODES</div><div class="ds-value">${activeNodes.length}</div></div>
+        <div class="ds-card" style="position:relative"><div class="ds-label">LAST TURN</div><div class="ds-value">${f.last_updated_turn||0}</div></div>
+        <div class="ds-card" style="position:relative"><div class="ds-label">MISMATCH</div><div class="ds-value">${(f.mismatch_score||0).toFixed(2)}</div></div>
+        <div class="ds-card" style="position:relative"><div class="ds-label">CONFLICTS</div><div class="ds-value">${conflicts.length}</div></div>
+      </div>
+      <div class="dpanel" style="margin-bottom:14px">
+        <div class="dpanel-title">Active Anchors</div>
+        ${Object.entries(f.active_anchors||{}).map(([k,v])=>`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03)"><span style="color:#0AAC00;font-size:10px">${k}</span><span style="color:var(--text-dim);font-size:10px">${v.toFixed(3)}</span></div>`).join('')||'<div class="dpanel-empty">None</div>'}
+      </div>
+      <div class="dpanel" style="margin-bottom:14px">
+        <div class="dpanel-title">Active Bundles</div>
+        ${Object.entries(f.active_bundles||{}).map(([k,v])=>`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03)"><span style="color:#B4009E;font-size:10px">${k}</span><span style="color:var(--text-dim);font-size:10px">${v.toFixed(3)}</span></div>`).join('')||'<div class="dpanel-empty">None</div>'}
+      </div>
+      <div class="dpanel" style="margin-bottom:14px">
+        <div class="dpanel-title">Active Slabs</div>
+        ${Object.entries(f.active_slabs||{}).map(([k,v])=>`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03)"><span style="color:#0050EB;font-size:10px">${k}</span><span style="color:var(--text-dim);font-size:10px">${v.toFixed(3)}</span></div>`).join('')||'<div class="dpanel-empty">None</div>'}
+      </div>
+      <div class="dpanel">
+        <div class="dpanel-title">Salience (smoothed)</div>
+        ${Object.entries(f.salience_smoothed||{}).sort((a,b)=>b[1]-a[1]).map(([k,v])=>{
+          const pct=Math.round(v*100);
+          return `<div style="display:flex;align-items:center;gap:8px;padding:3px 0"><span style="font-size:10px;color:var(--text);min-width:200px">${k}</span><div style="flex:1;height:4px;background:rgba(255,255,255,0.04);border-radius:2px"><div style="height:100%;width:${pct}%;background:var(--accent);border-radius:2px"></div></div><span style="font-size:9px;color:var(--text-dim)">${v.toFixed(3)}</span></div>`;
+        }).join('')||'<div class="dpanel-empty">No salience data</div>'}
+      </div>`;
+  }).catch(e=>{
+    c.innerHTML=`<div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Frame State</div><div class="dpanel-empty">Error loading frame: ${e.message}</div>`;
+  });
+}
+
+// ── Drafts page ──
+function dashPageDrafts(c){
+  if(!currentSessionId){
+    c.innerHTML='<div style="font-family:\'Syne\',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Drafts</div><div class="dpanel-empty">No active session.</div>';
+    return;
+  }
+  c.innerHTML='<div style="font-family:\'Syne\',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Drafts</div><div class="dpanel-empty">Loading...</div>';
+  fetch(`${API}/sessions/${currentSessionId}/drafts`).then(r=>r.json()).then(drafts=>{
+    if(!drafts.length){
+      c.innerHTML='<div style="font-family:\'Syne\',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Drafts <span style="font-size:13px;color:var(--text-dim);font-weight:400">(0)</span></div><div class="dpanel-empty">No drafts in this session.</div>';
+      return;
+    }
+    c.innerHTML=`
+      <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Drafts <span style="font-size:13px;color:var(--text-dim);font-weight:400">(${drafts.length})</span></div>
+      <table class="dtable"><thead><tr>
+        <th>ID</th><th>Type</th><th>Status</th><th>Confidence</th><th>Source Turns</th><th>Justification</th>
+      </tr></thead><tbody>${drafts.map(d=>`<tr>
+        <td style="font-size:10px">${d.id}</td>
+        <td style="font-size:10px;color:var(--text-dim)">${d.packet_type||'anchor'}</td>
+        <td>${_statusBadge(d.status||'DRAFT_UNAUTHORIZED')}</td>
+        <td style="font-size:10px;color:var(--text-dim)">${((d.confidence||0)*100).toFixed(0)}%</td>
+        <td style="font-size:10px;color:var(--text-dim)">${(d.source_turns||[]).join(', ')}</td>
+        <td style="font-size:10px;color:var(--text-dim);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.justification||'—'}</td>
+      </tr>`).join('')}</tbody></table>`;
+  }).catch(e=>{
+    c.innerHTML=`<div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Drafts</div><div class="dpanel-empty">Error: ${e.message}</div>`;
+  });
+}
+
+// ── Gates page ──
+function dashPageGates(c){
+  const gates=dashData.gates||[];
+  c.innerHTML=`
+    <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Gates <span style="font-size:13px;color:var(--text-dim);font-weight:400">(${gates.length})</span></div>
+    ${gates.map(g=>`
+      <div class="dpanel" style="margin-bottom:14px">
+        <div class="dpanel-title">${g.id} <span style="font-size:9px;color:var(--text-dim);font-weight:400;margin-left:8px">stage: ${g.stage} | default: ${g.default_outcome} | v${g.version||'1'}</span></div>
+        <div style="font-size:10px;color:var(--text-dim);margin-bottom:10px">${g.description||''}</div>
+        <table class="dtable"><thead><tr>
+          <th>Rule ID</th><th>Condition</th><th>Outcome</th><th>Priority</th><th>Notes</th>
+        </tr></thead><tbody>${(g.rules||[]).map(r=>{
+          const oc=r.outcome==='ALLOW'?'#0AAC00':r.outcome==='DENY'?'#ff4444':r.outcome==='DEFER'?'#fbbf24':'#c084fc';
+          return `<tr>
+            <td style="font-size:10px">${r.id}</td>
+            <td style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--accent)">${r.condition}</td>
+            <td><span style="color:${oc};font-weight:600;font-size:10px">${r.outcome}</span></td>
+            <td style="font-size:10px;color:var(--text-dim)">${r.priority}</td>
+            <td style="font-size:10px;color:var(--text-dim);max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.notes||''}</td>
+          </tr>`;
+        }).join('')}</tbody></table>
+        ${g.assumptions?.length?`<div style="margin-top:8px;font-size:9px;color:var(--text-dim)"><strong>Assumptions:</strong> ${g.assumptions.join(' | ')}</div>`:''}
+      </div>
+    `).join('')}`;
+}
+
+// ── Stale Review page ──
+function dashPageStale(c){
+  const d=dashData;
+  const stale=[];
+  (d.anchors||[]).forEach(a=>{if(a.lifecycle_status==='DEPRECATED'||a.lifecycle_status==='DORMANT')stale.push({...a,_type:'anchor',_label:a.canonical_phrase})});
+  (d.slabs||[]).forEach(s=>{if(s.lifecycle_status==='DEPRECATED'||s.lifecycle_status==='DORMANT')stale.push({...s,_type:'slab',_label:s.title||s.id})});
+  (d.bundles||[]).forEach(b=>{if(b.lifecycle_status==='DEPRECATED'||b.lifecycle_status==='DORMANT')stale.push({...b,_type:'bundle',_label:(b.payload?.intent||[])[0]||b.id})});
+
+  c.innerHTML=`
+    <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Stale Review <span style="font-size:13px;color:var(--text-dim);font-weight:400">(${stale.length} dormant/deprecated)</span></div>
+    ${stale.length?`<table class="dtable"><thead><tr>
+      <th>Node</th><th>Type</th><th>Status</th><th style="text-align:right">Actions</th>
+    </tr></thead><tbody>${stale.map(s=>`<tr style="${_dimRow(s.lifecycle_status)}">
+      <td>${s._label}</td>
+      <td style="color:${_tc[s._type]||'#888'};font-size:10px;text-transform:uppercase">${s._type}</td>
+      <td>${_statusBadge(s.lifecycle_status)}</td>
+      <td style="text-align:right;white-space:nowrap">${_lifecycleActions(s.id,s.lifecycle_status)}</td>
+    </tr>`).join('')}</tbody></table>`:'<div class="dpanel-empty">All nodes are active. Nothing to review.</div>'}`;
+}
+
+// ── Export page ──
+function dashPageExport(c){
+  c.innerHTML=`
+    <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Export</div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap">
+      <div class="dpanel" style="flex:1;min-width:250px">
+        <div class="dpanel-title">Corpus JSON</div>
+        <div style="font-size:10px;color:var(--text-dim);margin-bottom:12px">Full corpus dump as JSON — all anchors, slabs, bundles, edges, and gates.</div>
+        <button class="dbtn dbtn-blue" onclick="dashExportJSON()">Download JSON</button>
+      </div>
+      <div class="dpanel" style="flex:1;min-width:250px">
+        <div class="dpanel-title">Corpus Status</div>
+        <div id="dash-export-status" style="font-size:10px;color:var(--text-dim)">Loading...</div>
+      </div>
+    </div>`;
+  fetch(`${API}/corpus/status`).then(r=>r.json()).then(s=>{
+    const el=document.getElementById('dash-export-status');
+    if(!el)return;
+    el.innerHTML=`<div>Anchors: ${s.anchors} | Slabs: ${s.slabs} | Bundles: ${s.bundles} | Edges: ${s.edges}</div>
+      <div style="margin-top:4px">Valid: ${s.valid?'<span style="color:#0AAC00">yes</span>':'<span style="color:#ff4444">'+s.errors?.length+' errors</span>'}</div>
+      ${s.errors?.length?'<div style="margin-top:4px;color:#ff4444;font-size:9px">'+s.errors.join('<br>')+'</div>':''}`;
+  }).catch(()=>{});
+}
+
+function dashExportJSON(){
+  const blob=new Blob([JSON.stringify(dashData,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download='corpus_export.json';a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Settings page ──
+function dashPageSettings(c){
+  c.innerHTML=`
+    <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Settings</div>
+    <div class="dpanel" style="max-width:500px">
+      <div class="dpanel-title">Search Provider</div>
+      <div id="dash-settings-body" style="font-size:10px;color:var(--text-dim)">Loading...</div>
+    </div>`;
+  fetch(`${API}/settings/search`).then(r=>r.json()).then(s=>{
+    const el=document.getElementById('dash-settings-body');
+    if(!el)return;
+    el.innerHTML=`<div style="margin-bottom:8px">Current provider: <strong style="color:var(--text)">${s.provider}</strong></div>
+      <div>API key configured: ${s.has_key?'<span style="color:#0AAC00">yes</span>':'<span style="color:var(--text-dim)">no</span>'}</div>
+      <div style="margin-top:8px;font-size:9px;color:var(--text-dim)">Use the sidebar controls in the main chat view to change search provider and API key.</div>`;
+  }).catch(()=>{});
+}
+
+// ── Lifecycle actions (shared) ──
+async function dashSetLifecycle(nodeId,status){
+  try{
+    const res=await fetch(`${API}/corpus/nodes/${nodeId}/lifecycle`,{
+      method:'PATCH',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({lifecycle_status:status})
+    });
+    if(!res.ok){const err=await res.json();alert(err.detail);return}
+    pushEvent('corpus',`${nodeId} -> ${status}`);
+    dashData=await fetch(`${API}/corpus/full`).then(r=>r.json());
+    dashNav(dashPage);
+    corpusLoaded=false;
+  }catch(e){alert(e.message)}
+}
+
+async function dashDelete(nodeId){
+  try{
+    const deps=await fetch(`${API}/corpus/nodes/${nodeId}/deps`).then(r=>r.json());
+    if(!deps.safe_to_delete){
+      if(!confirm(`${nodeId} has ${deps.dependents.length} dependent(s): ${deps.dependents.slice(0,5).join(', ')}\n\nDeprecate instead?`))return;
+      await dashSetLifecycle(nodeId,'DEPRECATED');
+      return;
+    }
+    if(!confirm(`Permanently delete ${nodeId}? This removes ${deps.edges.length} edge(s) and cannot be undone.`))return;
+    const res=await fetch(`${API}/corpus/nodes/${nodeId}`,{method:'DELETE'});
+    if(!res.ok){const err=await res.json();alert(err.detail);return}
+    pushEvent('corpus',`Deleted ${nodeId}`);
+    dashData=await fetch(`${API}/corpus/full`).then(r=>r.json());
+    dashNav(dashPage);
+    corpusLoaded=false;
+  }catch(e){alert(e.message)}
+}
 
 // ═══════════════════════════════════════════════════════════════
 //  §15.3 COMMIT PREVIEW
@@ -1142,6 +1977,7 @@ async function loadCorpusGraph(){
   // Anchors
   (data.anchors||[]).forEach(a=>{
     const n={id:a.id,label:a.canonical_phrase,struct:'anchor',
+      lifecycle_status:a.lifecycle_status||'ACTIVE',
       x:(Math.random()-.5)*350,y:(Math.random()-.5)*250,z:(Math.random()-.5)*200,
       vx:0,vy:0,vz:0,invokes:a.invokes||[],depends_on:a.depends_on||[]};
     cNodes.push(n);typeMap[a.id]=n;
@@ -1150,6 +1986,7 @@ async function loadCorpusGraph(){
   (data.bundles||[]).forEach(b=>{
     const label=(b.payload?.intent||[])[0]||b.id;
     const n={id:b.id,label:label.slice(0,50),struct:'bundle',
+      lifecycle_status:b.lifecycle_status||'ACTIVE',
       x:(Math.random()-.5)*350,y:(Math.random()-.5)*250,z:(Math.random()-.5)*200,
       vx:0,vy:0,vz:0,supports:b.supports||[],depends_on:b.depends_on||[]};
     cNodes.push(n);typeMap[b.id]=n;
@@ -1157,6 +1994,7 @@ async function loadCorpusGraph(){
   // Slabs
   (data.slabs||[]).forEach(s=>{
     const n={id:s.id,label:(s.title||s.canonical_text||'').slice(0,50),struct:'slab',
+      lifecycle_status:s.lifecycle_status||'ACTIVE',
       x:(Math.random()-.5)*350,y:(Math.random()-.5)*250,z:(Math.random()-.5)*200,
       vx:0,vy:0,vz:0,depends_on:s.depends_on||[]};
     cNodes.push(n);typeMap[s.id]=n;
@@ -1244,8 +2082,10 @@ function cDraw(){
     const sizeBoost=hits>0 ? 1.0+Math.min(0.5, hits*0.06) : 1.0;
     const r=st.baseR*p.scale*1.4*sizeBoost;
 
-    // Alpha: never-hit = dim baseline, hit = brighter
-    const alpha=hits>0 ? 0.5+Math.min(0.35, hits*0.06)+recency*0.15 : 0.35;
+    // Alpha: never-hit = dim baseline, hit = brighter, deprecated/dormant = very dim
+    const ls=n.lifecycle_status||'ACTIVE';
+    const lsMult=ls==='DEPRECATED'?0.25:ls==='DORMANT'?0.5:1.0;
+    const alpha=(hits>0 ? 0.5+Math.min(0.35, hits*0.06)+recency*0.15 : 0.35)*lsMult;
 
     // Radiance glow — only for hit nodes, scales with hits + recency
     if(hits>0){
@@ -1260,6 +2100,19 @@ function cDraw(){
     // Shape
     (DRAW[st.draw]||drawConcept)(cCx,p.sx,p.sy,r,col,alpha);
 
+    // Deprecated grey outline ring — clear visual for deprecated nodes
+    if(ls==='DEPRECATED'){
+      cCx.beginPath();cCx.arc(p.sx,p.sy,r+3*p.scale,0,Math.PI*2);
+      cCx.strokeStyle='rgba(128,128,128,0.5)';cCx.lineWidth=1.5*p.scale;
+      cCx.setLineDash([3*p.scale,3*p.scale]);cCx.stroke();cCx.setLineDash([]);
+    }
+    // Dormant dashed ring — subtle amber indicator
+    if(ls==='DORMANT'){
+      cCx.beginPath();cCx.arc(p.sx,p.sy,r+3*p.scale,0,Math.PI*2);
+      cCx.strokeStyle='rgba(251,191,36,0.3)';cCx.lineWidth=1*p.scale;
+      cCx.setLineDash([2*p.scale,4*p.scale]);cCx.stroke();cCx.setLineDash([]);
+    }
+
     // Pulse ring — recently-hit nodes (recency > 0.3)
     if(recency>0.3&&hits>0){
       const hash=n.id.split('').reduce((a,c)=>a+c.charCodeAt(0),0);
@@ -1271,14 +2124,26 @@ function cDraw(){
       cCx.strokeStyle=`rgba(${col.r},${col.g},${col.b},${pulseA})`;cCx.lineWidth=pulseW;cCx.stroke();
     }
 
-    // Label — always show, brighter for hit nodes
+    // Label — always show, brighter for hit nodes, grey for deprecated
     if(p.scale>.25){
       const fs=Math.round(14*p.scale+5);
       cCx.font=`${fs}px JetBrains Mono,monospace`;
-      const labelA=hits>0 ? Math.min(1, 0.6+recency*0.4) : 0.4;
-      cCx.fillStyle=`rgba(${col.r},${col.g},${col.b},${labelA})`;
+      const labelA=(hits>0 ? Math.min(1, 0.6+recency*0.4) : 0.4)*lsMult;
+      if(ls==='DEPRECATED'){
+        cCx.fillStyle=`rgba(128,128,128,${labelA})`;
+      }else{
+        cCx.fillStyle=`rgba(${col.r},${col.g},${col.b},${labelA})`;
+      }
       cCx.textAlign='center';
-      cCx.fillText(n.label.length>25?n.label.slice(0,23)+'..':n.label,p.sx,p.sy+r+10*p.scale);
+      const labelText=n.label.length>25?n.label.slice(0,23)+'..':n.label;
+      const labelY=p.sy+r+10*p.scale;
+      cCx.fillText(labelText,p.sx,labelY);
+      // Strikethrough line for deprecated
+      if(ls==='DEPRECATED'){
+        const tw=cCx.measureText(labelText).width;
+        cCx.strokeStyle=`rgba(128,128,128,${labelA*0.7})`;cCx.lineWidth=1;
+        cCx.beginPath();cCx.moveTo(p.sx-tw/2,labelY-fs*0.35);cCx.lineTo(p.sx+tw/2,labelY-fs*0.35);cCx.stroke();
+      }
     }
   });
   cCanvas._proj=proj;
@@ -1290,7 +2155,9 @@ function cHitTest(mx,my){
   for(let i=cCanvas._proj.length-1;i>=0;i--){
     const{n,p}=cCanvas._proj[i];
     const st=STRUCT[n.struct]||STRUCT.concept;
-    const r=st.baseR*p.scale*1.4+8;
+    // Use a clamped scale so deep nodes stay clickable in dense graphs
+    const hitScale=Math.max(0.45,p.scale);
+    const r=st.baseR*hitScale*1.4+14;
     const dx=mx-p.sx,dy=my-p.sy;
     if(dx*dx+dy*dy<r*r)return n;
   }
@@ -1382,7 +2249,7 @@ async function openEndReview(){
   renderERDrafts();
   document.getElementById('end-review-panel').style.display='flex';
   // Seed canvas + auto-play the trajectory once
-  setTimeout(()=>{erInitCanvas();erPlayTrajectory()},80);
+  setTimeout(async ()=>{await erInitCanvas();erPlayTrajectory()},80);
 }
 
 function closeEndReview(){
@@ -1494,15 +2361,17 @@ async function erBatchAction(action){
 }
 
 // Trajectory animation — project the session's corpus_hit_log against the cold corpus layout
-function erInitCanvas(){
+async function erInitCanvas(){
   const cnv=document.getElementById('er-canvas');
   const rect=cnv.getBoundingClientRect();
   cnv.width=rect.width;cnv.height=rect.height;
-  // Use the cold corpus nodes (cNodes) as the substrate, cloned with their projected positions
   const W=cnv.width,H=cnv.height;
+  // Ensure cold corpus nodes are loaded (may not be if tab was never visited)
+  if(typeof cNodes==='undefined'||!cNodes.length){
+    try{await loadCorpusGraph()}catch(e){}
+  }
   const nodes={};
   if(typeof cNodes!=='undefined'&&cNodes.length){
-    // Simple 2D projection: spread cNodes by their current 3D coords flattened
     const xs=cNodes.map(n=>n.x),ys=cNodes.map(n=>n.y);
     const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
     const spanX=maxX-minX||1,spanY=maxY-minY||1;
@@ -1516,12 +2385,22 @@ function erInitCanvas(){
       };
     });
   }
-  erAnimState={nodes,W,H,currentTurn:0,trajectory:erData.trajectory||[],playIdx:0,done:false,lastStep:performance.now()};
+  const traj=erData.trajectory||[];
+  erAnimState={nodes,W,H,currentTurn:0,trajectory:traj,playIdx:0,done:false,lastStep:performance.now()};
   erDrawCanvas();
+  // Show hint if no trajectory data
+  if(!traj.length){
+    const ctx=cnv.getContext('2d');
+    ctx.globalAlpha=0.5;ctx.fillStyle='var(--text-dim,#888)';
+    ctx.font='12px JetBrains Mono, monospace';ctx.textAlign='center';
+    ctx.fillText('No anchor hits recorded this session',W/2,H/2-10);
+    ctx.fillText('Chat more to build a thread path',W/2,H/2+10);
+    ctx.globalAlpha=1;
+  }
 }
 
-function erPlayTrajectory(){
-  if(!erAnimState){erInitCanvas();if(!erAnimState)return}
+async function erPlayTrajectory(){
+  if(!erAnimState){await erInitCanvas();if(!erAnimState)return}
   erAnimState.playIdx=0;erAnimState.done=false;erAnimState.currentTurn=0;
   // Reset heats
   Object.values(erAnimState.nodes).forEach(n=>{n.heat=0;n.hits=0;n.lastTurn=-1});
@@ -1781,10 +2660,21 @@ async function sendMessage(){
   if(sending)return;const inp=document.getElementById('input');const text=inp.value.trim();
   if(!text||!currentChatId)return;
   sending=true;document.getElementById('send-btn').disabled=true;inp.value='';
-  addBubble('user',text);const aDiv=addBubble('assistant','');aDiv.style.opacity='.5';
+
+  // Build message content — prepend file attachment if present
+  let content=text;
+  let displayText=text;
+  if(pendingAttachment){
+    const att=pendingAttachment;
+    content=`[Attached: ${att.filename}]\n${att.content}\n[/Attached]\n\n${text}`;
+    displayText=`[${att.filename}] ${text}`;
+    clearAttachment();
+  }
+
+  addBubble('user',displayText);const aDiv=addBubble('assistant','');aDiv.style.opacity='.5';
 
   try{
-    const res=await fetch(`${API}/chats/${currentChatId}/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:text,oli_mode:oliMode,web_mode:webMode,think_level:thinkLevel})});
+    const res=await fetch(`${API}/chats/${currentChatId}/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:content,oli_mode:oliMode,web_mode:webMode,think_level:thinkLevel})});
     const reader=res.body.getReader();const dec=new TextDecoder();let buf='';
     while(true){
       const{done,value}=await reader.read();if(done)break;

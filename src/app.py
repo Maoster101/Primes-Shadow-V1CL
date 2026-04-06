@@ -30,7 +30,8 @@ async def startup():
             print(f"  - {e}")
     else:
         print(f"[CORPUS] Loaded OK: {len(corpus.anchors)} anchors, "
-              f"{len(corpus.slabs)} slabs, {len(corpus.bundles)} bundles")
+              f"{len(corpus.slabs)} slabs, {len(corpus.bundles)} bundles, "
+              f"{len(corpus.gates)} gates")
 
     # Pre-embed all anchor phrases for fast matching
     await anchor_matcher.warm_cache()
