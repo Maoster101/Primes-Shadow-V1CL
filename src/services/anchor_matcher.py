@@ -53,13 +53,17 @@ Hard parse rules (OP_01):
     ONLY text fed to fuzzy matching. Wrapped span text is excluded.
 """
 from __future__ import annotations
+import logging
 import re
 from typing import Optional
 from pydantic import BaseModel, Field
 
-from ..models.schemas import Anchor, MessageClassification
-from ..models.enums import MatchTier, MessageFunction
+logger = logging.getLogger(__name__)
+
+from ..models.schemas import Anchor, MessageClassification, Gate
+from ..models.enums import MatchTier, MessageFunction, GateOutcome, GateStage
 from .corpus import CorpusStore
+from .gate_eval import GateEvaluator, PipelineResult
 from . import ollama
 from .event_log import EventLog
 
@@ -399,9 +403,26 @@ def compute_wrap_affect_boost(result: "AnchorMatchResult") -> float:
 
 class AnchorMatcher:
 
-    def __init__(self, corpus: CorpusStore):
+    def __init__(self, corpus: CorpusStore, *, use_declarative_gates: bool = False):
         self.corpus = corpus
         self._embed_cache: dict[str, list[tuple[str, list[float]]]] = {}
+        self._gate_eval = GateEvaluator()
+        self._use_declarative = use_declarative_gates
+        # Cache the ordered gate pipeline from corpus (sorted by stage order)
+        self._gate_pipeline: list[Gate] = []
+        self._build_gate_pipeline()
+
+    def _build_gate_pipeline(self) -> None:
+        """Build the ordered 3-stage gate pipeline from corpus gates."""
+        stage_order = {
+            GateStage.FUNCTION: 0,
+            GateStage.EXPLICITNESS: 1,
+            GateStage.CONFIDENCE: 2,
+        }
+        self._gate_pipeline = sorted(
+            self.corpus.gates.values(),
+            key=lambda g: stage_order.get(g.stage, 99),
+        )
 
     async def warm_cache(self) -> None:
         for anchor in self.corpus.anchors.values():
@@ -413,7 +434,7 @@ class AnchorMatcher:
         self._embed_cache.pop(anchor_id, None)
 
     def gate_check(self, anchor: Anchor, classification: MessageClassification) -> bool:
-        """§8 — Pure code gate."""
+        """§8 — Pure code gate (imperative path)."""
         if not anchor.match_policy.gate_required:
             return True
         if classification.explicit:
@@ -421,6 +442,48 @@ class AnchorMatcher:
         if classification.function in anchor.match_policy.allowed_functions:
             return True
         return False
+
+    def declarative_gate_check(
+        self, anchor: Anchor, classification: MessageClassification,
+    ) -> PipelineResult:
+        """§8.4 — Declarative gate pipeline (parallel path).
+
+        Runs the 3-stage gate pipeline (FUNCTION → EXPLICITNESS →
+        CONFIDENCE) using the simpleeval evaluator. Returns a full
+        PipelineResult with outcome, matched rules, and trace.
+        """
+        context = {"anchor": anchor, "classification": classification}
+        return self._gate_eval.run_pipeline(self._gate_pipeline, context)
+
+    def _effective_gate_check(
+        self, anchor: Anchor, classification: MessageClassification,
+    ) -> bool:
+        """Run both gate paths, log divergence, return the authoritative result.
+
+        When `use_declarative_gates` is True, the declarative pipeline is
+        authoritative. Otherwise the imperative gate_check() is
+        authoritative and the declarative result is logged for comparison.
+        """
+        imperative = self.gate_check(anchor, classification)
+
+        if not self._gate_pipeline:
+            return imperative
+
+        declarative = self.declarative_gate_check(anchor, classification)
+        decl_pass = declarative.allowed
+
+        if imperative != decl_pass:
+            logger.warning(
+                "Gate divergence on %s: imperative=%s declarative=%s (%s via %s)",
+                anchor.id, imperative, declarative.final_outcome.value,
+                declarative.final_outcome.value,
+                " -> ".join(
+                    f"{sr.gate_id}:{sr.outcome.value}"
+                    for sr in declarative.stage_results
+                ),
+            )
+
+        return decl_pass if self._use_declarative else imperative
 
     # ------------------------------------------------------------------
     # OP_01 parser
@@ -516,7 +579,7 @@ class AnchorMatcher:
 
             span_matches: list[AnchorMatch] = []
             for anchor in self.corpus.anchors.values():
-                if not self.gate_check(anchor, classification):
+                if not self._effective_gate_check(anchor, classification):
                     continue
                 m = self._hard_match_span(seg.text, anchor)
                 if m is not None:
@@ -568,7 +631,7 @@ class AnchorMatcher:
             for anchor in self.corpus.anchors.values():
                 if anchor.id in wrapped_hits:
                     continue
-                if not self.gate_check(anchor, classification):
+                if not self._effective_gate_check(anchor, classification):
                     continue
                 # Hard format gate: asterisk_wrapped_only anchors can
                 # only enter via a wrapped span.
