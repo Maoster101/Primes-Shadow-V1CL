@@ -1284,3 +1284,37 @@ async def get_events(log_name: str, last_n: int = 50):
     if log_name not in valid_logs:
         raise HTTPException(400, f"Invalid log name. Valid: {valid_logs}")
     return event_log.read_recent(log_name, last_n)
+
+
+# --- Conversation Mining ---
+
+from ..services.convo_miner import ConversationMiner
+_miner = ConversationMiner(corpus)
+
+
+class MineRequest(BaseModel):
+    text: str                          # Raw conversation export content
+    source_label: str = "import"       # Provenance label
+    min_confidence: float = 0.4        # Minimum proposal confidence
+    chunk_size: int = 4                # Exchange pairs per chunk
+
+
+@router.post("/mine")
+async def mine_conversation(req: MineRequest):
+    """Mine a conversation export for corpus proposals.
+
+    Accepts raw text (Claude JSON, ChatGPT JSON, markdown, or plaintext).
+    Returns detected format, topic distribution, and proposed corpus objects.
+    """
+    if not req.text.strip():
+        raise HTTPException(400, "Empty text")
+    if len(req.text) > 5_000_000:
+        raise HTTPException(413, "Text too large (max 5MB)")
+
+    result = await _miner.mine(
+        raw_text=req.text,
+        source_label=req.source_label,
+        min_confidence=req.min_confidence,
+        chunk_size=req.chunk_size,
+    )
+    return result
