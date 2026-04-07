@@ -688,6 +688,24 @@ class AnchorMatcher:
                     match.tier = MatchTier.WEAK_SEMANTIC
                     result.weak.append(match)
 
+        # --- Pass D: corpus-wide semantic sweep (embedding similarity) ---
+        # Catches paraphrases, cultural quotes, and thematic resonance that
+        # substring matching can never reach. Bypasses the function gate —
+        # like wrapped spans, semantic resonance IS the signal — but requires
+        # a higher confidence threshold to compensate for the lack of
+        # explicit invocation.
+        #
+        # Example: "when you can do what I do and you don't, and the bad
+        # things happen, they happen because of you" should light up
+        # ANCHOR_SPIDERMAN_RESP_v1 ("great power, great responsibility")
+        # even though it shares zero keywords.
+        already_matched = (
+            {m.anchor_id for m in result.auto_activate}
+            | {m.anchor_id for m in result.candidates}
+            | wrapped_hits
+        )
+        await self._semantic_sweep(user_text, already_matched, result)
+
         # --- Pass C: corpus-wide name matching (slabs + bundles) ---
         # Check if the user referenced any slab or bundle by title/name.
         # This catches references like "epistemic floor", "pushback invariant",
@@ -875,3 +893,129 @@ class AnchorMatcher:
                 match_method="semantic",
             )
         return None
+
+    # ------------------------------------------------------------------
+    # Pass D — corpus-wide semantic sweep
+    # ------------------------------------------------------------------
+
+    async def _semantic_sweep(
+        self,
+        user_text: str,
+        already_matched: set[str],
+        result: AnchorMatchResult,
+    ) -> None:
+        """Embed full user text once; batch-compare against ALL anchor
+        embeddings. Gate-free — semantic resonance is the signal.
+
+        Tiered thresholds:
+          ≥ 0.72  → auto_activate  (strong thematic match)
+          ≥ 0.58  → candidates     (probable reference)
+          ≥ 0.45  → weak           (faint echo, logged only)
+
+        These are deliberately higher than Pass B thresholds because
+        Pass D bypasses the function gate. The higher bar compensates.
+
+        Uses the warm_cache when available — if anchors were pre-embedded
+        at startup, only the user text needs embedding (1 vector vs N+1).
+        """
+        import numpy as np
+
+        anchors = [
+            a for a in self.corpus.anchors.values()
+            if a.id not in already_matched
+        ]
+        if not anchors:
+            return
+
+        # Embed user text (always needed)
+        try:
+            user_vec = np.array(await ollama.embed_single(user_text))
+        except Exception:
+            logger.warning("Pass D: user embedding failed, skipping")
+            return
+        user_norm = np.linalg.norm(user_vec)
+        if user_norm < 1e-8:
+            return
+
+        # Collect anchor phrase embeddings — prefer warm cache
+        # If cache is cold for some anchors, batch-embed the uncached ones
+        cached_pairs: list[tuple[str, str, np.ndarray]] = []  # (anchor_id, phrase, vec)
+        uncached_phrases: list[str] = []
+        uncached_map: list[tuple[str, str]] = []  # (anchor_id, phrase)
+
+        for anchor in anchors:
+            if anchor.id in self._embed_cache:
+                for phrase, emb in self._embed_cache[anchor.id]:
+                    cached_pairs.append((anchor.id, phrase, np.array(emb)))
+            else:
+                for phrase in [anchor.canonical_phrase] + anchor.aliases:
+                    if phrase:
+                        uncached_phrases.append(phrase)
+                        uncached_map.append((anchor.id, phrase))
+
+        # Batch-embed any uncached phrases
+        if uncached_phrases:
+            try:
+                uncached_vecs = await ollama.embed(uncached_phrases)
+                for i, (anchor_id, phrase) in enumerate(uncached_map):
+                    cached_pairs.append((anchor_id, phrase, np.array(uncached_vecs[i])))
+            except Exception:
+                logger.warning("Pass D: anchor embedding failed for %d uncached phrases", len(uncached_phrases))
+
+        print(f"[Pass D] {len(anchors)} anchors to sweep, "
+              f"{len(cached_pairs)} cached pairs, {len(uncached_phrases)} uncached")
+
+        # Find best similarity per anchor
+        best_per_anchor: dict[str, tuple[float, str]] = {}
+        for anchor_id, phrase, vec in cached_pairs:
+            norm = np.linalg.norm(vec)
+            if norm < 1e-8:
+                continue
+            sim = float(np.dot(user_vec, vec) / (user_norm * norm))
+            prev = best_per_anchor.get(anchor_id)
+            if prev is None or sim > prev[0]:
+                best_per_anchor[anchor_id] = (sim, phrase)
+
+        # Debug: show all similarities
+        for aid, (sim, phrase) in sorted(best_per_anchor.items(), key=lambda x: -x[1][0]):
+            print(f"[Pass D]   {aid}: {sim:.4f} ({phrase[:50]})")
+
+        # Tier the results
+        # Thresholds tuned for nomic-embed-text 768-dim cosine similarity.
+        # Paraphrases of the same idea score ~0.55-0.65; exact quotes ~0.85+.
+        # The candidate band (0.55-0.70) catches "same theme, different words"
+        # which is exactly where cultural references and indirect invocations live.
+        THRESHOLD_AUTO = 0.70
+        THRESHOLD_CANDIDATE = 0.55
+        THRESHOLD_WEAK = 0.42
+
+        sweep_hits = []
+        for anchor_id, (sim, phrase) in best_per_anchor.items():
+            if sim < THRESHOLD_WEAK:
+                continue
+            match = AnchorMatch(
+                anchor_id=anchor_id,
+                confidence=round(sim, 4),
+                matched_phrase=phrase,
+                match_method="semantic_sweep",
+                tier=MatchTier.WEAK_SEMANTIC,  # default, overridden below
+            )
+            if sim >= THRESHOLD_AUTO:
+                match.tier = MatchTier.EXACT_OR_PARTIAL
+                result.auto_activate.append(match)
+            elif sim >= THRESHOLD_CANDIDATE:
+                match.tier = MatchTier.AMBIGUOUS_FUZZY
+                result.candidates.append(match)
+            else:
+                result.weak.append(match)
+            sweep_hits.append(match)
+
+        if sweep_hits:
+            logger.info(
+                "Pass D semantic sweep: %d hits — %s",
+                len(sweep_hits),
+                ", ".join(
+                    f"{m.anchor_id}@{m.confidence:.2f}"
+                    for m in sorted(sweep_hits, key=lambda x: -x.confidence)[:5]
+                ),
+            )

@@ -104,6 +104,9 @@
   - spider-man
   - spiderman
   - great power great responsibility
+  - when you can do what i do and you dont the bad things happen because of you
+  - responsibility of power
+  - obligation of capability
   invokes:
   - BUNDLE_OBLIGATION_UPPER_BOUND_v1
   notes: Cap obligation; prevent infinite moral debt.
@@ -493,3 +496,25 @@
   depends_on: []
   assumptions:
   - Draft stack requires explicit user action to promote
+- id: tentative_anchor_6b1795ba_v1
+  canonical_phrase: terra preta
+  aliases:
+  - black earth
+  - Amazonian dark earth
+  invokes: []
+  notes: Repeatedly referenced and central to the conversation's topic.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []

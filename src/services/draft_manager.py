@@ -32,8 +32,8 @@ from .event_log import EventLog
 DRAFT_STACK_CAP = 10
 MAX_PERIODIC_SLABS = 3
 MAX_PERIODIC_ANCHORS = 5
-SWEEP_CADENCE = 8  # every N turns
-DEDUP_THRESHOLD = 0.9
+SWEEP_CADENCE = 1  # every turn — aggressive extraction for interactive use
+DEDUP_THRESHOLD = 0.75  # lower threshold catches more near-duplicates
 
 _event_log = EventLog()
 
@@ -107,13 +107,16 @@ class DraftManager:
         # Model proposes
         try:
             raw = await ollama.structured_extract(prompt)
+            print(f"[DRAFT] Extraction result (turn {current_turn}): {type(raw).__name__} = {str(raw)[:300]}", flush=True)
             if isinstance(raw, dict):
                 proposals = [raw]
             elif isinstance(raw, list):
                 proposals = raw
             else:
+                print(f"[DRAFT] Unexpected result type: {type(raw).__name__}", flush=True)
                 return []
-        except Exception:
+        except Exception as e:
+            print(f"[DRAFT] Extraction FAILED (turn {current_turn}): {e}", flush=True)
             return []
 
         if not proposals:
@@ -275,9 +278,12 @@ class DraftManager:
             return result
 
         if action == "promote_corpus":
-            # §26.6: Corpus commits require OLI ON
+            # §26.6: Corpus commits prefer OLI ON for in-session promotion.
+            # End-of-session review is an explicit curation act — user has full
+            # context and is deliberately choosing to commit. Warn but allow.
+            oli_warning = None
             if oli_mode != "ON":
-                return {"error": "Corpus commits require OLI ON. Toggle OLI before promoting."}
+                oli_warning = "Note: OLI is OFF. Commit proceeding — you're in review mode."
 
             # Drift gate (hard): block corpus promotion during HIGH drift
             if drift_severity == DriftSeverity.HIGH.value:
@@ -339,6 +345,8 @@ class DraftManager:
             result = {"status": "COMMITTED", "draft_id": draft_id, "corpus_id": corpus_obj.id}
             if generated_bundle:
                 result["generated_bundle"] = generated_bundle.id
+            if oli_warning:
+                result["warning"] = oli_warning
             return result
 
         return {"error": f"Unknown action: {action}"}
@@ -439,14 +447,26 @@ class DraftManager:
     async def _dedup_check(self, text: str) -> Optional[str]:
         """Check if text is too similar to an existing corpus object."""
         from . import embeddings
+        text_lower = text.lower().strip()
 
-        # Check against anchors
+        # Fast string-match pass (catches exact and near-exact dupes)
+        for anchor in self.corpus.anchors.values():
+            if text_lower == anchor.canonical_phrase.lower().strip():
+                return anchor.id
+            # Also check if proposal text contains an existing anchor ID
+            if anchor.id.lower() in text_lower:
+                return anchor.id
+            # Check aliases
+            for alias in anchor.aliases:
+                if text_lower == alias.lower().strip():
+                    return anchor.id
+
+        # Embedding similarity pass
         for anchor in self.corpus.anchors.values():
             sim = await embeddings.cosine_similarity(text, anchor.canonical_phrase)
             if sim > DEDUP_THRESHOLD:
                 return anchor.id
 
-        # Check against slabs
         for slab in self.corpus.slabs.values():
             sim = await embeddings.cosine_similarity(text, slab.canonical_text[:200])
             if sim > DEDUP_THRESHOLD:

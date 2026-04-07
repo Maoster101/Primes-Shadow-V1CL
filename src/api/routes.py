@@ -129,6 +129,87 @@ async def health():
     }
 
 
+# --- Model management ---
+
+@router.get("/models")
+async def list_models():
+    """List all locally available Ollama models + which one is active."""
+    import httpx
+    try:
+        async with httpx.AsyncClient(base_url="http://localhost:11434") as client:
+            resp = await client.get("/api/tags")
+            resp.raise_for_status()
+            models = resp.json().get("models", [])
+            # Simplify: return name + size for each
+            model_list = [
+                {"name": m["name"], "size": m.get("size", 0)}
+                for m in models
+            ]
+            return {"models": model_list, "active": ollama.CHAT_MODEL}
+    except Exception as e:
+        return {"models": [], "active": ollama.CHAT_MODEL, "error": str(e)}
+
+
+class SwitchModelRequest(BaseModel):
+    model: str
+
+
+@router.post("/models/switch")
+async def switch_model(req: SwitchModelRequest):
+    """Hot-swap the active chat model.
+
+    Unloads the current model from VRAM, loads the new one with
+    keep_alive=-1 (pinned), and updates the global CHAT_MODEL.
+    """
+    import httpx
+    old_model = ollama.CHAT_MODEL
+    new_model = req.model
+
+    try:
+        async with httpx.AsyncClient(base_url="http://localhost:11434",
+                                      timeout=httpx.Timeout(120.0)) as client:
+            # Unload old model
+            if old_model != new_model:
+                await client.post("/api/generate", json={
+                    "model": old_model, "prompt": "", "keep_alive": 0,
+                })
+
+            # Load new model with max GPU + pinned
+            resp = await client.post("/api/generate", json={
+                "model": new_model,
+                "prompt": "",
+                "stream": False,
+                "keep_alive": -1,
+                "options": {"num_gpu": 99, "num_ctx": ollama._NUM_CTX},
+            })
+            resp.raise_for_status()
+
+            # Update the global model reference + auto-detect capabilities
+            ollama.CHAT_MODEL = new_model
+            from ..services import model_profiles
+            profile = await model_profiles.set_active(new_model)
+
+            # Check actual VRAM usage
+            ps_resp = await client.get("/api/ps")
+            ps_data = ps_resp.json()
+            for m in ps_data.get("models", []):
+                if m["name"] == new_model:
+                    return {
+                        "ok": True,
+                        "model": new_model,
+                        "size_vram": m.get("size_vram", 0),
+                        "size": m.get("size", 0),
+                        "gpu_pct": round(
+                            m.get("size_vram", 0) / max(1, m.get("size", 1)) * 100
+                        ),
+                    }
+            return {"ok": True, "model": new_model, "size_vram": 0, "size": 0, "gpu_pct": 0}
+    except Exception as e:
+        # Rollback on failure
+        ollama.CHAT_MODEL = old_model
+        return {"ok": False, "error": str(e), "model": old_model}
+
+
 # --- File upload ---
 
 # Supported text-extractable file types
@@ -306,10 +387,11 @@ async def send_message(chat_id: str, req: SendMessageRequest):
     else:
         frame_manager.get_or_create(chat_id, session_id, oli_mode=oli_mode)
 
-    async def stream():
-        assistant_text = ""
-        metadata = {}
+    # Shared state between the generator and the post-stream callback.
+    # The generator writes into this; the background task reads from it.
+    _stream_result = {"metadata": {}, "assistant_text": "", "done": False}
 
+    async def stream():
         try:
             async for chunk in process_turn(
                 req.content, history, oli_mode,
@@ -323,14 +405,17 @@ async def send_message(chat_id: str, req: SendMessageRequest):
                 think_level=req.think_level,
             ):
                 if chunk.get("done"):
-                    metadata = chunk
-                    assistant_text = chunk.get("full_response", "")
+                    _stream_result["metadata"] = chunk
+                    _stream_result["assistant_text"] = chunk.get("full_response", "")
                 else:
                     yield f"data: {json.dumps({'content': chunk.get('content', '')})}\n\n"
         except Exception as e:
             error_msg = f"[Inference error: {type(e).__name__}: {e}]"
             yield f"data: {json.dumps({'content': error_msg})}\n\n"
-            assistant_text = error_msg
+            _stream_result["assistant_text"] = error_msg
+
+        metadata = _stream_result["metadata"]
+        assistant_text = _stream_result["assistant_text"]
 
         # Store assistant message
         assistant_msg = ChatMessage(
@@ -349,7 +434,7 @@ async def send_message(chat_id: str, req: SendMessageRequest):
         if frame:
             _save_session_state(session_id)
 
-        # Send final metadata (include session_id for graph refresh)
+        # Build final metadata payload
         final: dict = {
             "done": True,
             "session_id": session_id,
@@ -362,32 +447,52 @@ async def send_message(chat_id: str, req: SendMessageRequest):
             final["frame_summary"] = metadata["frame_summary"]
         if metadata.get("context_usage"):
             final["context_usage"] = metadata["context_usage"]
+
+        # Mark done so background task knows stream completed
+        _stream_result["done"] = True
+
         yield f"data: {json.dumps(final)}\n\n"
 
-        # Background proposal extraction
+    async def _post_stream_drafts():
+        """Background task: runs AFTER the SSE stream completes.
+
+        This avoids the generator-cancellation problem where code after
+        the last yield gets killed when the client disconnects.
+        """
+        # Wait for stream to finish (poll briefly)
+        for _ in range(600):  # up to 60s
+            if _stream_result["done"]:
+                break
+            await asyncio.sleep(0.1)
+
+        if not _stream_result["done"]:
+            print("[DRAFT] Stream didn't complete — skipping extraction")
+            return
+
+        metadata = _stream_result["metadata"]
         actual_turn = metadata.get("turn", turn)
         recent = [
             {"role": m.role, "content": m.content, "turn": m.turn}
             for m in chat_store.get_message_window(chat_id, last_n=12)
         ]
 
-        # §14.2 — Explicit request path: user said "save this / anchor this / make a slab"
-        # Fires immediately (bypasses sweep cadence and draft stack cap)
         cls = metadata.get("classification") or {}
         if cls.get("explicit"):
-            asyncio.create_task(
-                draft_manager.extract_proposals(
-                    session_id, chat_id, recent, actual_turn,
-                    explicit=True, user_request=req.content,
-                )
+            print(f"[DRAFT] Explicit extraction at turn {actual_turn}", flush=True)
+            await draft_manager.extract_proposals(
+                session_id, chat_id, recent, actual_turn,
+                explicit=True, user_request=req.content,
             )
-        # Periodic sweep (every SWEEP_CADENCE turns) — passive proposal extraction
         elif draft_manager.should_sweep(actual_turn):
-            asyncio.create_task(
-                draft_manager.extract_proposals(
-                    session_id, chat_id, recent, actual_turn
-                )
+            print(f"[DRAFT] Sweep triggered at turn {actual_turn}", flush=True)
+            await draft_manager.extract_proposals(
+                session_id, chat_id, recent, actual_turn,
             )
+        else:
+            print(f"[DRAFT] No sweep at turn {actual_turn}", flush=True)
+
+    # Fire background draft extraction as a free-standing task
+    asyncio.create_task(_post_stream_drafts())
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 
@@ -554,6 +659,12 @@ async def create_bundle_from_nodes(session_id: str, req: CreateBundleRequest):
         frame.active_concepts.pop(child_id, None)
         frame.active_anchors.pop(child_id, None)
         frame.active_bundles.pop(child_id, None)
+
+    # Record in corpus hit trajectory so it appears in session review
+    turn = frame.last_updated_turn or 1
+    frame.corpus_hits[bundle_id] = frame.corpus_hits.get(bundle_id, 0) + 1
+    frame.corpus_last_hit[bundle_id] = turn
+    frame.corpus_hit_log.append([turn, [bundle_id] + list(req.node_ids)])
 
     _save_session_state(session_id)
     event_log.log_frame_event(
@@ -925,11 +1036,62 @@ async def corpus_status():
 
 @router.get("/corpus/full")
 async def corpus_full():
-    """Return full corpus for the Cold Corpus browser tab."""
+    """Return full corpus for the Cold Corpus browser tab.
+
+    Computes semantic axis positions (§11.1) so the corpus graph
+    uses the same structured layout as the session graph:
+      X = Creative ↔ Rigorous (embedding projection)
+      Y = structural weight proxy (type-based: slab=0.4, bundle=0.2, anchor=0.1)
+      Z = meta depth (slab=0, bundle=1, anchor=2)
+    """
+    from ..services.embeddings import compute_x_positions
+
+    # Collect texts for batch embedding
+    texts_to_embed: list[str] = []
+    node_types: list[str] = []  # parallel list for z-axis mapping
+
+    anchors_out = []
+    for a in corpus.anchors.values():
+        d = a.model_dump()
+        texts_to_embed.append(a.canonical_phrase)
+        node_types.append("anchor")
+        anchors_out.append(d)
+
+    bundles_out = []
+    for b in corpus.bundles.values():
+        d = b.model_dump()
+        label = "; ".join(b.payload.intent[:2]) if b.payload.intent else b.id
+        texts_to_embed.append(label)
+        node_types.append("bundle")
+        bundles_out.append(d)
+
+    slabs_out = []
+    for s in corpus.slabs.values():
+        d = s.model_dump()
+        texts_to_embed.append((s.title or s.canonical_text)[:120])
+        node_types.append("slab")
+        slabs_out.append(d)
+
+    # Batch compute X positions via nomic-embed-text
+    z_map = {"slab": 0, "bundle": 1, "anchor": 2}
+    y_map = {"slab": 0.4, "bundle": 0.2, "anchor": 0.1}  # structural weight proxy
+
+    try:
+        x_positions = await compute_x_positions(texts_to_embed)
+    except Exception:
+        x_positions = [0.5] * len(texts_to_embed)
+
+    # Inject semantic positions into each node dict
+    all_nodes = anchors_out + bundles_out + slabs_out
+    for i, node in enumerate(all_nodes):
+        node["sem_x"] = x_positions[i]
+        node["sem_y"] = y_map.get(node_types[i], 0.1)
+        node["sem_z"] = z_map.get(node_types[i], 2)
+
     return {
-        "anchors": [a.model_dump() for a in corpus.anchors.values()],
-        "bundles": [b.model_dump() for b in corpus.bundles.values()],
-        "slabs": [s.model_dump() for s in corpus.slabs.values()],
+        "anchors": anchors_out,
+        "bundles": bundles_out,
+        "slabs": slabs_out,
         "edges": [e.model_dump(by_alias=True) for e in corpus.edges.values()],
         "gates": [g.model_dump() for g in corpus.gates.values()],
     }

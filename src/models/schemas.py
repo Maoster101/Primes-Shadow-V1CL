@@ -319,6 +319,8 @@ class RuntimeHeader(BaseModel):
     drift_estimate: DriftEstimate = Field(default_factory=DriftEstimate)
     enforcement_flags: EnforcementFlags = Field(default_factory=EnforcementFlags)
     operator_state: OperatorState = Field(default_factory=OperatorState)
+    anchor_hits: list[dict] = Field(default_factory=list)
+    # each: {anchor_id, canonical_phrase, notes, confidence, method, invokes}
 
 
 # Fix forward reference

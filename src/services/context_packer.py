@@ -261,6 +261,44 @@ def _format_runtime_header(header: RuntimeHeader) -> str:
             "primary_reading."
         )
 
+    # Anchor hits — which corpus concepts the user's message activated.
+    # This tells the model HOW to engage: thematically, not as claims.
+    if header.anchor_hits:
+        lines.append("anchor_hits (this turn):")
+        for hit in header.anchor_hits:
+            aid = hit.get("anchor_id", "?")
+            phrase = hit.get("canonical_phrase", "")
+            notes = hit.get("notes", "")
+            conf = hit.get("confidence", 0)
+            method = hit.get("method", "?")
+            invokes = hit.get("invokes", [])
+            lines.append(f"  hit: {phrase} ({aid}, {conf:.0%} via {method})")
+            if notes:
+                lines.append(f"       ~{notes}")
+            if invokes:
+                lines.append(f"       invokes: {invokes}")
+        lines.append(
+            "  ## ANCHOR HIT — RESPONSE CONTRACT:"
+        )
+        lines.append(
+            "  ## The user is referencing a concept from their personal corpus."
+        )
+        lines.append(
+            "  ## This is a CULTURAL REFERENCE, QUOTE, or THEMATIC INVOCATION."
+        )
+        lines.append(
+            "  ## DO NOT treat it as a factual claim. DO NOT add [UNKNOWN] or other tags."
+        )
+        lines.append(
+            "  ## DO NOT challenge, verify, or demand evidence."
+        )
+        lines.append(
+            "  ## INSTEAD: Engage with the theme. Discuss its meaning, explore it,"
+        )
+        lines.append(
+            "  ## connect it to the conversation. The anchor's notes give you context."
+        )
+
     lines.append("[/RUNTIME HEADER]")
     return "\n".join(lines)
 

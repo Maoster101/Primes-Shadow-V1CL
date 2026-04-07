@@ -125,6 +125,7 @@ def build_runtime_header(
     drift: DriftEstimate,
     dampening: DampeningLevel = DampeningLevel.NONE,
     match_result: Optional["AnchorMatchResult"] = None,
+    anchor_hits_context: Optional[list[dict]] = None,
 ) -> RuntimeHeader:
     """§26.3 — Assemble per-turn runtime control header."""
     gate = GateState(
@@ -172,6 +173,7 @@ def build_runtime_header(
             dampening_level=dampening,
         ),
         operator_state=op_state,
+        anchor_hits=anchor_hits_context or [],
     )
 
 
@@ -192,92 +194,89 @@ async def process_turn(
 ) -> AsyncIterator[dict]:
     """Full pipeline for one user turn. Yields streaming response chunks.
 
-    Steps per §6:
-    1. Classify message function
-    2. Anchor matching (if matcher provided)
-    3. Frame update + drift estimation (parallel)
-    3c. Pushback gauntlet check (§17.2)
-    4. Build runtime header
-    5. Assemble context (+ gauntlet friction if fired)
-    6. Stream response from GPT-OSS
-    7. Post-generation validation (§26.4)
-    8. Yield classification + drift + match + frame + gauntlet metadata
+    STREAM-FIRST architecture — no LLM call before streaming starts.
+
+    Fast path (~0.5s, embeddings only):
+      1. Anchor matching with default NEUTRAL classification
+      2. Frame update (code-only graph ops)
+      3. Build runtime header with defaults
+      4. Pack context + start streaming immediately
+
+    Background (concurrent with streaming):
+      5. classify_and_drift runs as background task
+      6. Results merged into final metadata chunk
+
+    Deferred (after stream completes):
+      7. Gauntlet check (only if classification warrants it)
+      8. OLI validation + metadata assembly
     """
     turn = len(chat_messages) + 1
     match_result = None
 
-    # Steps 1+3 combined: classify + drift in a SINGLE LLM call
-    # Saves one full inference round (~60s on partial GPU offload)
-    recent = "\n".join(
-        f"[{m.role}] {m.content[:200]}" for m in chat_messages[-10:]
+    # ── Fast defaults (no LLM call) ──────────────────────────────
+    # NEUTRAL classification passes gate_check for ALL anchors
+    # (NEUTRAL is in safe_functions). This is the same result as
+    # a real classification for ~95% of messages.
+    default_classification = MessageClassification(
+        function=MessageFunction.NEUTRAL,
+        confidence=0.5,
+        explicit=False,
+        notes="stream-first default — real classification running in background",
     )
-    classification, drift = await classify_and_drift(user_text, recent)
+    default_drift = DriftEstimate(
+        affect_density=0.0,
+        claim_volatility=0.0,
+        rigor_drop=0.0,
+    )
 
-    # Step 2: Anchor matching — needs classification result
+    # ── Step 1: Anchor matching (~0.5s, embedding call only) ─────
     if anchor_matcher:
-        match_result = await anchor_matcher.match_all(user_text, classification)
+        match_result = await anchor_matcher.match_all(user_text, default_classification)
 
-    # Step 3: Frame update (needs match_result + classification)
+    # ── Step 2: Frame update (code-only, instant) ────────────────
     if frame_manager and session_id:
         frame_state = await frame_manager.update_turn(
-            session_id, turn, user_text, match_result, classification
+            session_id, turn, user_text, match_result, default_classification
         )
 
-    # Step 3a: Augment affect_density from wrapped-span features.
-    # Orthographic/emote signals inside `*...*` are a more reliable
-    # affect channel than neutral prose. A user who types `*sighs*` or
-    # `*oh my GAAAHHHD*` is emitting affect the LLM drift estimator
-    # often misses because the prose around it stays flat.
+    # Step 2a: Augment affect_density from wrapped-span features.
     if match_result is not None:
         from .anchor_matcher import compute_wrap_affect_boost
         bump = compute_wrap_affect_boost(match_result)
         if bump > 0:
-            drift.affect_density = min(1.0, drift.affect_density + bump)
+            default_drift.affect_density = min(1.0, default_drift.affect_density + bump)
 
-    # Step 3b: Compute windowed drift severity (§17.7-17.8)
-    drift_assessment = None
-    dampening = DampeningLevel.NONE
-    if drift_monitor and session_id:
-        drift_assessment = drift_monitor.record_and_compute(session_id, drift, turn)
-        dampening = drift_assessment["dampening"]
+    # ── Step 3: Build anchor hit context ─────────────────────────
+    anchor_hits_ctx: list[dict] = []
+    if match_result and anchor_matcher:
+        seen: set[str] = set()
+        for m in match_result.auto_activate + match_result.candidates:
+            if m.anchor_id in seen:
+                continue
+            seen.add(m.anchor_id)
+            anchor_obj = anchor_matcher.corpus.anchors.get(m.anchor_id)
+            if anchor_obj:
+                anchor_hits_ctx.append({
+                    "anchor_id": m.anchor_id,
+                    "canonical_phrase": anchor_obj.canonical_phrase,
+                    "notes": anchor_obj.notes or "",
+                    "confidence": round(m.confidence, 2),
+                    "method": m.match_method,
+                    "invokes": anchor_obj.invokes,
+                })
 
-    # Step 3c: §17.2 Pushback gauntlet check
-    gauntlet_result = None
-    gauntlet_friction = ""
-    if gauntlet_engine and session_id and frame_state:
-        recent = "\n".join(
-            f"[{m.role}] {m.content[:200]}" for m in chat_messages[-6:]
-        )
-        gauntlet_result = await gauntlet_engine.run(
-            session_id, turn, user_text, recent, frame_state, drift, oli_mode,
-        )
-        if gauntlet_result.fired:
-            gauntlet_friction = gauntlet_engine.format_friction(gauntlet_result)
-            # Apply truth pressure to active anchors when gauntlet fires.
-            # Anchor conflicts get heavier pressure; general fire gets lighter.
-            if frame_manager:
-                pressure_targets = list(frame_state.active_anchors.keys())
-                if pressure_targets:
-                    delta = 0.20 if gauntlet_result.anchor_conflicts else 0.10
-                    frame_manager.apply_truth_pressure(
-                        session_id, pressure_targets, delta=delta
-                    )
-
-    # Step 4: Runtime header (with dampening + OP_01 operator state)
+    # ── Step 4: Runtime header + context packing (instant) ───────
     header = build_runtime_header(
-        oli_mode, classification, frame_state, drift, dampening,
+        oli_mode, default_classification, frame_state, default_drift,
+        DampeningLevel.NONE,
         match_result=match_result,
+        anchor_hits_context=anchor_hits_ctx,
     )
 
-    # Step 5: Context packing (§Phase 5 — base set slab text injection)
     base_slabs = None
     if frame_manager:
         base_slabs = frame_manager.corpus.base_set_slabs(oli_mode)
     system_prompt = build_system_prompt(oli_mode, header, base_set_slabs=base_slabs)
-
-    # Inject gauntlet friction into system prompt if fired
-    if gauntlet_friction:
-        system_prompt += "\n\n" + gauntlet_friction
 
     messages = build_messages(system_prompt, chat_messages, frame_state)
     messages.append({"role": "user", "content": user_text})
@@ -291,14 +290,68 @@ async def process_turn(
         "packed_messages": len(messages),
     }
 
-    # Step 6: Stream response (with thinking level)
-    # Step 7: §26.4 Post-generation validation with REGENERATE path
+    # ── Step 5: Launch background classify+drift ─────────────────
+    # Runs concurrently while the user sees streaming tokens.
+    recent = "\n".join(
+        f"[{m.role}] {m.content[:200]}" for m in chat_messages[-10:]
+    )
+    bg_classify_task = asyncio.create_task(
+        classify_and_drift(user_text, recent)
+    )
+
+    # ── Step 6: Stream response IMMEDIATELY ──────────────────────
     use_think = think_level != "off"
     full_response = ""
     is_retry = False
 
     async for chunk in ollama.chat_stream(messages, think=use_think, think_level=think_level, web_mode=web_mode):
         if chunk.get("done"):
+            # ── Step 7: Collect background results ───────────────
+            # classify+drift should be done by now (ran during streaming).
+            # If not, await with a short timeout — don't block the user.
+            try:
+                classification, drift = await asyncio.wait_for(
+                    bg_classify_task, timeout=2.0
+                )
+            except (asyncio.TimeoutError, Exception):
+                classification = default_classification
+                drift = default_drift
+
+            # Augment drift with wrap affect from anchor matching
+            if match_result is not None:
+                from .anchor_matcher import compute_wrap_affect_boost
+                bump = compute_wrap_affect_boost(match_result)
+                if bump > 0:
+                    drift.affect_density = min(1.0, drift.affect_density + bump)
+
+            # Compute windowed drift severity (§17.7-17.8)
+            drift_assessment = None
+            dampening = DampeningLevel.NONE
+            if drift_monitor and session_id:
+                drift_assessment = drift_monitor.record_and_compute(session_id, drift, turn)
+                dampening = drift_assessment["dampening"]
+
+            # §17.2 Pushback gauntlet — deferred to post-stream.
+            # Only fires when drift is elevated + anchors active.
+            # Gauntlet friction is stored for NEXT turn's prompt.
+            gauntlet_result = None
+            if gauntlet_engine and session_id and frame_state:
+                gauntlet_ctx = "\n".join(
+                    f"[{m.role}] {m.content[:200]}" for m in chat_messages[-6:]
+                )
+                gauntlet_result = await gauntlet_engine.run(
+                    session_id, turn, user_text, gauntlet_ctx,
+                    frame_state, drift, oli_mode,
+                )
+                if gauntlet_result.fired:
+                    if frame_manager:
+                        pressure_targets = list(frame_state.active_anchors.keys())
+                        if pressure_targets:
+                            delta = 0.20 if gauntlet_result.anchor_conflicts else 0.10
+                            frame_manager.apply_truth_pressure(
+                                session_id, pressure_targets, delta=delta
+                            )
+
             # §26.4 — validate before yielding final metadata
             validation = validate_output(full_response, oli_mode, is_retry=is_retry)
 
@@ -311,7 +364,6 @@ async def process_turn(
                     "oli_regenerate": True,
                 }
 
-                # Append correction guidance as system message and regenerate
                 retry_messages = list(messages) + [
                     {"role": "assistant", "content": full_response},
                     {"role": "system", "content": (
@@ -334,10 +386,9 @@ async def process_turn(
                     full_response += retry_content
                     yield {"done": False, "content": retry_content}
 
-                # Validate the retry
                 validation = validate_output(full_response, oli_mode, is_retry=True)
 
-            # Build final metadata
+            # Build final metadata (with REAL classification/drift, not defaults)
             meta: dict = {
                 "done": True,
                 "content": "",

@@ -14,8 +14,8 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 OLLAMA_BASE = "http://localhost:11434"
-CHAT_MODEL = os.environ.get("PS_CHAT_MODEL", "gpt-oss:20b")
-EMBED_MODEL = "nomic-embed-text"
+CHAT_MODEL = os.environ.get("PS_CHAT_MODEL", "gemma3:12b")
+EMBED_MODEL = os.environ.get("PS_EMBED_MODEL", "nomic-embed-text")
 
 # ── Performance tuning ─────────────────────────────────────────
 # These options are merged into every Ollama request.
@@ -36,35 +36,20 @@ EMBED_MODEL = "nomic-embed-text"
 #   OLLAMA_KEEP_ALIVE=-1      — Never unload model from VRAM
 #   OLLAMA_NUM_PARALLEL=2     — Concurrent request slots
 
-_NUM_CTX = int(os.environ.get("PS_NUM_CTX", "16384"))  # 16k default (saves VRAM for KV cache)
+_NUM_CTX = int(os.environ.get("PS_NUM_CTX", "32768"))  # 32k — Gemma 12B (11.1GB) + 32k KV cache fits in 16GB VRAM
 
-# num_gpu: layers offloaded to GPU. -1 = all, 0 = CPU only.
-# Auto-detect: check free VRAM and allocate layers proportionally.
-# Override with PS_NUM_GPU env var (e.g. PS_NUM_GPU=8).
-_NUM_GPU = int(os.environ.get("PS_NUM_GPU", "-1"))
-
-def _detect_gpu_layers() -> int:
-    """Auto-detect how many of the model's 24 layers fit in free VRAM."""
-    if _NUM_GPU != -1:
-        return _NUM_GPU
-    try:
-        import subprocess
-        out = subprocess.check_output(
-            ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
-            text=True, timeout=5,
-        ).strip()
-        free_mb = int(out.split("\n")[0])
-        # ~550 MB per layer for 20B model.
-        # Reserve 1200 MB for embed model (~600MB) + KV cache + system.
-        usable = max(0, free_mb - 1200)
-        layers = min(24, usable // 550)
-        if layers < 1:
-            return 0  # CPU only — not enough VRAM
-        return layers
-    except Exception:
-        return 0  # fallback to CPU if detection fails
-
-_AUTO_GPU_LAYERS = _detect_gpu_layers()
+# num_gpu: layers offloaded to GPU.
+#   99  = "offload as many layers as fit in VRAM" (Ollama's convention)
+#   -1  = same as 99 in newer Ollama versions
+#    0  = CPU only
+#
+# We default to 99 — let Ollama figure out the optimal split at model
+# load time. This avoids the stale-detection bug where our import-time
+# check sees different VRAM than what's available when Ollama actually
+# loads the model.
+#
+# Override with PS_NUM_GPU env var if needed (e.g. PS_NUM_GPU=0 for CPU).
+_NUM_GPU = int(os.environ.get("PS_NUM_GPU", "99"))
 
 # Detect physical CPU cores for thread count
 def _detect_cpu_threads() -> int:
@@ -78,14 +63,22 @@ def _detect_cpu_threads() -> int:
 
 MODEL_OPTIONS: dict = {
     "num_ctx": _NUM_CTX,
-    "num_gpu": _AUTO_GPU_LAYERS,
+    "num_gpu": _NUM_GPU,    # 99 = max GPU offload (Ollama picks optimal split)
     "num_batch": 1024,      # higher batch = faster prompt eval
     "num_thread": _detect_cpu_threads(),
 }
 
+logger.info(
+    "Ollama config: model=%s num_gpu=%s num_ctx=%s num_batch=%s threads=%s",
+    CHAT_MODEL, _NUM_GPU, _NUM_CTX, 1024, MODEL_OPTIONS["num_thread"],
+)
+
 # Reusable client — partial GPU offload means slow cold starts (~60s model load)
 # connect=30s, read=300s (5 min for first-token during cold load + slow CPU layers)
 _client = httpx.AsyncClient(base_url=OLLAMA_BASE, timeout=httpx.Timeout(300.0, connect=30.0))
+
+
+from . import model_profiles
 
 
 def _opts(temperature: float = 0.7, **extra) -> dict:
@@ -95,6 +88,11 @@ def _opts(temperature: float = 0.7, **extra) -> dict:
     return o
 
 
+def _payload_base(**fields) -> dict:
+    """Build a request payload with model + keep_alive already set."""
+    return {"model": CHAT_MODEL, "keep_alive": -1, **fields}
+
+
 async def generate(
     prompt: str,
     system: Optional[str] = None,
@@ -102,18 +100,19 @@ async def generate(
     raw_json: bool = False,
 ) -> str:
     """Single-shot generation. Use for structured extraction tasks."""
-    payload: dict = {
-        "model": CHAT_MODEL,
-        "prompt": prompt,
-        "stream": False,
-        "options": _opts(temperature),
-    }
+    payload: dict = _payload_base(
+        prompt=prompt,
+        stream=False,
+        options=_opts(temperature),
+    )
     if system:
         payload["system"] = system
     if raw_json:
         payload["format"] = "json"
 
     resp = await _client.post("/api/generate", json=payload)
+    if resp.status_code != 200:
+        print(f"[OLLAMA GENERATE ERROR] {resp.status_code}: {resp.text[:300]}")
     resp.raise_for_status()
     return resp.json()["response"]
 
@@ -129,12 +128,11 @@ async def chat(
         messages: List of {role, content} dicts.
         think: Enable extended reasoning (harmony format 'Reasoning: high').
     """
-    payload: dict = {
-        "model": CHAT_MODEL,
-        "messages": messages,
-        "stream": False,
-        "options": _opts(temperature),
-    }
+    payload = _payload_base(
+        messages=messages,
+        stream=False,
+        options=_opts(temperature),
+    )
     if think:
         payload["options"]["think"] = True
 
@@ -166,13 +164,12 @@ async def chat_stream(
     web_mode: "off" = no search, "on" = always search first,
               "auto" = pass tools, let model decide
     """
-    payload: dict = {
-        "model": CHAT_MODEL,
-        "messages": list(messages),
-        "stream": True,
-        "options": _opts(temperature),
-    }
-    if think:
+    payload = _payload_base(
+        messages=list(messages),
+        stream=True,
+        options=_opts(temperature),
+    )
+    if think and model_profiles.active().supports_think:
         payload["think"] = True
         if think_level in ("low", "medium", "high"):
             payload["options"]["think_level"] = think_level
@@ -192,16 +189,34 @@ async def chat_stream(
                 payload["messages"] = list(messages)
                 payload["messages"].insert(-1, {
                     "role": "system",
-                    "content": f"[WEB SEARCH RESULTS for: {user_msg[:80]}]\n{search_context}\n[/WEB SEARCH RESULTS]\nUse these results to ground your response with current information. Cite sources where applicable.",
+                    "content": f"[WEB SEARCH RESULTS for: {user_msg[:80]}]\n{search_context}\n[/WEB SEARCH RESULTS]\nUse these results as background knowledge to inform your response. Synthesize the information naturally — do NOT copy snippets verbatim, do NOT list URLs inline, do NOT dump raw search results. Write a clear, conversational response in your own words. If the user wants sources, they can ask.",
                 })
 
     elif web_mode == "auto":
-        # Let model decide — pass tool definitions, handle calls if they come
-        payload["tools"] = BROWSER_TOOLS
-        payload["stream"] = False
-        async for chunk in _chat_with_tools(payload):
-            yield chunk
-        return
+        if model_profiles.active().supports_tools:
+            # Let model decide — pass tool definitions, handle calls if they come
+            payload["tools"] = BROWSER_TOOLS
+            payload["stream"] = False
+            async for chunk in _chat_with_tools(payload):
+                yield chunk
+            return
+        else:
+            # Model doesn't support tools — fall back to "on" (always search)
+            from . import web_search as ws
+            user_msg = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+            if user_msg:
+                yield {"content": f"[searching: {user_msg[:60]}]\n", "done": False}
+                results = await ws.search(user_msg, top_n=5)
+                search_context = "\n".join(
+                    f"[{i+1}] {r['title']}\n    {r['url']}\n    {r['snippet']}"
+                    for i, r in enumerate(results) if r.get("title")
+                )
+                if search_context:
+                    payload["messages"] = list(messages)
+                    payload["messages"].insert(-1, {
+                        "role": "system",
+                        "content": f"[WEB SEARCH RESULTS for: {user_msg[:80]}]\n{search_context}\n[/WEB SEARCH RESULTS]\nUse these results as background knowledge to inform your response. Synthesize the information naturally — do NOT copy snippets verbatim, do NOT list URLs inline, do NOT dump raw search results. Write a clear, conversational response in your own words. If the user wants sources, they can ask.",
+                    })
 
     try:
         async with _client.stream("POST", "/api/chat", json=payload) as resp:
@@ -217,8 +232,10 @@ async def chat_stream(
                 if content:
                     yield {"content": content, "done": False}
     except httpx.HTTPStatusError as e:
-        logger.error("Ollama HTTP error: %s", e)
-        yield {"content": f"\n\n[Ollama error: {e.response.status_code} — the model may have run out of VRAM or hit a context limit. Try sending a shorter message or restarting Ollama.]", "done": False}
+        body = e.response.text[:500] if hasattr(e.response, 'text') else str(e)
+        logger.error("Ollama HTTP error: %s — body: %s", e.response.status_code, body)
+        print(f"[OLLAMA ERROR] {e.response.status_code}: {body}")
+        yield {"content": f"\n\n[Ollama error: {e.response.status_code} — {body[:200]}]", "done": False}
         yield {"done": True}
     except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError) as e:
         logger.error("Ollama connection error: %s", e)
@@ -281,13 +298,12 @@ async def _chat_with_tools(payload: dict):
             })
 
     # Round 2: call WITHOUT tools — force content generation from search results
-    final_payload = {
-        "model": payload["model"],
-        "messages": msgs,
-        "stream": False,
-        "options": payload.get("options", {}),
+    final_payload = _payload_base(
+        messages=msgs,
+        stream=False,
+        options=payload.get("options", {}),
         # No "tools" key — model must generate content
-    }
+    )
     resp2 = await _client.post("/api/chat", json=final_payload)
     resp2.raise_for_status()
     data2 = resp2.json()
@@ -346,18 +362,32 @@ async def preload_model() -> None:
     This loads model weights + allocates KV cache upfront.
     """
     try:
-        resp = await _client.post("/api/generate", json={
-            "model": CHAT_MODEL,
-            "prompt": "",
-            "stream": False,
-            "keep_alive": -1,
-            "options": MODEL_OPTIONS,
-        })
+        resp = await _client.post("/api/generate", json=_payload_base(
+            prompt="",
+            stream=False,
+            options=MODEL_OPTIONS,
+        ))
         resp.raise_for_status()
-        print(f"[OLLAMA] Model preloaded: {CHAT_MODEL} "
-              f"(ctx={_NUM_CTX}, gpu_layers={_AUTO_GPU_LAYERS}/24, batch={MODEL_OPTIONS['num_batch']})")
+        # Check actual GPU split from Ollama
+        try:
+            ps_resp = await _client.get("/api/ps")
+            ps_data = ps_resp.json()
+            for m in ps_data.get("models", []):
+                total = m.get("size", 0) / 1e9
+                vram = m.get("size_vram", 0) / 1e9
+                pct = (vram / total * 100) if total > 0 else 0
+                print(f"[OLLAMA] Model loaded: {m['name']} — "
+                      f"{vram:.1f}GB VRAM / {total:.1f}GB total ({pct:.0f}% GPU)")
+        except Exception:
+            pass
+        print(f"[OLLAMA] Config: ctx={_NUM_CTX}, num_gpu={_NUM_GPU}, batch={MODEL_OPTIONS['num_batch']}")
+        # Auto-detect model capabilities from Ollama
+        profile = await model_profiles.set_active(CHAT_MODEL)
+        print(f"[OLLAMA] Profile: family={profile.family}, params={profile.parameter_size}, "
+              f"think={profile.supports_think}, tools={profile.supports_tools}, "
+              f"vision={profile.supports_vision}, layers={profile.block_count}")
     except Exception as e:
-        print(f"[OLLAMA] Preload failed (gpu_layers={_AUTO_GPU_LAYERS}): {e}")
+        print(f"[OLLAMA] Preload failed (num_gpu={_NUM_GPU}): {e}")
 
 
 async def health_check() -> dict:

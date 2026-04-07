@@ -233,6 +233,14 @@
             style="flex:1;background:rgba(255,255,255,0.04);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-family:inherit;font-size:9px;outline:none">
         </div>
       </div>
+      <div style="border-top:1px solid var(--border);padding-top:6px;margin-top:4px">
+        <div class="ctrl-row">
+          <span class="ctrl-label">Model</span>
+          <select id="model-select" style="flex:1;max-width:140px" onchange="switchModel(this.value)">
+            <option value="">loading…</option>
+          </select>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -383,9 +391,11 @@
     <!-- Left: Thread trajectory canvas -->
     <div style="flex:1;position:relative;border-right:1px solid var(--border);display:flex;flex-direction:column;min-width:0">
       <div style="padding:10px 18px;font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--text-dim);border-bottom:1px solid var(--border)">Conversation Thread Path</div>
-      <div style="flex:1;position:relative;min-height:0">
-        <canvas id="er-canvas" style="display:block;width:100%;height:100%"></canvas>
+      <div style="flex:1;position:relative;min-height:0;display:flex;flex-direction:column">
+        <canvas id="er-canvas" style="display:block;width:100%;flex:1;min-height:0"></canvas>
         <div id="er-turn-indicator" style="position:absolute;top:14px;left:14px;font-size:11px;color:var(--text-dim);background:rgba(8,8,18,0.75);padding:4px 10px;border-radius:4px;border:1px solid var(--border)">turn –</div>
+        <!-- Hit timeline: scrollable list of what was activated each turn -->
+        <div id="er-hit-timeline" style="max-height:180px;overflow-y:auto;border-top:1px solid var(--border);padding:8px 14px;font-size:10px;color:var(--text-dim);line-height:1.6"></div>
       </div>
     </div>
     <!-- Right: Draft stack -->
@@ -413,9 +423,65 @@
 <script>
 const API='/api';
 let currentChatId=null, currentSessionId=null, oliMode='OFF', sending=false;
+let _activeReader=null; // tracks in-flight SSE stream so we can cancel on chat switch
 let webMode='off', thinkLevel='medium'; // webMode: 'off' | 'on' | 'auto'
 let selectedNodes=new Set(); // multi-select for bundling
 let pendingAttachment=null; // {filename, chars, truncated, content}
+
+// ═══════════════════════════════════════════════════════════════
+//  MODEL SELECTOR — queries Ollama for available models
+// ═══════════════════════════════════════════════════════════════
+async function loadModelList(){
+  const sel=document.getElementById('model-select');
+  if(!sel)return;
+  try{
+    // Get available models from Ollama
+    const tags=await fetch(`${API}/models`).then(r=>r.json());
+    const models=tags.models||[];
+    const active=tags.active||'';
+    sel.innerHTML='';
+    models.forEach(m=>{
+      const opt=document.createElement('option');
+      opt.value=m.name;
+      // Show name + size
+      const gb=(m.size/1e9).toFixed(1);
+      opt.textContent=`${m.name} (${gb}GB)`;
+      if(m.name===active)opt.selected=true;
+      sel.appendChild(opt);
+    });
+    if(!models.length){
+      sel.innerHTML='<option value="">no models</option>';
+    }
+  }catch(e){
+    sel.innerHTML='<option value="">error</option>';
+  }
+}
+async function switchModel(name){
+  if(!name)return;
+  const sel=document.getElementById('model-select');
+  try{
+    sel.disabled=true;
+    addEvent(`Switching to ${name}...`);
+    const res=await fetch(`${API}/models/switch`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model:name}),
+    });
+    const data=await res.json();
+    if(data.ok){
+      const vram=(data.size_vram/1e9).toFixed(1);
+      addEvent(`Model: ${name} (${vram}GB VRAM, ${data.gpu_pct}% GPU)`);
+    }else{
+      addEvent(`Model switch failed: ${data.error||'unknown'}`);
+    }
+  }catch(e){
+    addEvent(`Model switch error: ${e.message}`);
+  }finally{
+    sel.disabled=false;
+  }
+}
+// Load model list on startup
+setTimeout(loadModelList,500);
 
 // ═══════════════════════════════════════════════════════════════
 //  FILE UPLOAD
@@ -2348,12 +2414,26 @@ async function loadCorpusGraph(){
   cNodes=[];cEdges=[];
   const typeMap={};
 
+  // §11.1 axis scaling — same as session graph
+  const CX={x:500,y:300,z:250};
+  const cJitter=()=>(Math.random()-.5)*30;
+  function cSemPos(n,sx,sy,sz){
+    // If backend provided semantic positions, use them; else random
+    if(sx!=null){
+      n.x=(sx-0.5)*CX.x+cJitter(); n.y=sy*CX.y+cJitter(); n.z=(sz-1.5)*CX.z+cJitter();
+      n.semX=n.x; n.semY=n.y; n.semZ=n.z;
+    }else{
+      n.x=(Math.random()-.5)*350; n.y=(Math.random()-.5)*250; n.z=(Math.random()-.5)*200;
+      n.semX=null; n.semY=null; n.semZ=null;
+    }
+  }
+
   // Anchors
   (data.anchors||[]).forEach(a=>{
     const n={id:a.id,label:a.canonical_phrase,struct:'anchor',
       lifecycle_status:a.lifecycle_status||'ACTIVE',
-      x:(Math.random()-.5)*350,y:(Math.random()-.5)*250,z:(Math.random()-.5)*200,
-      vx:0,vy:0,vz:0,invokes:a.invokes||[],depends_on:a.depends_on||[]};
+      x:0,y:0,z:0,vx:0,vy:0,vz:0,invokes:a.invokes||[],depends_on:a.depends_on||[]};
+    cSemPos(n,a.sem_x,a.sem_y,a.sem_z);
     cNodes.push(n);typeMap[a.id]=n;
   });
   // Bundles
@@ -2361,16 +2441,16 @@ async function loadCorpusGraph(){
     const label=(b.payload?.intent||[])[0]||b.id;
     const n={id:b.id,label:label.slice(0,50),struct:'bundle',
       lifecycle_status:b.lifecycle_status||'ACTIVE',
-      x:(Math.random()-.5)*350,y:(Math.random()-.5)*250,z:(Math.random()-.5)*200,
-      vx:0,vy:0,vz:0,supports:b.supports||[],depends_on:b.depends_on||[]};
+      x:0,y:0,z:0,vx:0,vy:0,vz:0,supports:b.supports||[],depends_on:b.depends_on||[]};
+    cSemPos(n,b.sem_x,b.sem_y,b.sem_z);
     cNodes.push(n);typeMap[b.id]=n;
   });
   // Slabs
   (data.slabs||[]).forEach(s=>{
     const n={id:s.id,label:(s.title||s.canonical_text||'').slice(0,50),struct:'slab',
       lifecycle_status:s.lifecycle_status||'ACTIVE',
-      x:(Math.random()-.5)*350,y:(Math.random()-.5)*250,z:(Math.random()-.5)*200,
-      vx:0,vy:0,vz:0,depends_on:s.depends_on||[]};
+      x:0,y:0,z:0,vx:0,vy:0,vz:0,depends_on:s.depends_on||[]};
+    cSemPos(n,s.sem_x,s.sem_y,s.sem_z);
     cNodes.push(n);typeMap[s.id]=n;
   });
   // Edges from corpus
@@ -2417,8 +2497,16 @@ function cPhysics(){
     a.vx+=f*dx/d;a.vy+=f*dy/d;a.vz+=f*dz/d;
     b.vx-=f*dx/d;b.vy-=f*dy/d;b.vz-=f*dz/d;
   });
+  // Semantic axis pull — same as session graph physics() §11.1
+  const semPull=0.006;
   cNodes.forEach(n=>{
-    n.vx+=(-n.x)*pull;n.vy+=(-n.y)*pull;n.vz+=(-n.z)*pull;
+    if(n.semX!=null){
+      n.vx+=(n.semX-n.x)*semPull;
+      n.vy+=(n.semY-n.y)*semPull;
+      n.vz+=(n.semZ-n.z)*semPull;
+    }else{
+      n.vx+=(-n.x)*pull;n.vy+=(-n.y)*pull;n.vz+=(-n.z)*pull;
+    }
     n.vx*=damp;n.vy*=damp;n.vz*=damp;
     n.x+=n.vx;n.y+=n.vy;n.z+=n.vz;
   });
@@ -2621,6 +2709,7 @@ async function openEndReview(){
     `${s.last_turn} turns · ${s.unique_nodes_hit} nodes touched · ${s.total_hits} total hits · ${s.draft_count} drafts`;
   document.getElementById('er-draft-count').textContent=s.draft_count;
   renderERDrafts();
+  renderERHitTimeline();
   document.getElementById('end-review-panel').style.display='flex';
   // Seed canvas + auto-play the trajectory once
   setTimeout(async ()=>{await erInitCanvas();erPlayTrajectory()},80);
@@ -2630,6 +2719,32 @@ function closeEndReview(){
   document.getElementById('end-review-panel').style.display='none';
   if(erAnimHandle){cancelAnimationFrame(erAnimHandle);erAnimHandle=null}
   erAnimState=null;
+}
+
+function renderERHitTimeline(){
+  const host=document.getElementById('er-hit-timeline');
+  if(!host||!erData)return;
+  host.innerHTML='';
+  const traj=erData.trajectory||[];
+  if(!traj.length){
+    host.innerHTML='<div style="color:var(--text-dim);opacity:0.6">No corpus hits this session.</div>';
+    return;
+  }
+  // Build a lookup of node labels from the corpus graph if available
+  const labels={};
+  if(window.cNodes){window.cNodes.forEach(n=>{labels[n.id]=n.label||n.id})}
+  traj.forEach(([turn,hitIds])=>{
+    const line=document.createElement('div');
+    line.style.cssText='margin-bottom:4px;';
+    const turnSpan=`<span style="color:var(--accent);font-weight:600">T${turn}</span>`;
+    const hits=hitIds.map(id=>{
+      const lbl=labels[id]||id.replace(/^(ANCHOR_|BUNDLE_|SLAB_)/,'').replace(/_v\d+$/,'').replace(/_/g,' ').toLowerCase();
+      const col=id.startsWith('ANCHOR')?'#0AAC00':id.startsWith('BUNDLE')?'#B4009E':id.startsWith('SLAB')?'#0050EB':'#ffa050';
+      return `<span style="color:${col};font-weight:500">${lbl}</span>`;
+    }).join(', ');
+    line.innerHTML=`${turnSpan} → ${hits}`;
+    host.appendChild(line);
+  });
 }
 
 function renderERDrafts(){
@@ -2712,9 +2827,22 @@ async function erSaveAmend(draftId){
 async function erDraftAction(draftId,action){
   try{
     const res=await fetch(`${API}/sessions/${currentSessionId}/drafts/${draftId}/review`,
-      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,oli_mode:oliMode})}).then(r=>r.json());
-    if(res.error){pushEvent('proposal',`${action} failed: ${res.error}`);return}
-    pushEvent('proposal',`${action}: ${draftId} → ${res.status||'ok'}`);
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,oli_mode:oliMode})});
+    const data=await res.json();
+    if(data.error||data.detail){
+      const errMsg=data.error||data.detail;
+      pushEvent('proposal',`${action} failed: ${errMsg}`);
+      // Show inline error on the draft card
+      const card=document.querySelector(`#er-drafts [data-draft-id="${draftId}"]`);
+      if(card){
+        let errEl=card.querySelector('.er-error');
+        if(!errEl){errEl=document.createElement('div');errEl.className='er-error';errEl.style.cssText='color:#ff6b6b;font-size:10px;padding:6px 0;line-height:1.4';card.querySelector('.er-actions').before(errEl)}
+        errEl.textContent=errMsg;
+        setTimeout(()=>{if(errEl)errEl.remove()},6000);
+      }
+      return;
+    }
+    pushEvent('proposal',`${action}: ${draftId} → ${data.status||'ok'}`);
   }catch(e){pushEvent('proposal',`${action} failed: ${e.message}`);return}
   // Refresh draft state
   erData=await fetch(`${API}/sessions/${currentSessionId}/end-review`).then(r=>r.json());
@@ -2840,11 +2968,26 @@ function erDrawCanvas(){
       ctx.strokeStyle=col;ctx.lineWidth=1;
       ctx.beginPath();ctx.arc(n.x,n.y,4,0,Math.PI*2);ctx.stroke();
     }
+    // Label for hit nodes (readable names)
+    if(n.hits>0||n.heat>0.1){
+      const lbl=n.label||n.id.replace(/^(ANCHOR_|BUNDLE_|SLAB_)/,'').replace(/_v\d+$/,'').replace(/_/g,' ');
+      ctx.globalAlpha=Math.max(0.4,n.heat);
+      ctx.fillStyle='#ccc';ctx.font='9px monospace';ctx.textAlign='center';
+      ctx.fillText(lbl.slice(0,25),n.x,n.y-8);
+    }
   });
   ctx.globalAlpha=1;
   // Turn indicator
   const ind=document.getElementById('er-turn-indicator');
-  if(ind)ind.textContent=`turn ${s.currentTurn}${s.done?' · done':''}`;
+  if(ind){
+    // Show which nodes are currently hot
+    const hotNames=Object.values(s.nodes).filter(n=>n.heat>0.3).map(n=>{
+      const lbl=(n.label||n.id||'').replace(/^(ANCHOR_|BUNDLE_|SLAB_)/,'').replace(/_v\d+$/,'').replace(/_/g,' ');
+      return lbl.slice(0,20);
+    }).slice(0,3);
+    const hotStr=hotNames.length?` · ${hotNames.join(', ')}`:'';
+    ind.textContent=`turn ${s.currentTurn}${hotStr}${s.done?' · done':''}`;
+  }
 }
 
 function pushEvent(type,text){
@@ -2896,6 +3039,10 @@ async function loadChats(){
   });
 }
 async function selectChat(id){
+  // Cancel any in-flight stream from the previous chat
+  if(_activeReader){try{_activeReader.cancel()}catch(e){}; _activeReader=null}
+  if(sending){sending=false;document.getElementById('send-btn').disabled=false}
+
   currentChatId=id;currentSessionId=null;
   gNodes=[];gEdges=[]; // clear graph BEFORE loading (not after)
   document.querySelectorAll('.chat-item').forEach(el=>el.classList.toggle('active',el.dataset.id===id));
@@ -3047,11 +3194,15 @@ async function sendMessage(){
 
   addBubble('user',displayText);const aDiv=addBubble('assistant','');aDiv.style.opacity='.5';
 
+  const targetChatId=currentChatId; // capture at send time — don't use currentChatId during stream
   try{
-    const res=await fetch(`${API}/chats/${currentChatId}/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:content,oli_mode:oliMode,web_mode:webMode,think_level:thinkLevel})});
-    const reader=res.body.getReader();const dec=new TextDecoder();let buf='';
+    const res=await fetch(`${API}/chats/${targetChatId}/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:content,oli_mode:oliMode,web_mode:webMode,think_level:thinkLevel})});
+    const reader=res.body.getReader();_activeReader=reader;
+    const dec=new TextDecoder();let buf='';
     while(true){
       const{done,value}=await reader.read();if(done)break;
+      // If user switched chats mid-stream, stop updating the DOM
+      if(currentChatId!==targetChatId)break;
       buf+=dec.decode(value,{stream:true});const lines=buf.split('\n\n');buf=lines.pop()||'';
       for(const line of lines){
         if(!line.startsWith('data: '))continue;const data=JSON.parse(line.slice(6));
@@ -3086,7 +3237,7 @@ async function sendMessage(){
       }
     }
   }catch(err){aDiv.querySelector('.msg-text').textContent=`Error: ${err.message}`;aDiv.style.color='#ff6b6b';aDiv.style.opacity='1';pushEvent('gate',`Error: ${err.message}`)}
-  sending=false;document.getElementById('send-btn').disabled=false;document.getElementById('input').focus();
+  _activeReader=null;sending=false;document.getElementById('send-btn').disabled=false;document.getElementById('input').focus();
 }
 
 // ═══════════════════════════════════════════════════════════════
