@@ -15,7 +15,14 @@ from ..models.schemas import (
 )
 from ..models.enums import OLIMode
 from ..models.schemas import Slab
-from ..prompts.oli_constitutional import OLI_CONSTITUTIONAL_PROMPT, BMD_SCAFFOLD
+from ..prompts.oli_constitutional import (
+    OLI_CONSTITUTIONAL_PROMPT, OLI_BOOTSTRAP_PROMPT, BMD_SCAFFOLD,
+)
+
+import os
+# Phase 7: Use bootstrap pointer by default (saves ~18k chars of context).
+# Set PS_OLI_FULL_PROMPT=1 to revert to the full constitutional prompt.
+_USE_FULL_PROMPT = os.environ.get("PS_OLI_FULL_PROMPT", "0") == "1"
 
 
 from .policy import policy
@@ -41,7 +48,12 @@ def build_system_prompt(
     parts = []
 
     if oli_mode == OLIMode.ON:
-        parts.append(OLI_CONSTITUTIONAL_PROMPT)
+        # Phase 7: Bootstrap pointer relies on corpus slabs for OLI layer
+        # definitions, saving ~18k chars. Use PS_OLI_FULL_PROMPT=1 to revert.
+        if _USE_FULL_PROMPT:
+            parts.append(OLI_CONSTITUTIONAL_PROMPT)
+        else:
+            parts.append(OLI_BOOTSTRAP_PROMPT)
     else:
         # OLI OFF: still inject BMD scaffold + OLI-off rules
         parts.append(BMD_SCAFFOLD)

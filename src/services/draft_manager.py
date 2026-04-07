@@ -21,10 +21,11 @@ from ..models.schemas import (
     DraftPacket, DraftStack, Anchor, Slab, AnchorMeta, AnchorMatchPolicy,
     ProvenanceRef,
 )
-from ..models.enums import DraftStatus, ClaimTag
+from ..models.enums import DraftStatus, ClaimTag, DriftSeverity
 from ..prompts.proposals import PROPOSAL_EXTRACTION_PROMPT, PROPOSAL_EXPLICIT_PROMPT
 from .corpus import CorpusStore
 from .session_store import SessionStore
+from .verification_router import VerificationRouter
 from . import ollama
 from .event_log import EventLog
 
@@ -42,6 +43,7 @@ class DraftManager:
     def __init__(self, corpus: CorpusStore, session_store: SessionStore):
         self.corpus = corpus
         self.session_store = session_store
+        self.verifier = VerificationRouter()
         # Track periodic proposal counts per session
         self._periodic_counts: dict[str, dict[str, int]] = {}
 
@@ -183,16 +185,58 @@ class DraftManager:
 
         return created
 
+    async def verify_draft_claims(
+        self,
+        session_id: str,
+        draft_id: str,
+        context: str = "",
+        method: str = "ollama",
+    ) -> dict:
+        """Verify all FACT claims in a draft packet.
+
+        Returns verification results. Does NOT auto-promote — the user
+        must still call review_draft with promote_corpus after seeing results.
+        """
+        packet = self.session_store.load_draft_packet(session_id, draft_id)
+        if not packet:
+            return {"error": "Draft not found"}
+        if not packet.fact_claims:
+            return {"draft_id": draft_id, "claims": [], "message": "No FACT claims to verify"}
+
+        batch = await self.verifier.verify_batch(
+            packet.fact_claims, context=context, method=method,
+        )
+
+        return {
+            "draft_id": draft_id,
+            "verification": batch.summary(),
+            "results": [
+                {
+                    "claim": r.claim[:200],
+                    "outcome": r.outcome.value,
+                    "confidence": round(r.confidence, 2),
+                    "evidence": r.evidence[:200],
+                    "notes": r.notes[:200],
+                }
+                for r in batch.results
+            ],
+            "can_promote": batch.all_confirmed or (
+                not batch.has_contradictions and batch.unresolvable_count == 0
+            ),
+        }
+
     async def review_draft(
         self,
         session_id: str,
         draft_id: str,
         action: str,
         oli_mode: str = "OFF",
+        drift_severity: str = "low",
     ) -> dict:
         """Review a draft: discard / promote_tentative / promote_corpus.
 
         §26.6: corpus commits require OLI ON. FACT verification mandatory.
+        Drift gate: blocks corpus promotion when drift severity is HIGH.
         """
         packet = self.session_store.load_draft_packet(session_id, draft_id)
         if not packet:
@@ -207,6 +251,14 @@ class DraftManager:
             return {"status": "REJECTED", "draft_id": draft_id}
 
         if action == "promote_tentative":
+            # Drift gate (soft): warn but allow tentative promotion during high drift
+            warning = None
+            if drift_severity == DriftSeverity.HIGH.value:
+                warning = (
+                    "Session drift is HIGH. Tentative promotion allowed but "
+                    "this node may reflect volatile epistemic state."
+                )
+
             packet.status = DraftStatus.PROVISIONAL
             self.session_store.save_draft_packet(session_id, packet)
             # Write to library/tentative/
@@ -217,16 +269,39 @@ class DraftManager:
                 "draft": packet.model_dump(mode="json"),
                 "raw_proposal": raw,
             })
-            return {"status": "PROVISIONAL", "location": "library/tentative", "draft_id": draft_id}
+            result = {"status": "PROVISIONAL", "location": "library/tentative", "draft_id": draft_id}
+            if warning:
+                result["warning"] = warning
+            return result
 
         if action == "promote_corpus":
             # §26.6: Corpus commits require OLI ON
             if oli_mode != "ON":
                 return {"error": "Corpus commits require OLI ON. Toggle OLI before promoting."}
 
-            # Block if FACT claims unverified
+            # Drift gate (hard): block corpus promotion during HIGH drift
+            if drift_severity == DriftSeverity.HIGH.value:
+                return {
+                    "error": "Corpus promotion blocked: session drift is HIGH. "
+                    "Wait for drift to subside or end the session and review in a calmer state.",
+                    "drift_severity": drift_severity,
+                }
+
+            # FACT claims: attempt auto-verification if not yet verified
             if packet.fact_claims:
-                return {"error": "FACT claims must be verified before corpus promotion", "claims": packet.fact_claims}
+                batch = await self.verifier.verify_batch(packet.fact_claims)
+                if batch.has_contradictions:
+                    return {
+                        "error": "FACT claims contain contradictions — cannot promote to corpus",
+                        "claims": packet.fact_claims,
+                        "verification": batch.summary(),
+                    }
+                if not batch.all_confirmed:
+                    return {
+                        "error": "FACT claims not fully verified — review verification results",
+                        "claims": packet.fact_claims,
+                        "verification": batch.summary(),
+                    }
 
             # Convert to corpus object
             obj = self._convert_to_corpus_object(draft_id, raw)

@@ -776,12 +776,42 @@ async def amend_draft(session_id: str, draft_id: str, req: AmendDraftRequest):
 
 @router.post("/sessions/{session_id}/drafts/{draft_id}/review")
 async def review_draft(session_id: str, draft_id: str, req: ReviewDraftRequest):
-    result = await draft_manager.review_draft(session_id, draft_id, req.action, req.oli_mode)
+    # Compute current drift severity for the drift gate
+    drift_severity = "low"
+    window = drift_monitor.get_window(session_id)
+    frame = frame_manager._frames.get(session_id)
+    if frame and frame.last_updated_turn > 0:
+        drift_state = window.compute(frame.last_updated_turn)
+        drift_severity = drift_state["severity"].value
+
+    result = await draft_manager.review_draft(
+        session_id, draft_id, req.action, req.oli_mode,
+        drift_severity=drift_severity,
+    )
     if "error" in result:
-        raise HTTPException(400, result["error"])
+        raise HTTPException(400, result)
     # If committed to corpus, warm the anchor cache
     if result.get("status") == "COMMITTED" and "anchor" in draft_id:
         await anchor_matcher.warm_cache()
+    return result
+
+
+class VerifyClaimsRequest(BaseModel):
+    context: str = ""
+    method: str = "ollama"  # "manual" | "ollama" | "external"
+
+
+@router.post("/sessions/{session_id}/drafts/{draft_id}/verify")
+async def verify_draft_claims(session_id: str, draft_id: str, req: VerifyClaimsRequest):
+    """Verify FACT claims in a draft before promotion.
+
+    Runs claims through the verification router and returns outcomes.
+    """
+    result = await draft_manager.verify_draft_claims(
+        session_id, draft_id, context=req.context, method=req.method,
+    )
+    if "error" in result:
+        raise HTTPException(400, result["error"])
     return result
 
 
