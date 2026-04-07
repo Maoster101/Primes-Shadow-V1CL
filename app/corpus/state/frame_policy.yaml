@@ -79,7 +79,8 @@ conflict:
 # Section 17.7-17.8
 drift:
   window_size: 50               # rolling window in turns
-  session_duration_baseline: 5  # average session length in turns (TODO: make adaptive)
+  session_duration_baseline: 5  # static fallback when no history exists
+  session_duration_history_size: 5  # rolling average of last N sessions (adaptive)
 
   # Composite formula weights (must sum to 1.0)
   composite_weights:

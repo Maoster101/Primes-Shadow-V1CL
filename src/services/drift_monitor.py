@@ -7,6 +7,8 @@ recency scalar, domain modifier, and determines severity.
 LLM = sensor (per-turn estimates), code = actuator (windowed severity + dampening).
 """
 from __future__ import annotations
+import json
+from pathlib import Path
 from typing import Optional
 
 from ..models.schemas import DriftEstimate
@@ -18,6 +20,56 @@ _event_log = EventLog()
 
 # All thresholds now read from frame_policy.yaml via the policy singleton.
 # See app/corpus/state/frame_policy.yaml [drift] section.
+
+# ── Adaptive session duration baseline ─────────────────────────
+# Tracks turn counts from past sessions so the duration signal
+# reflects actual usage patterns instead of a static guess.
+
+_SESSION_HISTORY_PATH = Path("app/corpus/state/session_history.jsonl")
+
+
+def _load_session_durations() -> list[int]:
+    """Load recent session turn counts from disk."""
+    if not _SESSION_HISTORY_PATH.exists():
+        return []
+    durations = []
+    try:
+        for line in _SESSION_HISTORY_PATH.read_text(encoding="utf-8").strip().split("\n"):
+            if not line.strip():
+                continue
+            entry = json.loads(line)
+            durations.append(int(entry.get("turns", 0)))
+    except Exception:
+        return []
+    return durations
+
+
+def _compute_adaptive_baseline() -> float:
+    """Compute session duration baseline from recent history.
+
+    Returns the rolling average of the last N sessions (where N =
+    policy.drift.session_duration_history_size), falling back to
+    the static baseline from frame_policy.yaml if no history exists.
+    """
+    durations = _load_session_durations()
+    if not durations:
+        return float(policy.drift.session_duration_baseline)
+    n = policy.drift.session_duration_history_size
+    recent = durations[-n:]
+    return sum(recent) / len(recent)
+
+
+def record_session_end(session_id: str, total_turns: int) -> None:
+    """Record a completed session's turn count for adaptive baseline.
+
+    Call this when a session ends (chat closed, session timed out, etc.).
+    """
+    if total_turns < 1:
+        return
+    _SESSION_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    entry = {"session_id": session_id, "turns": total_turns}
+    with open(_SESSION_HISTORY_PATH, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
 
 
 class DriftWindow:
@@ -66,9 +118,10 @@ class DriftWindow:
             volatility_weighted += est.claim_volatility * w
             rigor_weighted += est.rigor_drop * w
 
-        # §17.7 — Session duration signal (code-computed)
+        # §17.7 — Session duration signal (code-computed, adaptive baseline)
         session_turns = current_turn - self._session_start_turn
-        duration_threshold = policy.drift.session_duration_baseline * 0.7
+        adaptive_baseline = _compute_adaptive_baseline()
+        duration_threshold = adaptive_baseline * 0.7
         duration_signal = min(1.0, session_turns / max(1, duration_threshold * 2)) if duration_threshold > 0 else 0.0
 
         # §17.7 — Domain mode (most recent estimate)

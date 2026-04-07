@@ -110,6 +110,7 @@ class DriftThresholds:
 class DriftConfig:
     window_size: int = 50
     session_duration_baseline: int = 5
+    session_duration_history_size: int = 5   # how many past sessions to average
     composite_weights: DriftWeights = field(default_factory=DriftWeights)
     thresholds: DriftThresholds = field(default_factory=DriftThresholds)
 

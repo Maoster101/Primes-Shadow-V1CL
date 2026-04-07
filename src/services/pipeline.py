@@ -212,6 +212,15 @@ async def process_turn(
         )
         if gauntlet_result.fired:
             gauntlet_friction = gauntlet_engine.format_friction(gauntlet_result)
+            # Apply truth pressure to active anchors when gauntlet fires.
+            # Anchor conflicts get heavier pressure; general fire gets lighter.
+            if frame_manager:
+                pressure_targets = list(frame_state.active_anchors.keys())
+                if pressure_targets:
+                    delta = 0.20 if gauntlet_result.anchor_conflicts else 0.10
+                    frame_manager.apply_truth_pressure(
+                        session_id, pressure_targets, delta=delta
+                    )
 
     # Step 4: Runtime header (with dampening + OP_01 operator state)
     header = build_runtime_header(

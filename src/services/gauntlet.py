@@ -128,7 +128,14 @@ class GauntletEngine:
                 f"rigor_drop={drift.rigor_drop:.2f}"
             )
 
-        # Condition 3: Pushback slab explicitly active
+        # Condition 3: High truth pressure on any active node
+        # Even if global mismatch is low, concentrated epistemic tension
+        # on a single node should trigger targeted interrogation.
+        for node_id, pressure in frame.truth_pressure.items():
+            if pressure > 0.6 and node_id in frame.active_nodes:
+                return True, f"truth_pressure={pressure:.2f} on {node_id}"
+
+        # Condition 4: Pushback slab explicitly active
         for slab_id in frame.active_slabs:
             if "pushback" in slab_id.lower():
                 return True, f"pushback_slab_active:{slab_id}"

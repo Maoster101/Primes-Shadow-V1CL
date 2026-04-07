@@ -861,6 +861,11 @@ async def end_session_review(session_id: str):
     for d in drafts_out:
         summary["draft_by_status"][d["status"]] = summary["draft_by_status"].get(d["status"], 0) + 1
 
+    # 4. Record session duration for adaptive baseline
+    from ..services.drift_monitor import record_session_end
+    if frame and frame.last_updated_turn > 0:
+        record_session_end(session_id, frame.last_updated_turn)
+
     return {
         "summary": summary,
         "drafts": drafts_out,
@@ -1106,6 +1111,7 @@ async def get_graph_data(session_id: str):
             "invokes": anchor.invokes,
             "hit_count": frame.corpus_hits.get(anchor.id, 0) if frame else 0,
             "last_hit_turn": frame.corpus_last_hit.get(anchor.id, 0) if frame else 0,
+            "truth_pressure": round(frame.truth_pressure.get(anchor.id, 0), 3) if frame else 0,
         })
 
     for slab in corpus.slabs.values():
@@ -1130,6 +1136,7 @@ async def get_graph_data(session_id: str):
             "depends_on": slab.depends_on,
             "hit_count": frame.corpus_hits.get(slab.id, 0) if frame else 0,
             "last_hit_turn": frame.corpus_last_hit.get(slab.id, 0) if frame else 0,
+            "truth_pressure": round(frame.truth_pressure.get(slab.id, 0), 3) if frame else 0,
         })
 
     for bundle in corpus.bundles.values():
@@ -1155,6 +1162,7 @@ async def get_graph_data(session_id: str):
             "depends_on": bundle.depends_on,
             "hit_count": frame.corpus_hits.get(bundle.id, 0) if frame else 0,
             "last_hit_turn": frame.corpus_last_hit.get(bundle.id, 0) if frame else 0,
+            "truth_pressure": round(frame.truth_pressure.get(bundle.id, 0), 3) if frame else 0,
         })
 
     # Add tentative nodes from FrameState (not in corpus)

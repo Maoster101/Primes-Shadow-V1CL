@@ -153,6 +153,41 @@ class FrameManager:
                 slabs=activated,
             )
 
+    def apply_truth_pressure(
+        self, session_id: str, node_ids: list[str], delta: float = 0.15
+    ) -> None:
+        """Increment truth pressure on specific nodes.
+
+        Called when:
+          - The gauntlet fires and identifies anchor_conflicts
+          - A user explicitly challenges or questions a node
+          - A verification check contradicts a node's claims
+
+        Pressure is clamped to [0.0, 1.0] and decays at 0.95 per turn.
+        """
+        frame = self._frames.get(session_id)
+        if not frame:
+            return
+        for nid in node_ids:
+            old = frame.truth_pressure.get(nid, 0.0)
+            frame.truth_pressure[nid] = min(1.0, old + delta)
+
+    def get_high_pressure_nodes(
+        self, session_id: str, threshold: float = 0.5
+    ) -> list[tuple[str, float]]:
+        """Return nodes with truth pressure above threshold.
+
+        Returns list of (node_id, pressure) tuples sorted by pressure descending.
+        """
+        frame = self._frames.get(session_id)
+        if not frame:
+            return []
+        high = [
+            (nid, p) for nid, p in frame.truth_pressure.items()
+            if p >= threshold
+        ]
+        return sorted(high, key=lambda x: x[1], reverse=True)
+
     def restore(self, session_id: str, frame: FrameState,
                 registry: dict = None, edges: list = None) -> None:
         """Restore a previously persisted FrameState + tentative state.
@@ -213,6 +248,14 @@ class FrameManager:
         for d in (frame.active_anchors, frame.active_bundles, frame.active_slabs, frame.active_concepts):
             for k in list(d.keys()):
                 d[k] = max(floor, d[k] * decay)
+
+        # --- Step 0b: Decay truth pressure per turn ---
+        # Pressure decays slower than salience (0.95 vs 0.85) because
+        # epistemic tension is stickier than topic relevance.
+        for nid in list(frame.truth_pressure.keys()):
+            frame.truth_pressure[nid] *= 0.95
+            if frame.truth_pressure[nid] < 0.05:
+                del frame.truth_pressure[nid]
 
         # --- Step 1: Activate from Tier 1 anchor matches ---
         # Collect per-turn hits for trajectory replay

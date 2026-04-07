@@ -220,6 +220,12 @@ class FrameState(BaseModel):
     mismatch_score: float = 0.0
     decay: FrameDecay = Field(default_factory=FrameDecay)
     last_updated_turn: int = 0
+    # §17.3 — Truth pressure: per-node epistemic tension accumulator.
+    # Incremented when a node's claims are questioned, challenged, or
+    # when a pushback gauntlet fires against content related to the node.
+    # High truth_pressure on a node triggers targeted gauntlet checks
+    # even when the global mismatch_score is low.
+    truth_pressure: dict[str, float] = Field(default_factory=dict)  # {node_id: pressure 0.0-1.0}
     # Corpus access patterns — session-scoped instrumentation
     corpus_hits: dict[str, int] = Field(default_factory=dict)      # {node_id: total_hit_count}
     corpus_last_hit: dict[str, int] = Field(default_factory=dict)  # {node_id: turn_of_last_hit}

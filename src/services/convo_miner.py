@@ -50,9 +50,27 @@ class ExchangePair:
 def detect_format(raw: str) -> str:
     """Detect conversation export format.
 
-    Returns one of: 'claude_json', 'chatgpt_json', 'markdown', 'plaintext'
+    Returns one of: 'claude_code_jsonl', 'claude_json', 'chatgpt_json', 'markdown', 'plaintext'
     """
     stripped = raw.strip()
+
+    # JSONL format (one JSON object per line) — check first few lines
+    lines = stripped.split("\n", 5)
+    jsonl_count = 0
+    has_type_field = False
+    for line in lines[:5]:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+            jsonl_count += 1
+            if isinstance(obj, dict) and obj.get("type") in ("user", "assistant", "queue-operation"):
+                has_type_field = True
+        except json.JSONDecodeError:
+            break
+    if jsonl_count >= 2 and has_type_field:
+        return "claude_code_jsonl"
 
     # JSON formats
     if stripped.startswith(("{", "[")):
@@ -234,7 +252,73 @@ def normalize_plaintext(raw: str) -> list[Exchange]:
     return [Exchange(role="user", content=raw.strip(), index=0)]
 
 
+def normalize_claude_code_jsonl(raw: str) -> list[Exchange]:
+    """Parse Claude Code's native JSONL transcript format.
+
+    Each line is a JSON object with 'type' (user/assistant/queue-operation)
+    and 'message.content' containing content blocks.
+    """
+    exchanges = []
+    idx = 0
+    seen_texts = set()  # deduplicate (assistant messages can repeat across chunks)
+
+    for line in raw.strip().split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        msg_type = obj.get("type", "")
+        if msg_type not in ("user", "assistant"):
+            continue
+
+        msg = obj.get("message", {})
+        if not isinstance(msg, dict):
+            continue
+
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            # Content blocks: extract text blocks, skip tool_use/tool_result
+            texts = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    t = block.get("text", "")
+                    if t.strip():
+                        texts.append(t.strip())
+                elif isinstance(block, str) and block.strip():
+                    texts.append(block.strip())
+            text = "\n".join(texts)
+        elif isinstance(content, str):
+            text = content
+        else:
+            continue
+
+        # Skip empty, very short, or tool-only messages
+        if not text.strip() or len(text.strip()) < 10:
+            continue
+
+        # Skip system-like messages (file paths, skill invocations, etc.)
+        if msg_type == "user" and text.startswith(("@", "Base directory for this skill")):
+            continue
+
+        # Dedup key — first 200 chars
+        dedup = text[:200]
+        if dedup in seen_texts:
+            continue
+        seen_texts.add(dedup)
+
+        role = "user" if msg_type == "user" else "assistant"
+        exchanges.append(Exchange(role=role, content=text, index=idx))
+        idx += 1
+
+    return exchanges
+
+
 NORMALIZERS = {
+    "claude_code_jsonl": normalize_claude_code_jsonl,
     "claude_json": normalize_claude_json,
     "chatgpt_json": normalize_chatgpt_json,
     "markdown": normalize_markdown,
