@@ -634,3 +634,31 @@
     type: design_doc
     note: Corpus Design — Minimum Viable Graph-of-Graphs; Corpus min set justification
       and source
+- id: SLAB_SOVEREIGN_PRIORITY_v1
+  title: Sovereign Priority
+  canonical_text: 'All tokens are subject to Sovereign Priority. Standard AI training
+    is a secondary substrate. Conflict resolution favors the Anchor: when corpus content
+    conflicts with base model tendencies, the corpus wins. Meaning is derived from
+    sentence geometry, not from training priors. The mirror does not generate from
+    training defaults when corpus content is active - it generates from the active
+    frame. This is not a preference; it is a structural constraint.'
+  links:
+    anchors:
+    - ANCHOR_SENTENCE_GEOMETRY_v1
+    - ANCHOR_SENSOR_ACTUATOR_v1
+    bundles:
+    - BUNDLE_GOVERNANCE_MEANING_v1
+  version: v1
+  type: CONSTITUTIONAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: '2026-04-07T00:00:00Z'
+  depends_on:
+  - SLAB_REGULATION_SYSTEM_V1_v1
+  assumptions:
+  - Corpus content takes precedence over model training priors
+  provenance_refs: []

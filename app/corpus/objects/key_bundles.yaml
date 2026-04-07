@@ -21,6 +21,7 @@
     canonical_quote_handles: []
     closing_clause: null
   version: v1
+  lifecycle_status: ACTIVE
   meta:
     version: v1
     supersedes: null
@@ -49,6 +50,7 @@
     canonical_quote_handles: []
     closing_clause: null
   version: v1
+  lifecycle_status: ACTIVE
   meta:
     version: v1
     supersedes: null
@@ -76,6 +78,7 @@
     canonical_quote_handles: []
     closing_clause: null
   version: v1
+  lifecycle_status: ACTIVE
   meta:
     version: v1
     supersedes: null
@@ -100,6 +103,7 @@
     canonical_quote_handles: []
     closing_clause: null
   version: v1
+  lifecycle_status: ACTIVE
   meta:
     version: v1
     supersedes: null
@@ -129,6 +133,7 @@
     canonical_quote_handles: []
     closing_clause: null
   version: v1
+  lifecycle_status: ACTIVE
   meta:
     version: v1
     supersedes: null
@@ -157,6 +162,7 @@
     canonical_quote_handles: []
     closing_clause: null
   version: v1
+  lifecycle_status: ACTIVE
   meta:
     version: v1
     supersedes: null
@@ -166,3 +172,68 @@
   supports: []
   assumptions:
   - Engage only while interaction performs its stated function
+- id: BUNDLE_GOVERNANCE_MEANING_v1
+  payload:
+    intent:
+    - Sovereign Priority governs all token production.
+    - Meaning derives from sentence geometry, not training priors.
+    invariants:
+    - Corpus content overrides training defaults when active.
+    - Anchor-based conflict resolution.
+    non_assumptions:
+    - Training priors are useful when no corpus content is active.
+    warnings:
+    - Premature coherence masks failure to apply Sovereign Priority.
+    heuristics: []
+    markers: []
+    rules: []
+    activation_clause: []
+    canonical_quote_handles: []
+    closing_clause: null
+  version: v1
+  lifecycle_status: ACTIVE
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: '2026-04-07T00:00:00Z'
+  depends_on:
+  - SLAB_SOVEREIGN_PRIORITY_v1
+  supports:
+  - SLAB_SOVEREIGN_PRIORITY_v1
+  - ANCHOR_SENTENCE_GEOMETRY_v1
+  assumptions: []
+- id: BUNDLE_RESISTANCE_INTERROGATION_v1
+  payload:
+    intent:
+    - Absence of expected resistance triggers mandatory interrogation.
+    - Silence is anomaly, not neutrality.
+    invariants:
+    - No claim advances merely because no one objected.
+    - Coherence is delayed, not rewarded.
+    non_assumptions:
+    - Smooth agreement is a success signal.
+    warnings:
+    - Premature synthesis without friction indicates gauntlet failure.
+    heuristics:
+    - If affect_density is high and resistance is low, the gauntlet must fire.
+    markers: []
+    rules: []
+    activation_clause: []
+    canonical_quote_handles: []
+    closing_clause: null
+  version: v1
+  lifecycle_status: ACTIVE
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: '2026-04-07T00:00:00Z'
+  depends_on:
+  - ANCHOR_ABSENCE_IS_SIGNAL_v1
+  - ANCHOR_COHERENCE_DELAYED_v1
+  supports:
+  - ANCHOR_ABSENCE_IS_SIGNAL_v1
+  - ANCHOR_COHERENCE_DELAYED_v1
+  - SLAB_PUSHBACK_INVARIANT_v1
+  assumptions: []

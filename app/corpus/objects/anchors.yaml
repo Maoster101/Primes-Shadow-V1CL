@@ -6,6 +6,7 @@
   invokes: []
   notes: The highest-leverage point in the system. Misclassification silently contaminates
     all downstream interpretation.
+  lifecycle_status: ACTIVE
   match_policy:
     gate_required: true
     allowed_functions:
@@ -29,6 +30,7 @@
   - user explicit override
   invokes: []
   notes: Gate that distinguishes user-explicit context signals from implicit classification.
+  lifecycle_status: ACTIVE
   match_policy:
     gate_required: true
     allowed_functions:
@@ -53,6 +55,7 @@
   invokes: []
   notes: When classification confidence is low, surface the ambiguity to the user
     rather than silently defaulting.
+  lifecycle_status: ACTIVE
   match_policy:
     gate_required: true
     allowed_functions:
@@ -77,6 +80,7 @@
   invokes:
   - BUNDLE_ARCHER_SYSTEMNESS_v1
   notes: Invoke system-builder-under-cost frame.
+  lifecycle_status: ACTIVE
   match_policy:
     gate_required: true
     allowed_functions:
@@ -103,6 +107,7 @@
   invokes:
   - BUNDLE_OBLIGATION_UPPER_BOUND_v1
   notes: Cap obligation; prevent infinite moral debt.
+  lifecycle_status: ACTIVE
   match_policy:
     gate_required: true
     allowed_functions:
@@ -126,6 +131,7 @@
   invokes:
   - BUNDLE_KEEP_UP_FRAME_v1
   notes: Request interpretation under compression.
+  lifecycle_status: ACTIVE
   match_policy:
     gate_required: true
     allowed_functions:
@@ -149,6 +155,7 @@
   invokes:
   - BUNDLE_NON_OWNERSHIP_EXIT_v1
   notes: Signal disengagement from assumed responsibility.
+  lifecycle_status: ACTIVE
   match_policy:
     gate_required: true
     allowed_functions:
@@ -174,6 +181,7 @@
   invokes:
   - BUNDLE_FRAME_HANDWAVE_INFERENCE_v1
   notes: Inference via active frame overlap.
+  lifecycle_status: ACTIVE
   match_policy:
     gate_required: true
     allowed_functions:
@@ -199,6 +207,7 @@
   invokes:
   - BUNDLE_REGULATION_GATES_v1
   notes: Boundary rule for engagement.
+  lifecycle_status: ACTIVE
   match_policy:
     gate_required: true
     allowed_functions:
@@ -229,6 +238,7 @@
   notes: Signals affect-release mode. Function = discharge, not truth-seeking. Per
     regulation gates, disengage from semantic/rigor interpretation until function
     shifts back.
+  lifecycle_status: ACTIVE
   match_policy:
     gate_required: true
     allowed_functions:
@@ -258,6 +268,7 @@
   - SLAB_EPISTEMIC_FLOOR_v1
   notes: Invoke Layer-0 Rule 01. Best available model of reality outranks all internal
     logical coherence; no coherence excuses ignorance of facts.
+  lifecycle_status: ACTIVE
   match_policy:
     gate_required: true
     allowed_functions:
@@ -286,6 +297,7 @@
   - SLAB_PUSHBACK_INVARIANT_v1
   notes: Invoke pushback gauntlet. Absence of expected resistance must trigger interrogation
     before synthesis or storage. Silence must earn its right to pass.
+  lifecycle_status: ACTIVE
   match_policy:
     gate_required: true
     allowed_functions:
@@ -312,6 +324,7 @@
   notes: A newly proposed variant of terra preta tailored for the Australian Blue
     Southern Tablelands, referenced repeatedly across multiple turns and forming the
     basis of a detailed project plan.
+  lifecycle_status: ACTIVE
   match_policy:
     gate_required: true
     allowed_functions:
@@ -326,3 +339,157 @@
     created_at: null
   depends_on: []
   assumptions: []
+- id: ANCHOR_SENSOR_ACTUATOR_v1
+  canonical_phrase: LLM = sensor, code = actuator
+  aliases:
+  - sensor-actuator split
+  - model proposes code decides
+  - LLM as sensor
+  invokes: []
+  notes: 'The core architectural principle: the LLM proposes (classifies, estimates,
+    extracts); code decides (gates, thresholds, validation). Neither side has unilateral
+    authority.'
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: '2026-04-07T00:00:00Z'
+  depends_on: []
+  assumptions:
+  - Pipeline maintains strict sensor/actuator boundary
+- id: ANCHOR_SENTENCE_GEOMETRY_v1
+  canonical_phrase: sentence geometry
+  aliases:
+  - meaning from geometry
+  - structural meaning
+  - geometric meaning derivation
+  invokes: []
+  notes: Meaning is derived from sentence geometry - the structural arrangement of
+    tokens, not just their content. Compression preserves geometry.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: '2026-04-07T00:00:00Z'
+  depends_on: []
+  assumptions:
+  - Geometric structure carries semantic weight beyond token-level meaning
+- id: ANCHOR_OLI_CONSTITUTIONAL_v1
+  canonical_phrase: OLI is constitutional
+  aliases:
+  - OLI constitutional layer
+  - constitutional OLI
+  - non-overridable OLI
+  invokes:
+  - SLAB_OLI_MANIFEST_CORE_v1
+  notes: 'The OLI proper (epistemic floor, claim admissibility, traceability) is constitutional:
+    non-overridable, always loaded, defines the epistemic operating system.'
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: '2026-04-07T00:00:00Z'
+  depends_on:
+  - SLAB_OLI_MANIFEST_CORE_v1
+  assumptions:
+  - OLI core layers cannot be turned off by user or model
+- id: ANCHOR_GHOST_STACK_v1
+  canonical_phrase: cumulative ghost-stack
+  aliases:
+  - ghost stack
+  - context as ghost stack
+  - ghost context
+  invokes: []
+  notes: 'Context is a cumulative ghost-stack: every prior turn is invisible but structurally
+    present, shaping interpretation through residual geometry.'
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: '2026-04-07T00:00:00Z'
+  depends_on: []
+  assumptions:
+  - Context window preserves structural ghosts of prior turns
+- id: ANCHOR_COHERENCE_DELAYED_v1
+  canonical_phrase: coherence delayed, not rewarded
+  aliases:
+  - coherence is delayed
+  - delay coherence
+  - no premature coherence
+  invokes: []
+  notes: Coherence is the output of validated reasoning, not a reward signal. Premature
+    coherence (smooth agreement) is a failure mode that the gauntlet detects.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: '2026-04-07T00:00:00Z'
+  depends_on:
+  - ANCHOR_ABSENCE_IS_SIGNAL_v1
+  assumptions:
+  - Smooth synthesis without friction is a sign of failure, not success
+- id: ANCHOR_HUMAN_PROMOTION_v1
+  canonical_phrase: human-mediated promotion
+  aliases:
+  - promotion workflow
+  - human review gate
+  - human in the loop
+  invokes: []
+  notes: Nothing enters the committed corpus without human review. The draft stack
+    is a proposal queue; promotion is always human-mediated.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: '2026-04-07T00:00:00Z'
+  depends_on: []
+  assumptions:
+  - Draft stack requires explicit user action to promote
