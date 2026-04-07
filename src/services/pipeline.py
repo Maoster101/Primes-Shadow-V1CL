@@ -19,12 +19,14 @@ from . import ollama
 from .context_packer import build_system_prompt, build_messages
 from .oli_validator import validate_output
 from .event_log import EventLog
+from .policy import policy
 
 if TYPE_CHECKING:
     from .anchor_matcher import AnchorMatcher, AnchorMatchResult
     from .frame_manager import FrameManager
     from .drift_monitor import DriftMonitor
     from .draft_manager import DraftManager
+    from .gauntlet import GauntletEngine
 
 _event_log = EventLog()
 
@@ -85,8 +87,8 @@ def build_runtime_header(
             or classification.explicit
         ),
         confidence_flag=(
-            "low" if classification.confidence < 0.5
-            else "ambiguous" if classification.confidence < 0.7
+            "low" if classification.confidence < policy.gate.confidence.low
+            else "ambiguous" if classification.confidence < policy.gate.confidence.ambiguous
             else "normal"
         ),
     )
@@ -137,6 +139,7 @@ async def process_turn(
     anchor_matcher: Optional[AnchorMatcher] = None,
     frame_manager: Optional[FrameManager] = None,
     drift_monitor: Optional[DriftMonitor] = None,
+    gauntlet_engine: Optional["GauntletEngine"] = None,
     web_mode: str = "off",  # "off" | "on" | "auto"
     think_level: str = "medium",
 ) -> AsyncIterator[dict]:
@@ -146,10 +149,12 @@ async def process_turn(
     1. Classify message function
     2. Anchor matching (if matcher provided)
     3. Frame update + drift estimation (parallel)
+    3c. Pushback gauntlet check (§17.2)
     4. Build runtime header
-    5. Assemble context
+    5. Assemble context (+ gauntlet friction if fired)
     6. Stream response from GPT-OSS
-    7. Yield classification + drift + match + frame metadata
+    7. Post-generation validation (§26.4)
+    8. Yield classification + drift + match + frame + gauntlet metadata
     """
     turn = len(chat_messages) + 1
     match_result = None
@@ -195,6 +200,19 @@ async def process_turn(
         drift_assessment = drift_monitor.record_and_compute(session_id, drift, turn)
         dampening = drift_assessment["dampening"]
 
+    # Step 3c: §17.2 Pushback gauntlet check
+    gauntlet_result = None
+    gauntlet_friction = ""
+    if gauntlet_engine and session_id and frame_state:
+        recent = "\n".join(
+            f"[{m.role}] {m.content[:200]}" for m in chat_messages[-6:]
+        )
+        gauntlet_result = await gauntlet_engine.run(
+            session_id, turn, user_text, recent, frame_state, drift, oli_mode,
+        )
+        if gauntlet_result.fired:
+            gauntlet_friction = gauntlet_engine.format_friction(gauntlet_result)
+
     # Step 4: Runtime header (with dampening + OP_01 operator state)
     header = build_runtime_header(
         oli_mode, classification, frame_state, drift, dampening,
@@ -206,6 +224,11 @@ async def process_turn(
     if frame_manager:
         base_slabs = frame_manager.corpus.base_set_slabs(oli_mode)
     system_prompt = build_system_prompt(oli_mode, header, base_set_slabs=base_slabs)
+
+    # Inject gauntlet friction into system prompt if fired
+    if gauntlet_friction:
+        system_prompt += "\n\n" + gauntlet_friction
+
     messages = build_messages(system_prompt, chat_messages, frame_state)
     messages.append({"role": "user", "content": user_text})
 
@@ -313,6 +336,15 @@ async def process_turn(
             if validation.status == ValidationStatus.BLOCK:
                 meta["oli_blocked"] = True
                 meta["oli_block_reasons"] = validation.reasons
+            if gauntlet_result and gauntlet_result.fired:
+                meta["gauntlet"] = {
+                    "verdict": gauntlet_result.verdict,
+                    "claim_summary": gauntlet_result.claim_summary,
+                    "alternatives": gauntlet_result.alternatives,
+                    "counterfactuals": gauntlet_result.counterfactuals,
+                    "friction_note": gauntlet_result.friction_note,
+                    "push_event_id": gauntlet_result.push_event_id,
+                }
             yield meta
         else:
             content = chunk.get("content", "")

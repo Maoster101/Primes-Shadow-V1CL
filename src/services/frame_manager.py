@@ -17,16 +17,17 @@ from .corpus import CorpusStore
 from .anchor_matcher import AnchorMatchResult
 from . import ollama
 from .event_log import EventLog
+from .policy import policy
 
-SALIENCE_ALPHA = 0.3   # EWA: 30% new, 70% prior
-MAX_ACTIVE_NODES = 24  # §21 hard cap
-TENTATIVE_CONSOLIDATION_THRESHOLD = 0.85  # cosine sim to merge tentative nodes
-CONCEPT_TO_ANCHOR_THRESHOLD = 3  # turns_seen before concept promotes to anchor proposal
+# All thresholds now read from frame_policy.yaml via the policy singleton.
+# Legacy aliases for any remaining inline references (prefer policy.frame.*):
+SALIENCE_ALPHA = policy.frame.salience.alpha
+MAX_ACTIVE_NODES = policy.frame.limits.max_active_nodes
+TENTATIVE_CONSOLIDATION_THRESHOLD = policy.frame.concepts.consolidation_similarity
+CONCEPT_TO_ANCHOR_THRESHOLD = policy.frame.concepts.promotion_turns
+BUNDLE_SUGGESTION_THRESHOLD = policy.frame.concepts.bundle_suggestion_turns
 
 _event_log = EventLog()
-
-
-BUNDLE_SUGGESTION_THRESHOLD = 3  # children before suggesting bundling
 
 
 class FrameManager:
@@ -119,13 +120,13 @@ class FrameManager:
             # Rule 2: Linked anchor is active with high weight
             if not triggered and slab.links:
                 for anchor_id in slab.links.anchors:
-                    if frame.active_anchors.get(anchor_id, 0) >= 0.8:
+                    if frame.active_anchors.get(anchor_id, 0) >= policy.frame.activation.invariant_linked_anchor_min:
                         triggered = True
                         trigger_reason = f"linked_anchor_active:{anchor_id}"
                         break
 
             # Rule 3: High mismatch triggers pushback-type invariant slabs
-            if not triggered and frame.mismatch_score > 0.6:
+            if not triggered and frame.mismatch_score > policy.frame.activation.mismatch_escalation:
                 # Only auto-load slabs that have "pushback" or "gauntlet" in their ID
                 if "pushback" in slab.id.lower() or "gauntlet" in slab.id.lower():
                     triggered = True

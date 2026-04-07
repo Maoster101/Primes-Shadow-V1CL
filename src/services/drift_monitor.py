@@ -12,18 +12,12 @@ from typing import Optional
 from ..models.schemas import DriftEstimate
 from ..models.enums import DriftSeverity, DomainMode, DampeningLevel
 from .event_log import EventLog
+from .policy import policy
 
 _event_log = EventLog()
 
-# §17.7 — Rolling window config
-WINDOW_SIZE = 50  # turns
-SESSION_DURATION_BASELINE = 5  # avg session length in recent chats (turns, will be dynamic)
-
-# §17.8 — Severity thresholds (from frame_policy.yaml, hardcoded for now)
-THRESHOLDS = {
-    DomainMode.EXTERNAL: {"low": 0.39, "medium": 0.69},
-    DomainMode.INTERNAL: {"low": 0.54, "medium": 0.79},
-}
+# All thresholds now read from frame_policy.yaml via the policy singleton.
+# See app/corpus/state/frame_policy.yaml [drift] section.
 
 
 class DriftWindow:
@@ -36,8 +30,8 @@ class DriftWindow:
     def push(self, estimate: DriftEstimate, turn: int) -> None:
         """Add a per-turn estimate to the window."""
         self._history.append(estimate)
-        if len(self._history) > WINDOW_SIZE:
-            self._history = self._history[-WINDOW_SIZE:]
+        if len(self._history) > policy.drift.window_size:
+            self._history = self._history[-policy.drift.window_size:]
         if self._session_start_turn == 0:
             self._session_start_turn = turn
 
@@ -74,21 +68,27 @@ class DriftWindow:
 
         # §17.7 — Session duration signal (code-computed)
         session_turns = current_turn - self._session_start_turn
-        duration_threshold = SESSION_DURATION_BASELINE * 0.7
+        duration_threshold = policy.drift.session_duration_baseline * 0.7
         duration_signal = min(1.0, session_turns / max(1, duration_threshold * 2)) if duration_threshold > 0 else 0.0
 
         # §17.7 — Domain mode (most recent estimate)
         domain_mode = self._history[-1].domain_mode if self._history else DomainMode.EXTERNAL
 
         # §17.7 — Domain modifier: internal work reads hotter
-        thresholds = THRESHOLDS.get(domain_mode, THRESHOLDS[DomainMode.EXTERNAL])
+        dt = policy.drift.thresholds
+        thresholds_map = {
+            DomainMode.EXTERNAL: {"low": dt.external.low, "medium": dt.external.medium},
+            DomainMode.INTERNAL: {"low": dt.internal.low, "medium": dt.internal.medium},
+        }
+        thresholds = thresholds_map.get(domain_mode, thresholds_map[DomainMode.EXTERNAL])
 
         # §17.8 — Composite: weighted average of three model signals + duration
+        cw = policy.drift.composite_weights
         composite = (
-            affect_weighted * 0.30 +
-            volatility_weighted * 0.25 +
-            rigor_weighted * 0.25 +
-            duration_signal * 0.20
+            affect_weighted * cw.affect_density +
+            volatility_weighted * cw.claim_volatility +
+            rigor_weighted * cw.rigor_drop +
+            duration_signal * cw.session_duration
         )
         composite = max(0.0, min(1.0, composite))
 

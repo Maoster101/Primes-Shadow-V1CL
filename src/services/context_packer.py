@@ -18,14 +18,12 @@ from ..models.schemas import Slab
 from ..prompts.oli_constitutional import OLI_CONSTITUTIONAL_PROMPT, BMD_SCAFFOLD
 
 
-# Rough token estimate: ~4 chars per token for English text
-CHARS_PER_TOKEN = 4
+from .policy import policy
 
-# Context budget matches the Ollama num_ctx setting.
-# Default 32k tokens balances quality with VRAM (KV cache for 32k on
-# a 20B model uses ~2-3GB). Override with PS_NUM_CTX env var.
+# Context budget reads from frame_policy.yaml, with env var override.
 import os
-TARGET_CONTEXT_TOKENS = int(os.environ.get("PS_NUM_CTX", "32768"))
+CHARS_PER_TOKEN = policy.context.chars_per_token
+TARGET_CONTEXT_TOKENS = int(os.environ.get("PS_NUM_CTX", str(policy.context.target_tokens)))
 TARGET_CONTEXT_CHARS = TARGET_CONTEXT_TOKENS * CHARS_PER_TOKEN
 
 
@@ -271,8 +269,9 @@ def _format_base_set_slabs(slabs: list[Slab]) -> str:
             lines.append(f"# {slab.title}")
         # Inject canonical text (truncate very long slabs to preserve budget)
         text = slab.canonical_text or ""
-        if len(text) > 8000:
-            text = text[:8000] + "\n[... truncated ...]"
+        _max = policy.context.slab_truncation
+        if len(text) > _max:
+            text = text[:_max] + "\n[... truncated ...]"
         lines.append(text)
         lines.append("")  # blank line separator
     lines.append("[/CORPUS BASE SET]")

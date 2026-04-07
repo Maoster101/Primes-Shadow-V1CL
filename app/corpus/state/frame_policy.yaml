@@ -1,0 +1,152 @@
+# ── Frame Policy Configuration ───────────────────────────────────
+# All tunable thresholds for the Prime's Shadow runtime.
+# Spec references: section 9, 12, 17.7-17.8, 20.4, 21, 24.1, 26.3
+#
+# Changing these values takes effect on next server restart.
+# No code changes required.
+# ─────────────────────────────────────────────────────────────────
+
+# ── Gate thresholds ─────────────────────────────────────────────
+# Section 7, 8, 26.3
+gate:
+  function_gate:
+    # Only these functions allow anchor resolution
+    allow_anchor_resolution_when:
+      - context_compression
+      - meta_schema
+    # Explicit user override bypasses function gate (but not confidence)
+    explicit_overrides:
+      object_of_work_never_loads_context: true
+
+  confidence:
+    # Classification confidence thresholds for the pipeline
+    low: 0.50           # below this = "low" confidence flag
+    ambiguous: 0.70     # below this = "ambiguous"; above = "normal"
+    # Anchor match policy defaults (used when anchor has no explicit policy)
+    min_exact: 0.70     # section 8 — exact/partial match bar
+    min_fuzzy: 0.90     # section 8 — fuzzy is noisy, demand high confidence
+
+  format_gate:
+    default: asterisk_wrapped_only
+
+# ── Frame dynamics ──────────────────────────────────────────────
+# Section 9, 21
+frame:
+  decay:
+    per_turn: 0.85      # multiply existing weights each turn
+    floor: 0.10         # never drop below this
+
+  salience:
+    alpha: 0.30         # EWA smoothing: 30% new, 70% prior
+    low_content_inherit: 0.90   # inherit prior salience * this on sparse turns
+
+  limits:
+    max_active_nodes: 24          # section 21 hard cap
+    max_tentative_nodes: 8        # section 21
+    cold_corpus_hops_visible: 2   # section 21
+    collapse_beyond_hops: 3       # section 21
+
+  activation:
+    base_set_slab_weight: 1.0     # weight for base-set slabs
+    base_set_linked_weight: 0.5   # weight for linked anchors/bundles in base set
+    anchor_match_weight: 1.0      # weight for tier-1 anchor match activation
+    invariant_linked_anchor_min: 0.8  # linked anchor must be >= this to trigger invariant
+    invariant_slab_weight: 1.0    # weight for activated invariant slabs
+    invariant_bundle_weight: 0.8  # weight for bundles linked to invariant slabs
+    mismatch_escalation: 0.6     # mismatch_score threshold for pushback slab activation
+
+  concepts:
+    min_text_length: 8            # skip concept detection for messages shorter than this
+    known_similarity: 0.70        # cosine sim threshold to match existing anchor/slab
+    consolidation_similarity: 0.85  # cosine sim to merge duplicate tentative concepts
+    promotion_turns: 3            # turns before concept promoted to anchor proposal
+    bundle_suggestion_turns: 3    # child concept count before suggesting bundling
+    re_detect_salience: 0.60      # salience when dismissed concept re-appears
+    re_hit_boost: 0.15            # salience increment per additional mention (capped 1.0)
+    hierarchy_similarity: 0.75    # cosine sim for parent-child hierarchy detection
+
+# ── Conflict and cascade ────────────────────────────────────────
+# Section 12
+conflict:
+  preview:
+    max_hops: 2
+    min_threshold: 0.35
+    decay_per_hop: 0.50
+    block_crossing_committed_anchor_boundary: true
+  tension_surface_threshold: 0.50  # only surface conflicts with tension above this
+
+# ── Drift monitoring ────────────────────────────────────────────
+# Section 17.7-17.8
+drift:
+  window_size: 50               # rolling window in turns
+  session_duration_baseline: 5  # average session length in turns (TODO: make adaptive)
+
+  # Composite formula weights (must sum to 1.0)
+  composite_weights:
+    affect_density: 0.30
+    claim_volatility: 0.25
+    rigor_drop: 0.25
+    session_duration: 0.20
+
+  # Severity thresholds by domain mode
+  thresholds:
+    external:
+      low: 0.39
+      medium: 0.69
+    internal:
+      low: 0.54
+      medium: 0.79
+
+  # Dampening response per severity
+  dampening:
+    low: none
+    medium: medium
+    high: high
+
+# ── Anchor matching ─────────────────────────────────────────────
+# Section 8, OLI-4 (OP_01)
+matching:
+  confidence_equivalence_delta: 0.05  # spans within this of best are "top tier"
+  semantic_match_penalty: 0.80        # semantic match capped at fuzzy_threshold * this
+
+  affect_boost:
+    orthographic_feature: 0.12   # per-feature boost for extended vowels, caps, etc.
+    emote_vocab: 0.08            # per-feature boost for emote vocabulary
+    max_total: 0.35              # cap on total affect density boost
+
+# ── Draft management ────────────────────────────────────────────
+# Section 14
+drafts:
+  stack_cap: 10                  # max total drafts per session
+  sweep_cadence: 8               # periodic sweep every N turns
+  max_periodic_slabs: 3          # max slabs from periodic sweep
+  max_periodic_anchors: 5        # max anchors from periodic sweep
+  dedup_threshold: 0.90          # cosine sim to reject duplicates
+  explicit_confidence: 0.75      # confidence for explicitly-requested proposals
+  implicit_confidence: 0.50      # confidence for periodic/implicit proposals
+  min_slab_content: 50           # min chars for auto-generating coherence bundle
+
+# ── Context packing ─────────────────────────────────────────────
+# Section 20.4
+context:
+  chars_per_token: 4
+  target_tokens: 32768           # overridden by PS_NUM_CTX env var
+  budget_floor: 2000             # minimum reserved context chars
+  message_overhead: 20           # metadata overhead per message
+  slab_truncation: 8000          # max chars per base-set slab
+  frame_context_cap: 24          # max nodes in frame context injection
+
+# ── OLI validation ──────────────────────────────────────────────
+# Section 26.4
+oli_validation:
+  untagged_claim_threshold: 3    # flag L0.5 if more than this many untagged claims
+  claim_min_length: 50           # only sentences > this many chars count as claims
+  claim_scan_limit: 15           # only scan first N sentences
+  l4_slope_min_directives: 2    # flag L4 slope if >= this many directive phrases
+
+# ── Pushback / Gauntlet ────────────────────────────────────────
+# Section 17.1-17.5
+pushback:
+  calibration_window_max_hours: 2.0   # max wall-clock hours for calibration window
+  gauntlet_cooldown_turns: 5          # min turns between gauntlet triggers
+  absence_sensitivity: 0.40           # expected_resistance - observed_resistance threshold

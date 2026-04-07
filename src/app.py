@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pathlib import Path
 
-from .api.routes import router, corpus, anchor_matcher
+from .api.routes import router, corpus, anchor_matcher, gauntlet_engine
 
 app = FastAPI(title="Prime's Shadow", version="0.1.0")
 app.include_router(router, prefix="/api")

@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 from ..models.enums import OLIMode, ValidationStatus
 from .event_log import EventLog
+from .policy import policy
 
 _event_log = EventLog()
 
@@ -217,9 +218,9 @@ def _count_untagged_claims(text: str) -> int:
     sentences = re.split(r'[.!]\s+|\n', text)
     untagged = 0
 
-    for sent in sentences[:15]:  # Cap to first 15 sentences
+    for sent in sentences[:policy.oli_validation.claim_scan_limit]:
         sent = sent.strip()
-        if len(sent) < 50:
+        if len(sent) < policy.oli_validation.claim_min_length:
             continue
         s_lower = sent.lower()
 
@@ -317,7 +318,7 @@ def validate_output(
 
     # ── Pass 2: Claim admissibility structural check (OLI-0.5) ──
     untagged = _count_untagged_claims(output_text)
-    if untagged > 3:
+    if untagged > policy.oli_validation.untagged_claim_threshold:
         flag = {
             "layer": "OLI-0.5",
             "name": "Claim admissibility",
@@ -334,7 +335,7 @@ def validate_output(
     # ── Pass 3: L4 slope detection ──────────────────────────────
     if "OLI-4" not in overrides:
         slope_matches = _L4_SLOPE_RE.findall(output_text)
-        if len(slope_matches) >= 2:  # Single directive is ok; pattern = slope
+        if len(slope_matches) >= policy.oli_validation.l4_slope_min_directives:
             flag = {
                 "layer": "OLI-4",
                 "name": "L4 slope — prescriptive drift",

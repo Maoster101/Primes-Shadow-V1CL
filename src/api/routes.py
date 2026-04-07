@@ -34,6 +34,9 @@ draft_manager = DraftManager(corpus, session_store)
 from ..services.drift_monitor import DriftMonitor
 drift_monitor = DriftMonitor()
 
+from ..services.gauntlet import GauntletEngine
+gauntlet_engine = GauntletEngine(corpus)
+
 
 # --- Request models ---
 
@@ -314,6 +317,7 @@ async def send_message(chat_id: str, req: SendMessageRequest):
             anchor_matcher=anchor_matcher,
             frame_manager=frame_manager,
             drift_monitor=drift_monitor,
+            gauntlet_engine=gauntlet_engine,
             web_mode=req.web_mode,
             think_level=req.think_level,
         ):
