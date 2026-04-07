@@ -2687,13 +2687,16 @@ async function sendMessage(){
             const dw=data.drift_window;
             document.getElementById('drift-badge').textContent=`drift: ${(dw.composite*100).toFixed(0)}% ${dw.severity}`;
             if(dw.severity!=='low')pushEvent('drift',`${dw.severity} (${(dw.composite*100).toFixed(0)}%) damp:${dw.dampening} win:${dw.window_size}`);
+            if(dw.dampening==='high'){const strip=document.createElement('div');strip.className='drift-strip';strip.style.cssText='background:#2a1a00;border:1px solid #ff9020;border-radius:6px;padding:6px 12px;margin:4px 0;font-size:0.82em;color:#ffb060';strip.textContent='[DRIFT: high severity — reduced-scope mode active. Mirror is narrowing to direct responses.]';aDiv.insertBefore(strip,aDiv.querySelector('.meta'))}
+            else if(dw.dampening==='medium'){const strip=document.createElement('div');strip.className='drift-strip';strip.style.cssText='background:#1a1a00;border:1px solid #aa8020;border-radius:6px;padding:4px 10px;margin:4px 0;font-size:0.8em;color:#ccaa40';strip.textContent='[DRIFT: medium — slight dampening active]';aDiv.insertBefore(strip,aDiv.querySelector('.meta'))}
             if(dw.severity==='medium')document.getElementById('drift-badge').classList.add('warn');
             else if(dw.severity==='high'){document.getElementById('drift-badge').classList.add('warn');document.getElementById('drift-badge').style.color='#ff6b6b'}
             else{document.getElementById('drift-badge').classList.remove('warn');document.getElementById('drift-badge').style.color=''}
           }else if(data.drift_estimate){const d=data.drift_estimate;const comp=((d.affect_density+d.claim_volatility+d.rigor_drop)/3*100).toFixed(0);document.getElementById('drift-badge').textContent=`drift: ${comp}%`}
           if(data.match_result){(data.match_result.auto_activate||[]).forEach(m=>pushEvent('match',`T1: ${m.matched_phrase} (${(m.confidence*100).toFixed(0)}%)`));(data.match_result.candidates||[]).forEach(m=>pushEvent('match',`T2: ${m.matched_phrase} (${(m.confidence*100).toFixed(0)}%)`))}
           if(data.frame_summary){document.getElementById('frame-badge').textContent=`frame: ${data.frame_summary.active_nodes?.length||0}`;if(data.frame_summary.active_nodes?.length)pushEvent('frame',`${data.frame_summary.active_nodes.length} active, mismatch: ${(data.frame_summary.mismatch_score*100).toFixed(0)}%`)}
-          if(data.oli_flags)(data.oli_flags).forEach(f=>pushEvent('gate',`OLI [${f.layer}] ${f.name}: "${f.pattern}"`));
+          if(data.oli_flags)(data.oli_flags).forEach(f=>pushEvent('gate',`OLI [${f.layer}] ${f.name}: "${f.pattern}"${f.overridable?'':' (non-overridable)'}`));
+          if(data.oli_validation){const ov=data.oli_validation;if(ov.status!=='PASS'){pushEvent('gate',`OLI validation: ${ov.status} (${ov.flag_count} flags${ov.regenerated?' - regenerated':''})`);if(ov.status==='BLOCK'){const warn=document.createElement('div');warn.className='oli-block-notice';warn.style.cssText='background:#3a1a1a;border:1px solid #ff4040;border-radius:6px;padding:8px 12px;margin:6px 0;font-size:0.85em;color:#ff8080';warn.innerHTML='<b>[OLI BLOCK]</b> Response contains non-overridable violations that persisted after regeneration.'+(data.oli_block_reasons||[]).map(r=>'<br>'+r).join('');aDiv.appendChild(warn)}}}
           if(data.context_usage)updateCtxBudget(data.context_usage);
           if(data.session_id)currentSessionId=data.session_id;
           aDiv.style.opacity='1';

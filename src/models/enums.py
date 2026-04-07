@@ -124,6 +124,13 @@ class GateStage(str, Enum):
     CONFIDENCE = "CONFIDENCE"
 
 
+class ValidationStatus(str, Enum):
+    PASS = "PASS"                # Clean — no violations detected
+    FLAGGED = "FLAGGED"          # Soft violations (overridable layers) — surface to UI
+    REGENERATE = "REGENERATE"    # Hard violation — retry with correction guidance (max 1)
+    BLOCK = "BLOCK"              # Critical violation after retry — annotate response
+
+
 class GateOutcome(str, Enum):
     ALLOW = "ALLOW"
     DENY = "DENY"

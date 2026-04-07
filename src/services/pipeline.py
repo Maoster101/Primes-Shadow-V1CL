@@ -13,7 +13,7 @@ from ..models.schemas import (
     RuntimeHeader, FrameState, FrameStateSummary, GateState,
     EnforcementFlags,
 )
-from ..models.enums import MessageFunction, OLIMode, DampeningLevel
+from ..models.enums import MessageFunction, OLIMode, DampeningLevel, ValidationStatus
 from ..prompts.classification import FUNCTION_GATE_PROMPT, DRIFT_ESTIMATE_PROMPT
 from . import ollama
 from .context_packer import build_system_prompt, build_messages
@@ -219,11 +219,52 @@ async def process_turn(
     }
 
     # Step 6: Stream response (with thinking level)
+    # Step 7: §26.4 Post-generation validation with REGENERATE path
     use_think = think_level != "off"
     full_response = ""
+    is_retry = False
+
     async for chunk in ollama.chat_stream(messages, think=use_think, think_level=think_level, web_mode=web_mode):
         if chunk.get("done"):
-            # Step 7: Final metadata
+            # §26.4 — validate before yielding final metadata
+            validation = validate_output(full_response, oli_mode, is_retry=is_retry)
+
+            if validation.status == ValidationStatus.REGENERATE and not is_retry:
+                # Hard OLI violation on first attempt — retry with correction
+                is_retry = True
+                yield {
+                    "done": False,
+                    "content": "\n\n---\n*[OLI violation detected — regenerating...]*\n\n",
+                    "oli_regenerate": True,
+                }
+
+                # Append correction guidance as system message and regenerate
+                retry_messages = list(messages) + [
+                    {"role": "assistant", "content": full_response},
+                    {"role": "system", "content": (
+                        f"[OLI ENFORCEMENT — REGENERATE]\n"
+                        f"{validation.correction_guidance}\n"
+                        f"Violations: {'; '.join(validation.reasons)}\n"
+                        f"Rewrite your response from scratch, addressing "
+                        f"these violations while preserving the useful content.\n"
+                        f"[/OLI ENFORCEMENT]"
+                    )},
+                ]
+                full_response = ""
+                async for retry_chunk in ollama.chat_stream(
+                    retry_messages, think=use_think,
+                    think_level=think_level, web_mode="off",
+                ):
+                    if retry_chunk.get("done"):
+                        break
+                    retry_content = retry_chunk.get("content", "")
+                    full_response += retry_content
+                    yield {"done": False, "content": retry_content}
+
+                # Validate the retry
+                validation = validate_output(full_response, oli_mode, is_retry=True)
+
+            # Build final metadata
             meta: dict = {
                 "done": True,
                 "content": "",
@@ -232,6 +273,11 @@ async def process_turn(
                 "full_response": full_response,
                 "turn": turn,
                 "context_usage": context_usage,
+                "oli_validation": {
+                    "status": validation.status.value,
+                    "flag_count": len(validation.flags),
+                    "regenerated": is_retry,
+                },
             }
             if drift_assessment:
                 meta["drift_window"] = {
@@ -253,13 +299,20 @@ async def process_turn(
                     "mismatch_score": frame_state.mismatch_score,
                     "conflict_count": len(frame_state.conflicts),
                 }
-            # Step 7b: §26.4 Post-generation validation (code-side)
-            validation = validate_output(full_response, oli_mode)
             if validation.flags:
                 meta["oli_flags"] = [
-                    {"layer": f["layer"], "name": f["name"], "pattern": f["pattern"]}
+                    {
+                        "layer": f["layer"],
+                        "name": f["name"],
+                        "pattern": f["pattern"],
+                        "overridable": f.get("overridable", True),
+                        "severity": f.get("severity", 0.5),
+                    }
                     for f in validation.flags
                 ]
+            if validation.status == ValidationStatus.BLOCK:
+                meta["oli_blocked"] = True
+                meta["oli_block_reasons"] = validation.reasons
             yield meta
         else:
             content = chunk.get("content", "")

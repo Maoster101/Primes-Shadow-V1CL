@@ -11,8 +11,8 @@
     allowed_functions:
     - context_compression
     format_gate: null
-    min_confidence_exact: 0.8
-    min_confidence_fuzzy: 0.6
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
   meta:
     version: v1
     supersedes: null
@@ -34,8 +34,8 @@
     allowed_functions:
     - context_compression
     format_gate: null
-    min_confidence_exact: 0.85
-    min_confidence_fuzzy: 0.65
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
   meta:
     version: v1
     supersedes: null
@@ -58,8 +58,8 @@
     allowed_functions:
     - context_compression
     format_gate: null
-    min_confidence_exact: 0.8
-    min_confidence_fuzzy: 0.6
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
   meta:
     version: v1
     supersedes: null
@@ -317,8 +317,8 @@
     allowed_functions:
     - context_compression
     format_gate: null
-    min_confidence_exact: 0.8
-    min_confidence_fuzzy: 0.6
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
   meta:
     version: v1
     supersedes: null

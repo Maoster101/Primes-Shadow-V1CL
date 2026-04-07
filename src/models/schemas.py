@@ -65,8 +65,8 @@ class AnchorMatchPolicy(BaseModel):
         default_factory=lambda: [MessageFunction.CONTEXT_COMPRESSION]
     )
     format_gate: Optional[str] = None
-    min_confidence_exact: float = 0.8
-    min_confidence_fuzzy: float = 0.6
+    min_confidence_exact: float = 0.70   # §8 — exact/partial is reliable, lower bar
+    min_confidence_fuzzy: float = 0.90   # §8 — fuzzy is noisy, demand high confidence
 
 
 class Anchor(BaseModel):

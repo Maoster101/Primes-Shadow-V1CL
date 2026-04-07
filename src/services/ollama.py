@@ -5,6 +5,7 @@ The model proposes; calling code decides what to do with proposals.
 """
 from __future__ import annotations
 import json
+import os
 import re
 import httpx
 from typing import Optional
@@ -32,7 +33,6 @@ EMBED_MODEL = "nomic-embed-text"
 #   OLLAMA_KEEP_ALIVE=-1      — Never unload model from VRAM
 #   OLLAMA_NUM_PARALLEL=2     — Concurrent request slots
 
-import os
 _NUM_CTX = int(os.environ.get("PS_NUM_CTX", "32768"))  # 32k default, override with PS_NUM_CTX
 
 MODEL_OPTIONS: dict = {
