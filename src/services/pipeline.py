@@ -14,7 +14,9 @@ from ..models.schemas import (
     EnforcementFlags,
 )
 from ..models.enums import MessageFunction, OLIMode, DampeningLevel, ValidationStatus
-from ..prompts.classification import FUNCTION_GATE_PROMPT, DRIFT_ESTIMATE_PROMPT
+from ..prompts.classification import (
+    FUNCTION_GATE_PROMPT, DRIFT_ESTIMATE_PROMPT, COMBINED_CLASSIFY_DRIFT_PROMPT,
+)
 from . import ollama
 from .context_packer import build_system_prompt, build_messages
 from .oli_validator import validate_output
@@ -69,6 +71,51 @@ async def estimate_drift(
             claim_volatility=0.0,
             rigor_drop=0.0,
         )
+
+
+async def classify_and_drift(
+    user_text: str,
+    recent_context: str = "",
+) -> tuple[MessageClassification, DriftEstimate]:
+    """Combined classify + drift in a single LLM call (saves ~60s on slow hardware)."""
+    prompt = COMBINED_CLASSIFY_DRIFT_PROMPT.replace("$CONTEXT", recent_context or "(start of session)") + json.dumps(user_text)
+    try:
+        result = await ollama.structured_extract(prompt)
+
+        # Split the combined response into classification and drift
+        classification = MessageClassification(
+            function=MessageFunction(result.get("function", "neutral")),
+            confidence=result.get("confidence", 0.5),
+            explicit=result.get("explicit", False),
+            mention_type=result.get("mention_type"),
+            notes=result.get("notes"),
+        )
+        drift = DriftEstimate(
+            affect_density=float(result.get("affect_density", 0.0)),
+            claim_volatility=float(result.get("claim_volatility", 0.0)),
+            rigor_drop=float(result.get("rigor_drop", 0.0)),
+            domain_mode=result.get("domain_mode", "external"),
+        )
+    except Exception:
+        classification = MessageClassification(
+            function=MessageFunction.NEUTRAL,
+            confidence=0.3,
+            explicit=False,
+            notes="Combined classify+drift failed — defaults applied",
+        )
+        drift = DriftEstimate(
+            affect_density=0.0,
+            claim_volatility=0.0,
+            rigor_drop=0.0,
+        )
+
+    _event_log.log_gate_event(
+        function=classification.function.value,
+        confidence=classification.confidence,
+        explicit=classification.explicit,
+        notes=classification.notes,
+    )
+    return classification, drift
 
 
 def build_runtime_header(
@@ -159,28 +206,22 @@ async def process_turn(
     turn = len(chat_messages) + 1
     match_result = None
 
-    # Step 1: Classify (fast, structured extraction)
-    classification = await classify_message(user_text)
-
-    # Step 2: Anchor matching — OP_01 hard-gated wraps + residue fuzzy
-    if anchor_matcher:
-        match_result = await anchor_matcher.match_all(user_text, classification)
-
-    # Step 3: Frame update + drift estimation in parallel
+    # Steps 1+3 combined: classify + drift in a SINGLE LLM call
+    # Saves one full inference round (~60s on partial GPU offload)
     recent = "\n".join(
         f"[{m.role}] {m.content[:200]}" for m in chat_messages[-10:]
     )
+    classification, drift = await classify_and_drift(user_text, recent)
 
+    # Step 2: Anchor matching — needs classification result
+    if anchor_matcher:
+        match_result = await anchor_matcher.match_all(user_text, classification)
+
+    # Step 3: Frame update (needs match_result + classification)
     if frame_manager and session_id:
-        # Run frame update and drift estimation concurrently
-        frame_task = frame_manager.update_turn(
+        frame_state = await frame_manager.update_turn(
             session_id, turn, user_text, match_result, classification
         )
-        drift_task = estimate_drift(user_text, recent)
-        updated_frame, drift = await asyncio.gather(frame_task, drift_task)
-        frame_state = updated_frame
-    else:
-        drift = await estimate_drift(user_text, recent)
 
     # Step 3a: Augment affect_density from wrapped-span features.
     # Orthographic/emote signals inside `*...*` are a more reliable

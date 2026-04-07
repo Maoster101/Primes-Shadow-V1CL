@@ -310,22 +310,27 @@ async def send_message(chat_id: str, req: SendMessageRequest):
         assistant_text = ""
         metadata = {}
 
-        async for chunk in process_turn(
-            req.content, history, oli_mode,
-            session_id=session_id,
-            chat_id=chat_id,
-            anchor_matcher=anchor_matcher,
-            frame_manager=frame_manager,
-            drift_monitor=drift_monitor,
-            gauntlet_engine=gauntlet_engine,
-            web_mode=req.web_mode,
-            think_level=req.think_level,
-        ):
-            if chunk["done"]:
-                metadata = chunk
-                assistant_text = chunk["full_response"]
-            else:
-                yield f"data: {json.dumps({'content': chunk['content']})}\n\n"
+        try:
+            async for chunk in process_turn(
+                req.content, history, oli_mode,
+                session_id=session_id,
+                chat_id=chat_id,
+                anchor_matcher=anchor_matcher,
+                frame_manager=frame_manager,
+                drift_monitor=drift_monitor,
+                gauntlet_engine=gauntlet_engine,
+                web_mode=req.web_mode,
+                think_level=req.think_level,
+            ):
+                if chunk.get("done"):
+                    metadata = chunk
+                    assistant_text = chunk.get("full_response", "")
+                else:
+                    yield f"data: {json.dumps({'content': chunk.get('content', '')})}\n\n"
+        except Exception as e:
+            error_msg = f"[Inference error: {type(e).__name__}: {e}]"
+            yield f"data: {json.dumps({'content': error_msg})}\n\n"
+            assistant_text = error_msg
 
         # Store assistant message
         assistant_msg = ChatMessage(
@@ -1356,3 +1361,61 @@ async def mine_conversation(req: MineRequest):
         chunk_size=req.chunk_size,
     )
     return result
+
+
+class PushMinedRequest(BaseModel):
+    proposals: list[dict]   # Raw mined proposal dicts from /mine response
+
+
+@router.post("/sessions/{session_id}/push-mined")
+async def push_mined_proposals(session_id: str, req: PushMinedRequest):
+    """Push mined proposals directly into the session draft stack.
+
+    Converts raw mined proposals (from /mine) into DraftPackets without
+    re-running LLM extraction. Each proposal becomes a DRAFT_UNAUTHORIZED
+    packet with its raw data preserved for later review/promotion.
+    """
+    import uuid
+    from ..models.schemas import DraftPacket, DraftStack
+    from ..models.enums import DraftStatus
+
+    meta_path = session_store._session_dir(session_id) / "meta.json"
+    meta = session_store._read_json(meta_path)
+    if not meta:
+        raise HTTPException(404, "Session not found")
+
+    stack = session_store.load_draft_stack(session_id)
+    if not stack:
+        stack = DraftStack(session_id=session_id)
+
+    created = []
+    for prop in req.proposals:
+        if not isinstance(prop, dict):
+            continue
+        prop_type = prop.get("type", "anchor")
+        text = prop.get("canonical_phrase") or prop.get("canonical_text", "") or prop.get("title", "")
+        if not text:
+            continue
+
+        draft_id = f"mined_{prop_type}_{uuid.uuid4().hex[:8]}_v1"
+
+        packet = DraftPacket(
+            id=draft_id,
+            source_chat_id=meta.get("chat_id", session_id),
+            source_turns=[0],
+            proposed_nodes=[draft_id],
+            justification=prop.get("justification", ""),
+            confidence=prop.get("confidence", 0.5),
+            status=DraftStatus.DRAFT_UNAUTHORIZED,
+            fact_claims=[text] if prop.get("claim_tag") == "FACT" else [],
+        )
+
+        session_store.save_draft_packet(session_id, packet)
+        raw_path = session_store._drafts_dir(session_id) / f"{draft_id}_raw.json"
+        session_store._write_json(raw_path, prop)
+
+        stack.packets.append(draft_id)
+        created.append({"id": draft_id, "type": prop_type, "label": text[:80]})
+
+    session_store.save_draft_stack(session_id, stack)
+    return {"created": len(created), "drafts": created}

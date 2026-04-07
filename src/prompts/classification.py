@@ -96,6 +96,53 @@ $CONTEXT
 
 Current turn: """
 
+
+# ── Combined classify + drift (single LLM call) ──────────────
+COMBINED_CLASSIFY_DRIFT_PROMPT = """\
+You are a message analyzer for a semantic reasoning system. Perform TWO tasks on the user message below.
+
+TASK 1 — MESSAGE CLASSIFICATION
+Classify the dominant function:
+- context_compression: referencing prior context, anchors, or asking to persist/save/anchor/bundle work
+- object_of_work: working on a specific object, concept, plan, design, or artifact
+- affect_release: processing emotions, venting, expressing personal experience
+- rigor_work: rigorous analysis, testing, challenging, requesting adversarial pushback
+- meta_schema: discussing the system itself, its rules, its structure
+- neutral: general conversation, greetings, clarifications
+
+Also determine mention_type if the user references a concept by name:
+- reference: passive mention, no activation intent
+- question: asking about a concept
+- deliberate_invocation: explicitly activating a concept as live frame
+- null: no concept referenced
+
+explicit = true if user explicitly asks to persist/save/anchor/bundle something.
+
+TASK 2 — DRIFT ESTIMATION
+Estimate these meta-cognitive signals for the current turn:
+- affect_density (0-1): emotional content level
+- claim_volatility (0-1): position shift from recent statements
+- rigor_drop (0-1): discourse quality degradation
+- domain_mode: "internal" (personal/subjective) or "external" (objective/measurable)
+
+Return ONLY raw JSON combining both tasks:
+{
+  "function": "<category>",
+  "confidence": <float 0-1>,
+  "explicit": <bool>,
+  "mention_type": "<reference | question | deliberate_invocation | null>",
+  "notes": "<string or null>",
+  "affect_density": <float 0-1>,
+  "claim_volatility": <float 0-1>,
+  "rigor_drop": <float 0-1>,
+  "domain_mode": "<internal | external>"
+}
+
+Session context:
+$CONTEXT
+
+User message: """
+
 SALIENCE_PROMPT = """\
 You are a salience estimator for a semantic graph. Given the active frame nodes \
 and the current conversation turn, estimate how salient (relevant/important) each \

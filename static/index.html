@@ -340,6 +340,8 @@
         <div class="dn-item" data-page="drafts" onclick="dashNav('drafts')"><span class="dn-icon">&#9633;</span> Drafts</div>
         <div class="dn-item" data-page="gates" onclick="dashNav('gates')"><span class="dn-icon">&#9711;</span> Gates</div>
         <div class="dn-item" data-page="stale" onclick="dashNav('stale')"><span class="dn-icon">&#9888;</span> Stale Review</div>
+        <div class="dn-item" data-page="mine" onclick="dashNav('mine')"><span class="dn-icon">&#9889;</span> AI Mine</div>
+        <div class="dn-item" data-page="verify" onclick="dashNav('verify')"><span class="dn-icon">&#10003;</span> Verify</div>
         <div class="dn-item" data-page="export" onclick="dashNav('export')"><span class="dn-icon">&#8681;</span> Export</div>
         <div class="dn-item" data-page="settings" onclick="dashNav('settings')"><span class="dn-icon">&#9881;</span> Settings</div>
       </div>
@@ -1119,6 +1121,8 @@ function dashNav(page){
     drafts:dashPageDrafts,
     gates:dashPageGates,
     stale:dashPageStale,
+    mine:dashPageMine,
+    verify:dashPageVerify,
     export:dashPageExport,
     settings:dashPageSettings,
   };
@@ -1175,6 +1179,11 @@ function dashPageOverview(c){
         <div class="ds-label">EDGES</div>
         <div class="ds-value">${ne}</div>
         <div class="ds-icon" style="color:#fbbf24">&#10132;</div>
+      </div>
+      <div class="ds-card" style="position:relative;cursor:pointer;border-color:rgba(74,158,255,0.2)" onclick="dashNav('mine')">
+        <div class="ds-label">AI MINE</div>
+        <div class="ds-value" style="font-size:18px;color:var(--accent)">&#9889;</div>
+        <div class="ds-icon" style="color:var(--accent)">&#9889;</div>
       </div>
     </div>
 
@@ -1645,6 +1654,371 @@ function dashPageStale(c){
       <td>${_statusBadge(s.lifecycle_status)}</td>
       <td style="text-align:right;white-space:nowrap">${_lifecycleActions(s.id,s.lifecycle_status)}</td>
     </tr>`).join('')}</tbody></table>`:'<div class="dpanel-empty">All nodes are active. Nothing to review.</div>'}`;
+}
+
+// ── AI Mine page (Phase 8) ──
+let _mineResults=null;
+let _mineRunning=false;
+
+function dashPageMine(c){
+  c.innerHTML=`
+    <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">AI Mine <span style="font-size:13px;color:var(--text-dim);font-weight:400">conversation → corpus proposals</span></div>
+
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:18px">
+      <!-- Input panel -->
+      <div class="dpanel" style="flex:2;min-width:350px">
+        <div class="dpanel-title"><span class="dpanel-icon">&#9889;</span> Conversation Input</div>
+        <div style="font-size:10px;color:var(--text-dim);margin-bottom:10px">Paste a conversation export (Claude JSON, ChatGPT JSON, markdown, or plaintext) or drop a file below.</div>
+        <div id="mine-drop-zone" style="border:2px dashed var(--border);border-radius:8px;padding:28px;text-align:center;font-size:11px;color:var(--text-dim);cursor:pointer;transition:border-color .2s;margin-bottom:10px"
+          ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
+          ondragleave="this.style.borderColor='var(--border)'"
+          ondrop="event.preventDefault();this.style.borderColor='var(--border)';_mineHandleFile(event.dataTransfer.files[0])"
+          onclick="document.getElementById('mine-file-input').click()">
+          Drop file here or click to browse<br>
+          <span style="font-size:9px;color:#3a4060">.json · .jsonl · .md · .txt — max 5 MB</span>
+        </div>
+        <input type="file" id="mine-file-input" accept=".json,.jsonl,.md,.txt" style="display:none" onchange="_mineHandleFile(this.files[0])">
+        <div id="mine-file-chip" style="display:none;font-size:10px;color:var(--accent);margin-bottom:8px"></div>
+        <textarea id="mine-text" rows="8" style="width:100%;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;padding:10px;resize:vertical;min-height:80px" placeholder="Or paste conversation text here..."></textarea>
+        <div style="display:flex;gap:10px;margin-top:10px;align-items:center">
+          <div style="display:flex;gap:8px;align-items:center;font-size:10px;color:var(--text-dim)">
+            <label>Source label: <input id="mine-source" value="import" style="width:80px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:3px 6px;font-size:10px;font-family:inherit"></label>
+            <label>Min confidence: <input id="mine-conf" type="number" value="0.4" min="0" max="1" step="0.1" style="width:50px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:3px 6px;font-size:10px;font-family:inherit"></label>
+            <label>Chunk size: <input id="mine-chunk" type="number" value="4" min="2" max="12" style="width:44px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:3px 6px;font-size:10px;font-family:inherit"></label>
+          </div>
+          <div style="flex:1"></div>
+          <button class="dbtn dbtn-blue" style="padding:6px 18px;font-size:11px" id="mine-run-btn" onclick="_mineRun()">&#9889; Run Mining</button>
+        </div>
+      </div>
+
+      <!-- Stats panel -->
+      <div class="dpanel" style="flex:1;min-width:220px">
+        <div class="dpanel-title"><span class="dpanel-icon">&#9776;</span> Mining Status</div>
+        <div id="mine-status" style="font-size:10px;color:var(--text-dim)">
+          ${_mineResults?_mineRenderStatus():'<div>No mining run yet. Paste or drop a conversation and click <strong>Run Mining</strong>.</div>'}
+        </div>
+      </div>
+    </div>
+
+    <!-- Results panel -->
+    <div id="mine-results-panel" style="display:${_mineResults?'block':'none'}">
+      <div class="dpanel" style="margin-bottom:14px">
+        <div class="dpanel-title"><span class="dpanel-icon">&#128269;</span> Proposals <span id="mine-count" style="font-size:11px;color:var(--text-dim);font-weight:400;margin-left:8px">(${_mineResults?_mineResults.proposals.length:0})</span></div>
+        <div id="mine-proposals-body">${_mineResults?_mineRenderProposals():''}</div>
+      </div>
+    </div>`;
+}
+
+function _mineHandleFile(file){
+  if(!file)return;
+  if(file.size>5*1024*1024){alert('File too large (max 5 MB)');return}
+  const chip=document.getElementById('mine-file-chip');
+  chip.style.display='block';
+  chip.textContent=`📄 ${file.name} (${(file.size/1024).toFixed(1)} KB)`;
+  const reader=new FileReader();
+  reader.onload=()=>{document.getElementById('mine-text').value=reader.result};
+  reader.readAsText(file);
+}
+
+async function _mineRun(){
+  const text=document.getElementById('mine-text').value;
+  if(!text.trim()){alert('Paste or drop a conversation first.');return}
+  const btn=document.getElementById('mine-run-btn');
+  btn.disabled=true;btn.textContent='Mining...';
+  _mineRunning=true;
+
+  try{
+    const res=await fetch(`${API}/mine`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        text:text,
+        source_label:document.getElementById('mine-source').value||'import',
+        min_confidence:parseFloat(document.getElementById('mine-conf').value)||0.4,
+        chunk_size:parseInt(document.getElementById('mine-chunk').value)||4,
+      })
+    });
+    if(!res.ok){const err=await res.json();throw new Error(err.detail||JSON.stringify(err))}
+    _mineResults=await res.json();
+    pushEvent('proposal',`Mined ${_mineResults.proposals.length} proposals from ${_mineResults.format} conversation`);
+    dashNav('mine');
+  }catch(e){
+    alert('Mining failed: '+e.message);
+  }finally{
+    _mineRunning=false;
+    const b=document.getElementById('mine-run-btn');
+    if(b){b.disabled=false;b.textContent='⚡ Run Mining'}
+  }
+}
+
+function _mineRenderStatus(){
+  if(!_mineResults)return '';
+  const r=_mineResults;
+  const stats=r.stats||{};
+  return `
+    <div style="margin-bottom:8px">Format detected: <strong style="color:var(--text)">${r.format||'unknown'}</strong></div>
+    <div>Exchanges: <strong style="color:var(--text)">${stats.exchanges||0}</strong></div>
+    <div>Chunks: <strong style="color:var(--text)">${stats.chunks||0}</strong></div>
+    <div>Proposals (raw): <strong style="color:var(--text)">${stats.raw_proposals||0}</strong></div>
+    <div>Proposals (deduped): <strong style="color:var(--text)">${r.proposals?.length||0}</strong></div>
+    ${stats.topics?`<div style="margin-top:8px;font-size:9px;color:var(--text-dim)">Topics: ${Object.entries(stats.topics||{}).filter(([k,v])=>v>0).map(([k,v])=>`<span style="color:var(--accent)">${k}</span>:${v}`).join(' · ')}</div>`:''}
+  `;
+}
+
+function _mineRenderProposals(){
+  if(!_mineResults||!_mineResults.proposals?.length)return '<div class="dpanel-empty">No proposals extracted.</div>';
+  const props=_mineResults.proposals;
+  // Group by type
+  const byType={};
+  props.forEach(p=>{const t=p.type||'anchor';(byType[t]=byType[t]||[]).push(p)});
+
+  let html='';
+  for(const[type,items]of Object.entries(byType)){
+    const tc=type==='anchor'?'#0AAC00':type==='slab'?'#0050EB':type==='bundle'?'#B4009E':'#888';
+    html+=`<div style="margin-bottom:14px">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:${tc};margin-bottom:6px;font-weight:600">${type}s (${items.length})</div>
+      <table class="dtable"><thead><tr>
+        <th></th><th>Phrase / Title</th><th>Confidence</th><th>Justification</th><th>Claim Tag</th>
+      </tr></thead><tbody>${items.map((p,i)=>{
+        const key=`${type}_${i}`;
+        const phrase=p.canonical_phrase||p.title||p.label||'(unnamed)';
+        const conf=((p.confidence||0)*100).toFixed(0);
+        return `<tr>
+          <td><input type="checkbox" class="mine-sel" data-key="${key}" data-idx="${props.indexOf(p)}" checked></td>
+          <td style="font-size:11px;color:var(--text)">${_esc(phrase)}</td>
+          <td style="font-size:10px;color:${p.confidence>=0.7?'#0AAC00':p.confidence>=0.5?'#fbbf24':'#888'}">${conf}%</td>
+          <td style="font-size:10px;color:var(--text-dim);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.justification||'—')}</td>
+          <td style="font-size:10px;color:var(--text-dim)">${p.claim_tag||'—'}</td>
+        </tr>`;
+      }).join('')}</tbody></table>
+    </div>`;
+  }
+
+  html+=`<div style="display:flex;gap:10px;margin-top:14px;align-items:center">
+    <button class="dbtn dbtn-blue" style="padding:5px 14px;font-size:10px" onclick="_mineSelectAll(true)">Select All</button>
+    <button class="dbtn dbtn-grey" style="padding:5px 14px;font-size:10px" onclick="_mineSelectAll(false)">Deselect All</button>
+    <div style="flex:1"></div>
+    <span id="mine-push-status" style="font-size:10px;color:var(--text-dim)"></span>
+    <button class="dbtn dbtn-green" style="padding:6px 18px;font-size:11px" onclick="_minePushSelected()">Push Selected to Drafts</button>
+  </div>`;
+  return html;
+}
+
+function _mineSelectAll(checked){
+  document.querySelectorAll('.mine-sel').forEach(el=>el.checked=checked);
+}
+
+function _esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+
+async function _minePushSelected(){
+  if(!_mineResults||!currentSessionId){alert('No active session or mining results');return}
+  const sel=[];
+  document.querySelectorAll('.mine-sel:checked').forEach(el=>{
+    sel.push(parseInt(el.dataset.idx));
+  });
+  if(!sel.length){alert('No proposals selected');return}
+
+  const statusEl=document.getElementById('mine-push-status');
+  statusEl.textContent=`Pushing ${sel.length} proposals...`;
+
+  const proposals=sel.map(i=>_mineResults.proposals[i]).filter(Boolean);
+
+  try{
+    const res=await fetch(`${API}/sessions/${currentSessionId}/push-mined`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({proposals:proposals})
+    });
+    if(!res.ok){const err=await res.json();throw new Error(err.detail||JSON.stringify(err))}
+    const result=await res.json();
+    statusEl.innerHTML=`<span style="color:#0AAC00">✓ Created ${result.created||0} draft(s) — go to <a href="#" onclick="dashNav('verify');return false" style="color:var(--accent)">Verify & Promote</a> to review</span>`;
+    pushEvent('proposal',`Pushed ${result.created||0} mined proposals to drafts`);
+  }catch(e){
+    statusEl.innerHTML=`<span style="color:#ff4444">Error: ${e.message}</span>`;
+  }
+}
+
+// ── Verify & Promote page (Phase 9) ──
+
+function dashPageVerify(c){
+  if(!currentSessionId){
+    c.innerHTML='<div style="font-family:\'Syne\',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Verify & Promote</div><div class="dpanel-empty">No active session. Start or select a chat first.</div>';
+    return;
+  }
+  c.innerHTML='<div style="font-family:\'Syne\',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Verify & Promote</div><div class="dpanel-empty">Loading drafts...</div>';
+
+  fetch(`${API}/sessions/${currentSessionId}/drafts`).then(r=>r.json()).then(drafts=>{
+    if(!drafts.length){
+      c.innerHTML=`
+        <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Verify & Promote</div>
+        <div class="dpanel-empty">No drafts in this session. Use <strong>AI Mine</strong> or chat-based extraction to create proposals first.</div>`;
+      return;
+    }
+
+    const pending=drafts.filter(d=>d.status==='DRAFT_UNAUTHORIZED'||d.status==='PROVISIONAL');
+    const committed=drafts.filter(d=>d.status==='COMMITTED');
+    const rejected=drafts.filter(d=>d.status==='REJECTED');
+
+    c.innerHTML=`
+      <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:6px">Verify & Promote</div>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:18px">
+        Review drafts, verify FACT claims, and promote to corpus. §26.6: corpus commits require OLI ON.
+      </div>
+
+      <!-- Status summary -->
+      <div style="display:flex;gap:14px;margin-bottom:18px">
+        <div class="ds-card" style="border-left:3px solid #fbbf24">
+          <div class="ds-label">Pending</div>
+          <div class="ds-value">${pending.length}</div>
+        </div>
+        <div class="ds-card" style="border-left:3px solid #0AAC00">
+          <div class="ds-label">Committed</div>
+          <div class="ds-value">${committed.length}</div>
+        </div>
+        <div class="ds-card" style="border-left:3px solid #ff4444">
+          <div class="ds-label">Rejected</div>
+          <div class="ds-value">${rejected.length}</div>
+        </div>
+      </div>
+
+      <!-- Pending drafts -->
+      ${pending.length?`
+      <div class="dpanel" style="margin-bottom:14px">
+        <div class="dpanel-title"><span class="dpanel-icon">&#9633;</span> Pending Review (${pending.length})</div>
+        <div id="verify-pending">${_verifyRenderDrafts(pending)}</div>
+      </div>`:''}
+
+      <!-- Committed drafts -->
+      ${committed.length?`
+      <div class="dpanel" style="margin-bottom:14px;opacity:0.7">
+        <div class="dpanel-title" style="color:#0AAC00"><span class="dpanel-icon">&#10003;</span> Committed (${committed.length})</div>
+        <table class="dtable"><thead><tr><th>ID</th><th>Confidence</th><th>Status</th></tr></thead>
+        <tbody>${committed.map(d=>`<tr>
+          <td style="font-size:10px">${d.id}</td>
+          <td style="font-size:10px">${((d.confidence||0)*100).toFixed(0)}%</td>
+          <td><span style="color:#0AAC00;font-weight:600;font-size:10px">COMMITTED</span></td>
+        </tr>`).join('')}</tbody></table>
+      </div>`:''}
+
+      <!-- Rejected drafts -->
+      ${rejected.length?`
+      <div class="dpanel" style="margin-bottom:14px;opacity:0.5">
+        <div class="dpanel-title" style="color:#ff4444"><span class="dpanel-icon">&#10007;</span> Rejected (${rejected.length})</div>
+        <table class="dtable"><thead><tr><th>ID</th><th>Confidence</th><th>Status</th></tr></thead>
+        <tbody>${rejected.map(d=>`<tr style="text-decoration:line-through">
+          <td style="font-size:10px">${d.id}</td>
+          <td style="font-size:10px">${((d.confidence||0)*100).toFixed(0)}%</td>
+          <td><span style="color:#ff4444;font-weight:600;font-size:10px">REJECTED</span></td>
+        </tr>`).join('')}</tbody></table>
+      </div>`:''}
+    `;
+  }).catch(e=>{
+    c.innerHTML=`<div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Verify & Promote</div><div class="dpanel-empty">Error: ${e.message}</div>`;
+  });
+}
+
+function _verifyRenderDrafts(drafts){
+  return drafts.map(d=>{
+    const type=d.id.includes('_slab_')?'slab':d.id.includes('_bundle_')?'bundle':'anchor';
+    const tc=_tc[type]||'#888';
+    const hasFacts=d.fact_claims&&d.fact_claims.length>0;
+    const isProvisional=d.status==='PROVISIONAL';
+    const statusColor=isProvisional?'#fbbf24':'var(--text-dim)';
+    const statusLabel=isProvisional?'PROVISIONAL':'DRAFT';
+
+    return `
+    <div style="border:1px solid var(--border);border-radius:8px;padding:14px 18px;margin-bottom:10px;border-left:3px solid ${tc}" id="vd-${d.id}">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <span style="font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:${tc};font-weight:600">${type}</span>
+        <span style="font-size:11px;color:var(--text);font-weight:500">${d.id}</span>
+        <span style="font-size:9px;color:${statusColor};border:1px solid ${statusColor};border-radius:3px;padding:1px 6px">${statusLabel}</span>
+        ${hasFacts?'<span style="font-size:9px;color:#fbbf24;border:1px solid rgba(251,191,36,0.3);border-radius:3px;padding:1px 6px">HAS FACTS</span>':''}
+        <span style="font-size:9px;color:var(--text-dim)">${((d.confidence||0)*100).toFixed(0)}% confidence</span>
+      </div>
+      ${d.justification?`<div style="font-size:10px;color:var(--text-dim);margin-bottom:8px">${_esc(d.justification)}</div>`:''}
+      ${hasFacts?`<div style="font-size:9px;color:#fbbf24;margin-bottom:8px"><strong>FACT claims:</strong> ${d.fact_claims.map(f=>_esc(f)).join(' · ')}</div>`:''}
+      <div id="vd-verify-${d.id}" style="margin-bottom:8px"></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        ${hasFacts?`<button class="dbtn dbtn-amber" onclick="_verifyDraft('${d.id}')">Verify Facts</button>`:''}
+        <button class="dbtn dbtn-amber" onclick="_reviewDraft('${d.id}','promote_tentative')">Promote Tentative</button>
+        <button class="dbtn dbtn-green" onclick="_reviewDraft('${d.id}','promote_corpus')">Promote to Corpus</button>
+        <button class="dbtn dbtn-red" onclick="_reviewDraft('${d.id}','discard')">Discard</button>
+        <div style="flex:1"></div>
+        <span id="vd-status-${d.id}" style="font-size:10px;color:var(--text-dim)"></span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function _verifyDraft(draftId){
+  const statusEl=document.getElementById(`vd-verify-${draftId}`);
+  if(!statusEl)return;
+  statusEl.innerHTML='<div style="font-size:10px;color:var(--accent)">Verifying FACT claims via Ollama...</div>';
+
+  try{
+    const res=await fetch(`${API}/sessions/${currentSessionId}/drafts/${draftId}/verify`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({context:'',method:'ollama'})
+    });
+    if(!res.ok){const err=await res.json();throw new Error(err.detail||JSON.stringify(err))}
+    const result=await res.json();
+
+    const v=result.verification||{};
+    const results=result.results||[];
+    statusEl.innerHTML=`
+      <div style="font-size:10px;padding:8px 12px;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid var(--border)">
+        <div style="margin-bottom:6px;color:var(--text)"><strong>Verification Results</strong>
+          — ${v.confirmed||0} confirmed, ${v.contradicted||0} contradicted, ${v.unresolvable||0} unresolvable</div>
+        ${results.map(r=>{
+          const oc=r.outcome==='CONFIRMED'?'#0AAC00':r.outcome==='CONTRADICTED'?'#ff4444':'#fbbf24';
+          return `<div style="margin-bottom:4px;padding-left:10px;border-left:2px solid ${oc}">
+            <span style="color:${oc};font-weight:600;font-size:9px">${r.outcome}</span>
+            <span style="color:var(--text-dim);font-size:9px;margin-left:6px">${_esc(r.claim.substring(0,120))}</span>
+            ${r.evidence?`<div style="font-size:9px;color:var(--text-dim);margin-top:2px">${_esc(r.evidence.substring(0,200))}</div>`:''}
+          </div>`;
+        }).join('')}
+        ${result.can_promote?'<div style="color:#0AAC00;font-size:9px;margin-top:6px">✓ Safe to promote</div>':'<div style="color:#ff4444;font-size:9px;margin-top:6px">✗ Cannot auto-promote — review results above</div>'}
+      </div>`;
+    pushEvent('proposal',`Verified ${draftId}: ${v.confirmed||0}✓ ${v.contradicted||0}✗ ${v.unresolvable||0}?`);
+  }catch(e){
+    statusEl.innerHTML=`<div style="font-size:10px;color:#ff4444">Verification error: ${e.message}</div>`;
+  }
+}
+
+async function _reviewDraft(draftId,action){
+  const statusEl=document.getElementById(`vd-status-${draftId}`);
+  if(statusEl)statusEl.textContent='Processing...';
+
+  const oliOn=document.getElementById('oli-toggle')?.checked;
+
+  try{
+    const res=await fetch(`${API}/sessions/${currentSessionId}/drafts/${draftId}/review`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:action,oli_mode:oliOn?'ON':'OFF'})
+    });
+    if(!res.ok){
+      const err=await res.json();
+      const msg=typeof err.detail==='object'?JSON.stringify(err.detail):err.detail;
+      throw new Error(msg||'Review failed');
+    }
+    const result=await res.json();
+
+    if(result.warning&&statusEl){
+      statusEl.innerHTML=`<span style="color:#fbbf24">⚠ ${result.warning}</span>`;
+    }
+
+    const label=action==='discard'?'Discarded':action==='promote_tentative'?'Tentative':action==='promote_corpus'?'Committed':'Done';
+    pushEvent('proposal',`${draftId} → ${label}`);
+
+    // Refresh if committed (corpus changed)
+    if(result.status==='COMMITTED'){
+      dashData=await fetch(`${API}/corpus/full`).then(r=>r.json());
+      corpusLoaded=false;
+    }
+
+    // Re-render the page
+    dashNav('verify');
+  }catch(e){
+    if(statusEl)statusEl.innerHTML=`<span style="color:#ff4444">${e.message}</span>`;
+  }
 }
 
 // ── Export page ──

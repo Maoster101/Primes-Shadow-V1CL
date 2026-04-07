@@ -5,10 +5,13 @@ The model proposes; calling code decides what to do with proposals.
 """
 from __future__ import annotations
 import json
+import logging
 import os
 import re
 import httpx
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 OLLAMA_BASE = "http://localhost:11434"
 CHAT_MODEL = os.environ.get("PS_CHAT_MODEL", "gpt-oss:20b")
@@ -33,17 +36,56 @@ EMBED_MODEL = "nomic-embed-text"
 #   OLLAMA_KEEP_ALIVE=-1      — Never unload model from VRAM
 #   OLLAMA_NUM_PARALLEL=2     — Concurrent request slots
 
-_NUM_CTX = int(os.environ.get("PS_NUM_CTX", "32768"))  # 32k default, override with PS_NUM_CTX
+_NUM_CTX = int(os.environ.get("PS_NUM_CTX", "16384"))  # 16k default (saves VRAM for KV cache)
+
+# num_gpu: layers offloaded to GPU. -1 = all, 0 = CPU only.
+# Auto-detect: check free VRAM and allocate layers proportionally.
+# Override with PS_NUM_GPU env var (e.g. PS_NUM_GPU=8).
+_NUM_GPU = int(os.environ.get("PS_NUM_GPU", "-1"))
+
+def _detect_gpu_layers() -> int:
+    """Auto-detect how many of the model's 24 layers fit in free VRAM."""
+    if _NUM_GPU != -1:
+        return _NUM_GPU
+    try:
+        import subprocess
+        out = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+            text=True, timeout=5,
+        ).strip()
+        free_mb = int(out.split("\n")[0])
+        # ~550 MB per layer for 20B model.
+        # Reserve 1200 MB for embed model (~600MB) + KV cache + system.
+        usable = max(0, free_mb - 1200)
+        layers = min(24, usable // 550)
+        if layers < 1:
+            return 0  # CPU only — not enough VRAM
+        return layers
+    except Exception:
+        return 0  # fallback to CPU if detection fails
+
+_AUTO_GPU_LAYERS = _detect_gpu_layers()
+
+# Detect physical CPU cores for thread count
+def _detect_cpu_threads() -> int:
+    try:
+        import os
+        # Use physical cores (not hyperthreads) for Ollama
+        cores = os.cpu_count() or 8
+        return max(4, cores)
+    except Exception:
+        return 8
 
 MODEL_OPTIONS: dict = {
     "num_ctx": _NUM_CTX,
-    "num_gpu": -1,          # full GPU offload
-    "num_batch": 1024,      # fast prompt eval
-    "num_thread": 8,        # match physical cores
+    "num_gpu": _AUTO_GPU_LAYERS,
+    "num_batch": 1024,      # higher batch = faster prompt eval
+    "num_thread": _detect_cpu_threads(),
 }
 
-# Reusable client with generous timeout for 20B inference
-_client = httpx.AsyncClient(base_url=OLLAMA_BASE, timeout=httpx.Timeout(180.0))
+# Reusable client — partial GPU offload means slow cold starts (~60s model load)
+# connect=30s, read=300s (5 min for first-token during cold load + slow CPU layers)
+_client = httpx.AsyncClient(base_url=OLLAMA_BASE, timeout=httpx.Timeout(300.0, connect=30.0))
 
 
 def _opts(temperature: float = 0.7, **extra) -> dict:
@@ -161,18 +203,27 @@ async def chat_stream(
             yield chunk
         return
 
-    async with _client.stream("POST", "/api/chat", json=payload) as resp:
-        resp.raise_for_status()
-        async for line in resp.aiter_lines():
-            if not line:
-                continue
-            chunk = json.loads(line)
-            if chunk.get("done"):
-                yield chunk
-                return
-            content = chunk.get("message", {}).get("content", "")
-            if content:
-                yield {"content": content, "done": False}
+    try:
+        async with _client.stream("POST", "/api/chat", json=payload) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line:
+                    continue
+                chunk = json.loads(line)
+                if chunk.get("done"):
+                    yield chunk
+                    return
+                content = chunk.get("message", {}).get("content", "")
+                if content:
+                    yield {"content": content, "done": False}
+    except httpx.HTTPStatusError as e:
+        logger.error("Ollama HTTP error: %s", e)
+        yield {"content": f"\n\n[Ollama error: {e.response.status_code} — the model may have run out of VRAM or hit a context limit. Try sending a shorter message or restarting Ollama.]", "done": False}
+        yield {"done": True}
+    except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError) as e:
+        logger.error("Ollama connection error: %s", e)
+        yield {"content": f"\n\n[Connection to Ollama lost: {type(e).__name__}. Is Ollama still running?]", "done": False}
+        yield {"done": True}
 
 
 async def _chat_with_tools(payload: dict):
@@ -304,9 +355,9 @@ async def preload_model() -> None:
         })
         resp.raise_for_status()
         print(f"[OLLAMA] Model preloaded: {CHAT_MODEL} "
-              f"(ctx={_NUM_CTX}, gpu=-1, batch=1024)")
+              f"(ctx={_NUM_CTX}, gpu_layers={_AUTO_GPU_LAYERS}/24, batch={MODEL_OPTIONS['num_batch']})")
     except Exception as e:
-        print(f"[OLLAMA] Preload failed: {e}")
+        print(f"[OLLAMA] Preload failed (gpu_layers={_AUTO_GPU_LAYERS}): {e}")
 
 
 async def health_check() -> dict:

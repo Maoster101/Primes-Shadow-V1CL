@@ -303,6 +303,38 @@ class FrameManager:
                     if target_id not in turn_hits:
                         turn_hits.append(target_id)
 
+        # Also track hits from wrapped spans (anchor references that didn't
+        # auto-activate — e.g. performed_imitation, semantic_depth, etc.)
+        if match_result:
+            for ws in getattr(match_result, 'wrapped_spans', []):
+                for hit in getattr(ws, 'anchor_hits', []):
+                    aid = hit.anchor_id if hasattr(hit, 'anchor_id') else hit.get('anchor_id', '')
+                    if aid and aid in self.corpus.anchors and aid not in turn_hits:
+                        frame.corpus_hits[aid] = frame.corpus_hits.get(aid, 0) + 1
+                        frame.corpus_last_hit[aid] = turn
+                        turn_hits.append(aid)
+
+            # Track slab/bundle name references (Pass C corpus_refs)
+            for ref in getattr(match_result, 'corpus_refs', []):
+                nid = ref.node_id
+                if nid not in turn_hits:
+                    frame.corpus_hits[nid] = frame.corpus_hits.get(nid, 0) + 1
+                    frame.corpus_last_hit[nid] = turn
+                    turn_hits.append(nid)
+                    # Activate the referenced node
+                    if nid not in frame.active_nodes:
+                        frame.active_nodes.append(nid)
+                    if ref.node_type == "slab":
+                        frame.active_slabs[nid] = 1.0
+                    elif ref.node_type == "bundle":
+                        frame.active_bundles[nid] = 1.0
+                    frame.activation_sources[nid] = [
+                        ActivationSource(
+                            source_type="corpus_ref_match",
+                            source_ref=ref.matched_phrase,
+                        )
+                    ]
+
         # Append this turn's hit batch for trajectory replay
         if turn_hits:
             frame.corpus_hit_log.append([turn, turn_hits])
@@ -512,6 +544,7 @@ class FrameManager:
             # Check against existing corpus (cosine similarity)
             from . import embeddings
             is_known = False
+            concept_hits = []
             for anchor in self.corpus.anchors.values():
                 sim = await embeddings.cosine_similarity(concept, anchor.canonical_phrase)
                 if sim > 0.7:
@@ -519,11 +552,16 @@ class FrameManager:
                     # Indirect hit — user discussing something close to this anchor
                     frame.corpus_hits[anchor.id] = frame.corpus_hits.get(anchor.id, 0) + 1
                     frame.corpus_last_hit[anchor.id] = frame.last_updated_turn + 1
+                    concept_hits.append(anchor.id)
                     # Also hit invoked bundles
                     for inv in anchor.invokes:
                         frame.corpus_hits[inv] = frame.corpus_hits.get(inv, 0) + 1
                         frame.corpus_last_hit[inv] = frame.last_updated_turn + 1
+                        concept_hits.append(inv)
                     break
+            # Record concept-detection hits in trajectory
+            if concept_hits:
+                frame.corpus_hit_log.append([frame.last_updated_turn + 1, concept_hits])
             if not is_known:
                 for slab in self.corpus.slabs.values():
                     sim = await embeddings.cosine_similarity(concept, slab.canonical_text[:100])

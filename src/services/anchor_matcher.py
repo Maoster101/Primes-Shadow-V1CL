@@ -212,11 +212,19 @@ class WrappedSpan(BaseModel):
     primary_reading: str = "semantic_depth"
 
 
+class CorpusRef(BaseModel):
+    """A reference to a non-anchor corpus object (slab or bundle)."""
+    node_id: str
+    node_type: str          # "slab" | "bundle"
+    matched_phrase: str
+    confidence: float = 1.0
+
 class AnchorMatchResult(BaseModel):
     auto_activate: list[AnchorMatch] = Field(default_factory=list)
     candidates: list[AnchorMatch] = Field(default_factory=list)
     weak: list[AnchorMatch] = Field(default_factory=list)
     wrapped_spans: list[WrappedSpan] = Field(default_factory=list)
+    corpus_refs: list[CorpusRef] = Field(default_factory=list)
     correction_hint: Optional[str] = None
 
 
@@ -434,12 +442,32 @@ class AnchorMatcher:
         self._embed_cache.pop(anchor_id, None)
 
     def gate_check(self, anchor: Anchor, classification: MessageClassification) -> bool:
-        """§8 — Pure code gate (imperative path)."""
+        """§8 — Pure code gate (imperative path).
+
+        Gate policy: anchors should match during normal conversation.
+        The gate only BLOCKS matching when:
+        - gate_required=True AND the function is not in allowed_functions
+          AND the function is not a 'safe default' (object_of_work, neutral,
+          rigor_work, meta_schema all allow matching — only affect_release
+          is blocked by default since corpus activation during emotional
+          venting is usually unwanted).
+        """
         if not anchor.match_policy.gate_required:
             return True
         if classification.explicit:
             return True
         if classification.function in anchor.match_policy.allowed_functions:
+            return True
+        # Safe defaults: allow matching for substantive message types
+        # even if not explicitly listed in allowed_functions
+        from ..models.enums import MessageFunction
+        safe_functions = {
+            MessageFunction.OBJECT_OF_WORK,
+            MessageFunction.NEUTRAL,
+            MessageFunction.RIGOR_WORK,
+            MessageFunction.META_SCHEMA,
+        }
+        if classification.function in safe_functions:
             return True
         return False
 
@@ -579,8 +607,13 @@ class AnchorMatcher:
 
             span_matches: list[AnchorMatch] = []
             for anchor in self.corpus.anchors.values():
-                if not self._effective_gate_check(anchor, classification):
-                    continue
+                # Wrapped spans bypass the function gate — the asterisk wrap
+                # IS the format gate. Only format_gate="asterisk_wrapped_only"
+                # anchors are restricted to wraps, but once inside a wrap,
+                # the function classification is irrelevant.
+                if anchor.match_policy.format_gate != "asterisk_wrapped_only":
+                    if not self._effective_gate_check(anchor, classification):
+                        continue
                 m = self._hard_match_span(seg.text, anchor)
                 if m is not None:
                     m.span_index = wrap_index
@@ -654,6 +687,44 @@ class AnchorMatcher:
                 else:
                     match.tier = MatchTier.WEAK_SEMANTIC
                     result.weak.append(match)
+
+        # --- Pass C: corpus-wide name matching (slabs + bundles) ---
+        # Check if the user referenced any slab or bundle by title/name.
+        # This catches references like "epistemic floor", "pushback invariant",
+        # "archer bundle" that aren't anchors but are still corpus objects.
+        full_text_lower = user_text.lower()
+        matched_ids = {m.anchor_id for m in result.auto_activate + result.candidates}
+
+        for slab in self.corpus.slabs.values():
+            if slab.id in matched_ids:
+                continue
+            # Match against slab title (cleaned) and ID-derived name
+            title = (slab.title or "").lower()
+            id_name = slab.id.lower().replace("slab_", "").replace("_v1", "").replace("_", " ")
+            for phrase in [title, id_name]:
+                if phrase and len(phrase) > 3 and phrase in full_text_lower:
+                    result.corpus_refs.append(CorpusRef(
+                        node_id=slab.id, node_type="slab",
+                        matched_phrase=phrase, confidence=0.9,
+                    ))
+                    matched_ids.add(slab.id)
+                    break
+
+        for bundle in self.corpus.bundles.values():
+            if bundle.id in matched_ids:
+                continue
+            # Match against bundle intent phrases and ID-derived name
+            intents = bundle.payload.intent if hasattr(bundle.payload, 'intent') else []
+            id_name = bundle.id.lower().replace("bundle_", "").replace("_v1", "").replace("_", " ")
+            for phrase in list(intents) + [id_name]:
+                phrase_lower = phrase.lower() if phrase else ""
+                if phrase_lower and len(phrase_lower) > 3 and phrase_lower in full_text_lower:
+                    result.corpus_refs.append(CorpusRef(
+                        node_id=bundle.id, node_type="bundle",
+                        matched_phrase=phrase_lower, confidence=0.9,
+                    ))
+                    matched_ids.add(bundle.id)
+                    break
 
         result.auto_activate.sort(key=lambda m: m.confidence, reverse=True)
         result.candidates.sort(key=lambda m: m.confidence, reverse=True)
