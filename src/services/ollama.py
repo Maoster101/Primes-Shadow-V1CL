@@ -10,11 +10,47 @@ import httpx
 from typing import Optional
 
 OLLAMA_BASE = "http://localhost:11434"
-CHAT_MODEL = "gpt-oss:20b"
+CHAT_MODEL = os.environ.get("PS_CHAT_MODEL", "gpt-oss:20b")
 EMBED_MODEL = "nomic-embed-text"
 
+# ── Performance tuning ─────────────────────────────────────────
+# These options are merged into every Ollama request.
+#
+#   num_ctx    — Context window size in tokens. Must match our budget.
+#                20B model + 32k ctx fits in 16GB VRAM comfortably.
+#                Higher values (64k/128k) need more VRAM for KV cache.
+#   num_gpu    — Number of model layers to offload to GPU.
+#                -1 = all layers (full GPU offload). The 13GB model
+#                fits in 16GB VRAM with room for KV cache at 32k ctx.
+#   num_batch  — Prompt evaluation batch size. Higher = faster prompt
+#                processing at cost of slightly more VRAM. 1024 is
+#                good for a 16GB card.
+#   num_thread — CPU threads for non-GPU ops. Match physical cores.
+#
+# Environment overrides (set before starting the server):
+#   OLLAMA_FLASH_ATTENTION=1  — Enables flash attention (faster, less VRAM)
+#   OLLAMA_KEEP_ALIVE=-1      — Never unload model from VRAM
+#   OLLAMA_NUM_PARALLEL=2     — Concurrent request slots
+
+import os
+_NUM_CTX = int(os.environ.get("PS_NUM_CTX", "32768"))  # 32k default, override with PS_NUM_CTX
+
+MODEL_OPTIONS: dict = {
+    "num_ctx": _NUM_CTX,
+    "num_gpu": -1,          # full GPU offload
+    "num_batch": 1024,      # fast prompt eval
+    "num_thread": 8,        # match physical cores
+}
+
 # Reusable client with generous timeout for 20B inference
-_client = httpx.AsyncClient(base_url=OLLAMA_BASE, timeout=httpx.Timeout(120.0))
+_client = httpx.AsyncClient(base_url=OLLAMA_BASE, timeout=httpx.Timeout(180.0))
+
+
+def _opts(temperature: float = 0.7, **extra) -> dict:
+    """Build options dict: MODEL_OPTIONS + per-call overrides."""
+    o = {**MODEL_OPTIONS, "temperature": temperature}
+    o.update(extra)
+    return o
 
 
 async def generate(
@@ -28,7 +64,7 @@ async def generate(
         "model": CHAT_MODEL,
         "prompt": prompt,
         "stream": False,
-        "options": {"temperature": temperature},
+        "options": _opts(temperature),
     }
     if system:
         payload["system"] = system
@@ -55,7 +91,7 @@ async def chat(
         "model": CHAT_MODEL,
         "messages": messages,
         "stream": False,
-        "options": {"temperature": temperature},
+        "options": _opts(temperature),
     }
     if think:
         payload["options"]["think"] = True
@@ -92,7 +128,7 @@ async def chat_stream(
         "model": CHAT_MODEL,
         "messages": list(messages),
         "stream": True,
-        "options": {"temperature": temperature},
+        "options": _opts(temperature),
     }
     if think:
         payload["think"] = True
@@ -250,6 +286,27 @@ async def embed_single(text: str) -> list[float]:
     """Embed a single text. Convenience wrapper."""
     vecs = await embed([text])
     return vecs[0]
+
+
+async def preload_model() -> None:
+    """Preload the chat model into VRAM so the first request isn't cold.
+
+    Sends a minimal generate request with keep_alive=-1 (never unload).
+    This loads model weights + allocates KV cache upfront.
+    """
+    try:
+        resp = await _client.post("/api/generate", json={
+            "model": CHAT_MODEL,
+            "prompt": "",
+            "stream": False,
+            "keep_alive": -1,
+            "options": MODEL_OPTIONS,
+        })
+        resp.raise_for_status()
+        print(f"[OLLAMA] Model preloaded: {CHAT_MODEL} "
+              f"(ctx={_NUM_CTX}, gpu=-1, batch=1024)")
+    except Exception as e:
+        print(f"[OLLAMA] Preload failed: {e}")
 
 
 async def health_check() -> dict:

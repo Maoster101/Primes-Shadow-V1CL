@@ -36,3 +36,7 @@ async def startup():
     # Pre-embed all anchor phrases for fast matching
     await anchor_matcher.warm_cache()
     print(f"[MATCHER] Anchor embedding cache warmed ({len(corpus.anchors)} anchors)")
+
+    # Preload chat model into VRAM (eliminates cold-start on first message)
+    from .services import ollama
+    await ollama.preload_model()

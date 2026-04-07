@@ -20,7 +20,12 @@ from ..prompts.oli_constitutional import OLI_CONSTITUTIONAL_PROMPT, BMD_SCAFFOLD
 
 # Rough token estimate: ~4 chars per token for English text
 CHARS_PER_TOKEN = 4
-TARGET_CONTEXT_TOKENS = 128_000
+
+# Context budget matches the Ollama num_ctx setting.
+# Default 32k tokens balances quality with VRAM (KV cache for 32k on
+# a 20B model uses ~2-3GB). Override with PS_NUM_CTX env var.
+import os
+TARGET_CONTEXT_TOKENS = int(os.environ.get("PS_NUM_CTX", "32768"))
 TARGET_CONTEXT_CHARS = TARGET_CONTEXT_TOKENS * CHARS_PER_TOKEN
 
 
