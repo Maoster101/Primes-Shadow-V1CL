@@ -163,7 +163,13 @@ def build_runtime_header(
             correction_hint=match_result.correction_hint,
         )
 
+    # Include active model info so the model knows what it is
+    from . import model_profiles
+    active_profile = model_profiles.active()
+
     return RuntimeHeader(
+        active_model=active_profile.name,
+        active_model_family=active_profile.family,
         oli_mode=oli_mode,
         gate_state=gate,
         frame_state_summary=frame_summary,

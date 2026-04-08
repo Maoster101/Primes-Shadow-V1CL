@@ -44,6 +44,7 @@ class DraftManager:
         self.corpus = corpus
         self.session_store = session_store
         self.verifier = VerificationRouter()
+        self._registry = None  # Set by routes.py after registry init
         # Track periodic proposal counts per session
         self._periodic_counts: dict[str, dict[str, int]] = {}
 
@@ -314,31 +315,51 @@ class DraftManager:
             if not obj:
                 return {"error": "Could not convert proposal to corpus object"}
 
-            # Add to corpus, validate, save or rollback
+            # Determine target collection for commit
+            target_cid = raw.get("_target_collection", "default")
+            target_store = self.corpus  # default: merged view
+
+            # Try to resolve to a specific collection store
+            if hasattr(self, '_registry') and self._registry:
+                specific = self._registry.get_store(target_cid)
+                if specific:
+                    target_store = specific
+
+            # Add to target store, validate, save or rollback
             obj_type, corpus_obj = obj
             generated_bundle = None
 
             if obj_type == "anchor":
-                self.corpus.anchors[corpus_obj.id] = corpus_obj
+                target_store.anchors[corpus_obj.id] = corpus_obj
+                # Also add to merged view so validation sees it
+                if target_store is not self.corpus:
+                    self.corpus.anchors[corpus_obj.id] = corpus_obj
             elif obj_type == "slab":
-                self.corpus.slabs[corpus_obj.id] = corpus_obj
+                target_store.slabs[corpus_obj.id] = corpus_obj
+                if target_store is not self.corpus:
+                    self.corpus.slabs[corpus_obj.id] = corpus_obj
                 # §15.1 + §4.1.3: Auto-generate minimum coherence bundle for slab
                 generated_bundle = self._generate_minimum_bundle(corpus_obj.id, raw)
                 if generated_bundle:
-                    self.corpus.bundles[generated_bundle.id] = generated_bundle
+                    target_store.bundles[generated_bundle.id] = generated_bundle
+                    if target_store is not self.corpus:
+                        self.corpus.bundles[generated_bundle.id] = generated_bundle
 
-            errors = self.corpus.validate()
+            errors = target_store.validate()
             if errors:
                 # Rollback everything
                 if obj_type == "anchor":
+                    target_store.anchors.pop(corpus_obj.id, None)
                     self.corpus.anchors.pop(corpus_obj.id, None)
                 elif obj_type == "slab":
+                    target_store.slabs.pop(corpus_obj.id, None)
                     self.corpus.slabs.pop(corpus_obj.id, None)
                 if generated_bundle:
+                    target_store.bundles.pop(generated_bundle.id, None)
                     self.corpus.bundles.pop(generated_bundle.id, None)
                 return {"error": "Corpus validation failed", "errors": errors}
 
-            self.corpus.save()
+            target_store.save()
             packet.status = DraftStatus.COMMITTED
             self.session_store.save_draft_packet(session_id, packet)
 

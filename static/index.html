@@ -288,9 +288,10 @@
           <div class="leg-row"><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="none" stroke="#ffa050" stroke-width=".8" stroke-dasharray="2.5,2.5"/></svg> concept</div>
         </div>
         <div class="leg-section">
-          <div class="leg-label">Radiance → Salience</div>
-          <div class="leg-row"><svg width="28" height="14"><defs><radialGradient id="gH"><stop offset="0%" stop-color="#0AAC00" stop-opacity=".3"/><stop offset="100%" stop-color="#0AAC00" stop-opacity="0"/></radialGradient></defs><circle cx="14" cy="7" r="7" fill="url(#gH)"/><circle cx="14" cy="7" r="3" fill="#0AAC00" opacity="1"/></svg> high salience</div>
-          <div class="leg-row"><svg width="28" height="14"><circle cx="14" cy="7" r="3" fill="#0AAC00" opacity="1"/></svg> low salience</div>
+          <div class="leg-label">Neural Activity</div>
+          <div class="leg-row"><svg width="28" height="14"><defs><radialGradient id="gH"><stop offset="0%" stop-color="#0AAC00" stop-opacity=".3"/><stop offset="100%" stop-color="#0AAC00" stop-opacity="0"/></radialGradient></defs><circle cx="14" cy="7" r="7" fill="url(#gH)"/><circle cx="14" cy="7" r="3" fill="#0AAC00" opacity="1"/></svg> firing (conv. hit)</div>
+          <div class="leg-row"><svg width="28" height="14"><circle cx="14" cy="7" r="3" fill="#0AAC00" opacity=".12"/></svg> resting</div>
+          <div class="leg-row"><svg width="28" height="14"><defs><filter id="gGold"><feGaussianBlur stdDeviation="1.5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><line x1="4" y1="7" x2="24" y2="7" stroke="#FFD228" stroke-width="3" filter="url(#gGold)" opacity="0.7"/><line x1="4" y1="7" x2="24" y2="7" stroke="#FFF5B4" stroke-width="1" opacity="0.9"/></svg> conversation trace</div>
         </div>
         <div class="leg-section">
           <div class="leg-label">Outline → Status</div>
@@ -318,6 +319,13 @@
       </div>
       <div class="event-list" id="event-list"></div>
       <div class="corpus-canvas-wrap" id="corpus-canvas-wrap" style="display:none;flex:1;position:relative;min-height:0">
+        <div id="corpus-filter-bar" style="position:absolute;top:4px;left:4px;right:4px;z-index:10;display:flex;gap:6px;align-items:center;padding:4px 8px;background:rgba(13,17,23,0.85);border-radius:6px;border:1px solid var(--border)">
+          <span style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em">View:</span>
+          <select id="corpus-collection-filter" onchange="_corpusFilterChanged()" style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:2px 6px;font-size:10px;font-family:inherit">
+            <option value="__all__">All Collections (merged)</option>
+          </select>
+          <span id="corpus-filter-stats" style="font-size:9px;color:var(--text-dim);margin-left:auto"></span>
+        </div>
         <canvas id="corpus-canvas"></canvas>
       </div>
     </div>
@@ -461,7 +469,7 @@ async function switchModel(name){
   const sel=document.getElementById('model-select');
   try{
     sel.disabled=true;
-    addEvent(`Switching to ${name}...`);
+    pushEvent('system',`Switching to ${name}...`);
     const res=await fetch(`${API}/models/switch`,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -470,12 +478,14 @@ async function switchModel(name){
     const data=await res.json();
     if(data.ok){
       const vram=(data.size_vram/1e9).toFixed(1);
-      addEvent(`Model: ${name} (${vram}GB VRAM, ${data.gpu_pct}% GPU)`);
+      const prof=data.profile||{};
+      const caps=[prof.think&&'think',prof.tools&&'tools',prof.vision&&'vision'].filter(Boolean).join(', ')||'none';
+      pushEvent('system',`Model switched: ${name} — ${vram}GB VRAM, ${data.gpu_pct}% GPU, caps: ${caps}`);
     }else{
-      addEvent(`Model switch failed: ${data.error||'unknown'}`);
+      pushEvent('error',`Model switch failed: ${data.error||'unknown'}`);
     }
   }catch(e){
-    addEvent(`Model switch error: ${e.message}`);
+    pushEvent('error',`Model switch error: ${e.message}`);
   }finally{
     sel.disabled=false;
   }
@@ -717,6 +727,142 @@ function draw(){
       cx.fillText(n.label.length>22?n.label.slice(0,20)+'..':n.label, p.sx, p.sy+r+9*p.scale);
     }
   });
+  // ── Session graph: ONE FOR ALL gold trace ──
+  // Build trail from hot nodes. Use last_hit_turn if available, else rank by salience.
+  // This ensures the trace works even when corpus_hits hasn't been populated.
+  const _sTrail=gNodes
+    .filter(n=>!n.rejected && n.temp>0.15)
+    .sort((a,b)=>{
+      const aT=a._backendData?.last_hit_turn||0;
+      const bT=b._backendData?.last_hit_turn||0;
+      if(aT&&bT)return aT-bT; // both have hit turns: chronological
+      if(aT)return -1; if(bT)return 1;
+      return (a.temp||0)-(b.temp||0); // fallback: coldest→hottest
+    });
+
+  if(_sTrail.length>1){
+    const t=Date.now();
+    cx.save();
+    cx.globalCompositeOperation='lighter';
+    cx.lineCap='round';
+
+    const GOLD={r:255,g:210,b:40};
+    const GOLD_BRIGHT={r:255,g:245,b:180};
+    const sPMap={};
+    _sTrail.forEach(n=>{sPMap[n.id]=project(n.x,n.y,n.z)});
+
+    // Build edge lookup for connected-segment detection
+    const _sEdgeSet=new Set();
+    gEdges.forEach(e=>{_sEdgeSet.add(e.from+'→'+e.to);_sEdgeSet.add(e.to+'→'+e.from)});
+
+    const totalSegs=_sTrail.length-1;
+    const sparkSpeed=0.00026;
+    const sparkPos=(t*sparkSpeed)%1;
+    const sparkSeg=Math.floor(sparkPos*totalSegs);
+    const sparkFrac=sparkPos*totalSegs-sparkSeg;
+
+    // Draw trail segments
+    for(let i=1;i<_sTrail.length;i++){
+      const prev=sPMap[_sTrail[i-1].id], curr=sPMap[_sTrail[i].id];
+      if(!prev||!curr||prev.scale<=0.01||curr.scale<=0.01)continue;
+      const seg=i-1;
+      const age=i/_sTrail.length;
+
+      // Check if a real edge connects these consecutive trail nodes
+      const hasEdge=_sEdgeSet.has(_sTrail[i-1].id+'→'+_sTrail[i].id);
+
+      if(hasEdge){
+        // ── Connected: full gold trace ──
+        // Wide bloom
+        cx.beginPath();cx.moveTo(prev.sx,prev.sy);cx.lineTo(curr.sx,curr.sy);
+        cx.strokeStyle=`rgba(${GOLD.r},${GOLD.g},${GOLD.b},${0.04+age*0.08})`;
+        cx.lineWidth=12+age*8;cx.stroke();
+        // Core gold
+        cx.beginPath();cx.moveTo(prev.sx,prev.sy);cx.lineTo(curr.sx,curr.sy);
+        cx.strokeStyle=`rgba(${GOLD.r},${GOLD.g},${GOLD.b},${0.12+age*0.3})`;
+        cx.lineWidth=2+age*2;cx.stroke();
+        // White-hot center
+        if(age>0.4){
+          cx.beginPath();cx.moveTo(prev.sx,prev.sy);cx.lineTo(curr.sx,curr.sy);
+          cx.strokeStyle=`rgba(${GOLD_BRIGHT.r},${GOLD_BRIGHT.g},${GOLD_BRIGHT.b},${(age-0.4)*0.4})`;
+          cx.lineWidth=0.8+age*0.8;cx.stroke();
+        }
+      } else {
+        // ── No edge: faint dashed gold hint (temporal link, not structural) ──
+        cx.setLineDash([4,6]);
+        cx.beginPath();cx.moveTo(prev.sx,prev.sy);cx.lineTo(curr.sx,curr.sy);
+        cx.strokeStyle=`rgba(${GOLD.r},${GOLD.g},${GOLD.b},${0.06+age*0.06})`;
+        cx.lineWidth=1;cx.stroke();
+        cx.setLineDash([]);
+      }
+
+      // Traveling spark (always — jumps between unconnected nodes too)
+      if(seg===sparkSeg){
+        const sx=prev.sx+(curr.sx-prev.sx)*sparkFrac;
+        const sy=prev.sy+(curr.sy-prev.sy)*sparkFrac;
+        const sparkR=10+age*6;
+        const sg=cx.createRadialGradient(sx,sy,0,sx,sy,sparkR);
+        sg.addColorStop(0,'rgba(255,255,220,0.5)');
+        sg.addColorStop(0.35,`rgba(${GOLD.r},${GOLD.g},${GOLD.b},0.25)`);
+        sg.addColorStop(1,`rgba(${GOLD.r},${GOLD.g},${GOLD.b},0)`);
+        cx.beginPath();cx.arc(sx,sy,sparkR,0,Math.PI*2);
+        cx.fillStyle=sg;cx.fill();
+      }
+
+      // Arrows (only on connected edges)
+      if(hasEdge&&age>0.35){
+        const dx=curr.sx-prev.sx,dy=curr.sy-prev.sy;
+        const len=Math.sqrt(dx*dx+dy*dy);if(len<10)continue;
+        const ux=dx/len,uy=dy/len;
+        const as=4+age*4;
+        const mid={x:(prev.sx+curr.sx)/2,y:(prev.sy+curr.sy)/2};
+        cx.beginPath();
+        cx.moveTo(mid.x+ux*as,mid.y+uy*as);
+        cx.lineTo(mid.x-ux*as*0.4-uy*as*0.5,mid.y-uy*as*0.4+ux*as*0.5);
+        cx.lineTo(mid.x-ux*as*0.4+uy*as*0.5,mid.y-uy*as*0.4-ux*as*0.5);
+        cx.closePath();
+        cx.fillStyle=`rgba(${GOLD.r},${GOLD.g},${GOLD.b},${age*0.3})`;cx.fill();
+      }
+    }
+
+    // Node pulses (spark-triggered)
+    _sTrail.forEach((n,i)=>{
+      const p=sPMap[n.id];if(!p||p.scale<=0.01)return;
+      const nodePos=i/totalSegs;
+      let delta=sparkPos-nodePos;
+      if(delta<0)delta+=1;
+
+      if(delta<0.15){
+        const phase=delta/0.15;
+        const pulseR=(8+phase*30)*p.scale;
+        const pulseA=(1-phase)*0.5;
+        cx.beginPath();cx.arc(p.sx,p.sy,pulseR,0,Math.PI*2);
+        cx.strokeStyle=`rgba(${GOLD.r},${GOLD.g},${GOLD.b},${pulseA})`;
+        cx.lineWidth=2.5*(1-phase*0.6);cx.stroke();
+
+        if(phase<0.3){
+          const flashI=(1-phase/0.3);
+          const flashR=6*p.scale;
+          const fg=cx.createRadialGradient(p.sx,p.sy,0,p.sx,p.sy,flashR);
+          fg.addColorStop(0,`rgba(255,250,200,${flashI*0.4})`);
+          fg.addColorStop(1,`rgba(${GOLD.r},${GOLD.g},${GOLD.b},0)`);
+          cx.beginPath();cx.arc(p.sx,p.sy,flashR,0,Math.PI*2);
+          cx.fillStyle=fg;cx.fill();
+        }
+      }
+
+      // Subtle gold dot
+      const dotR=(3+(i/Math.max(1,_sTrail.length-1))*2)*p.scale;
+      if(dotR>0.5){
+        cx.beginPath();cx.arc(p.sx,p.sy,dotR,0,Math.PI*2);
+        cx.strokeStyle=`rgba(${GOLD.r},${GOLD.g},${GOLD.b},${0.08+(i/Math.max(1,_sTrail.length-1))*0.12})`;
+        cx.lineWidth=1;cx.stroke();
+      }
+    });
+
+    cx.restore();
+  }
+
   canvas._proj=proj;
 }
 
@@ -1730,6 +1876,14 @@ function dashPageMine(c){
   c.innerHTML=`
     <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">AI Mine <span style="font-size:13px;color:var(--text-dim);font-weight:400">conversation → corpus proposals</span></div>
 
+    <!-- Collection manager bar -->
+    <div id="collection-bar" class="dpanel" style="margin-bottom:14px;padding:10px 14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--text-dim);font-weight:600">Collections</span>
+        <div id="collection-chips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      </div>
+    </div>
+
     <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:18px">
       <!-- Input panel -->
       <div class="dpanel" style="flex:2;min-width:350px">
@@ -1748,9 +1902,11 @@ function dashPageMine(c){
         <textarea id="mine-text" rows="8" style="width:100%;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;padding:10px;resize:vertical;min-height:80px" placeholder="Or paste conversation text here..."></textarea>
         <div style="display:flex;gap:10px;margin-top:10px;align-items:center">
           <div style="display:flex;gap:8px;align-items:center;font-size:10px;color:var(--text-dim)">
+            <label>Collection: <select id="mine-collection" style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:3px 6px;font-size:10px;font-family:inherit"><option value="default">default</option></select></label>
             <label>Source label: <input id="mine-source" value="import" style="width:80px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:3px 6px;font-size:10px;font-family:inherit"></label>
             <label>Min confidence: <input id="mine-conf" type="number" value="0.4" min="0" max="1" step="0.1" style="width:50px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:3px 6px;font-size:10px;font-family:inherit"></label>
             <label>Chunk size: <input id="mine-chunk" type="number" value="4" min="2" max="12" style="width:44px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:3px 6px;font-size:10px;font-family:inherit"></label>
+            <button class="dbtn dbtn-grey" style="padding:3px 10px;font-size:9px" onclick="_mineNewCollection()">+ New Collection</button>
           </div>
           <div style="flex:1"></div>
           <button class="dbtn dbtn-blue" style="padding:6px 18px;font-size:11px" id="mine-run-btn" onclick="_mineRun()">&#9889; Run Mining</button>
@@ -1773,6 +1929,37 @@ function dashPageMine(c){
         <div id="mine-proposals-body">${_mineResults?_mineRenderProposals():''}</div>
       </div>
     </div>`;
+
+  // Load collections into dropdown + chips
+  _loadCollections().then(()=>_renderCollectionChips());
+}
+
+async function _renderCollectionChips(){
+  const container=document.getElementById('collection-chips');
+  if(!container)return;
+  try{
+    const res=await fetch(`${API}/collections`);
+    if(!res.ok)return;
+    const data=await res.json();
+    let html='';
+    for(const c of data.collections||[]){
+      const chipBg=c.active
+        ?'background:rgba(10,172,0,0.15);border-color:rgba(10,172,0,0.4);color:#0AAC00'
+        :'background:rgba(255,255,255,0.03);border-color:var(--border);color:var(--text-dim)';
+      const nameStyle=c.active?'':'text-decoration:line-through;opacity:0.6';
+      html+=`<div style="display:inline-flex;align-items:center;gap:3px">
+        <div data-cid="${c.id}" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;border:1px solid;font-size:10px;${chipBg}">
+          <span style="font-size:9px">${c.active?'●':'○'}</span>
+          <span style="font-weight:600;${nameStyle}">${_esc(c.id)}</span>
+          <span style="opacity:0.6">${c.anchors}a/${c.slabs}s/${c.bundles}b</span>
+        </div>
+        <button title="${c.active?'Deactivate':'Activate'}" onclick="_toggleCollection('${c.id}',${!c.active})" style="background:rgba(255,255,255,0.06);border:1px solid var(--border);border-radius:4px;color:${c.active?'#ff6b6b':'#0AAC00'};cursor:pointer;font-size:9px;padding:2px 6px;line-height:1">${c.active?'OFF':'ON'}</button>
+        ${c.id!=='default'?`<button title="Slabify → promote into default" onclick="_promoteCollection('${c.id}')" style="background:rgba(255,255,255,0.06);border:1px solid var(--border);border-radius:4px;color:#E8A317;cursor:pointer;font-size:9px;padding:2px 6px;line-height:1">⬆ Slabify</button>`:''}
+      </div>`;
+    }
+    html+=`<div style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:6px;border:1px dashed var(--border);font-size:10px;cursor:pointer;color:var(--text-dim)" onclick="_mineNewCollection().then(()=>_renderCollectionChips())">+ New</div>`;
+    container.innerHTML=html;
+  }catch(e){console.warn('Failed to render collection chips',e)}
 }
 
 function _mineHandleFile(file){
@@ -1801,11 +1988,13 @@ async function _mineRun(){
         source_label:document.getElementById('mine-source').value||'import',
         min_confidence:parseFloat(document.getElementById('mine-conf').value)||0.4,
         chunk_size:parseInt(document.getElementById('mine-chunk').value)||4,
+        target_collection:document.getElementById('mine-collection').value||'default',
       })
     });
     if(!res.ok){const err=await res.json();throw new Error(err.detail||JSON.stringify(err))}
     _mineResults=await res.json();
-    pushEvent('proposal',`Mined ${_mineResults.proposals.length} proposals from ${_mineResults.format} conversation`);
+    const ec=_mineResults.edges?.length||0;
+    pushEvent('proposal',`Mined ${_mineResults.proposals.length} proposals + ${ec} edges from ${_mineResults.format} conversation`);
     dashNav('mine');
   }catch(e){
     alert('Mining failed: '+e.message);
@@ -1859,6 +2048,29 @@ function _mineRenderProposals(){
     </div>`;
   }
 
+  // Edges section
+  const edges=_mineResults.edges||[];
+  if(edges.length){
+    const ec='#E8A317';
+    html+=`<div style="margin-bottom:14px">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:${ec};margin-bottom:6px;font-weight:600">Edges (${edges.length})</div>
+      <table class="dtable"><thead><tr>
+        <th></th><th>Type</th><th>From</th><th>To</th><th>Confidence</th><th>Justification</th>
+      </tr></thead><tbody>${edges.map((e,i)=>{
+        const conf=((e.confidence||0)*100).toFixed(0);
+        const tc=e.type==='SEQUENCE'?'#0AAC00':e.type==='INVOKES'?'#0050EB':e.type==='TENSIONS'?'#E8A317':e.type==='REGULATES'?'#B4009E':'#888';
+        return `<tr>
+          <td><input type="checkbox" class="mine-edge-sel" data-idx="${i}" checked></td>
+          <td style="font-size:10px;color:${tc};font-weight:600">${_esc(e.type)}</td>
+          <td style="font-size:11px;color:var(--text)">${_esc(e.from)}</td>
+          <td style="font-size:11px;color:var(--text)">${_esc(e.to)}</td>
+          <td style="font-size:10px;color:${e.confidence>=0.7?'#0AAC00':e.confidence>=0.5?'#fbbf24':'#888'}">${conf}%</td>
+          <td style="font-size:10px;color:var(--text-dim);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(e.justification||'—')}</td>
+        </tr>`;
+      }).join('')}</tbody></table>
+    </div>`;
+  }
+
   html+=`<div style="display:flex;gap:10px;margin-top:14px;align-items:center">
     <button class="dbtn dbtn-blue" style="padding:5px 14px;font-size:10px" onclick="_mineSelectAll(true)">Select All</button>
     <button class="dbtn dbtn-grey" style="padding:5px 14px;font-size:10px" onclick="_mineSelectAll(false)">Deselect All</button>
@@ -1876,7 +2088,26 @@ function _mineSelectAll(checked){
 function _esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 
 async function _minePushSelected(){
-  if(!_mineResults||!currentSessionId){alert('No active session or mining results');return}
+  if(!_mineResults){alert('No mining results');return}
+  // Auto-create a mining session if no active session
+  if(!currentSessionId){
+    try{
+      const chatRes=await fetch(`${API}/chats`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'AI Mine Session'})});
+      if(!chatRes.ok)throw new Error('Failed to create chat');
+      const chat=await chatRes.json();
+      currentChatId=chat.id;
+      // Send a dummy message to create a session
+      const msgRes=await fetch(`${API}/chats/${chat.id}/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:'[Mining session]',oli_mode:'OFF',web_mode:'off'})});
+      if(msgRes.ok){
+        const reader=msgRes.body.getReader();
+        while(true){const{done}=await reader.read();if(done)break}
+      }
+      // Fetch session ID
+      const infoRes=await fetch(`${API}/chats/${chat.id}`);
+      if(infoRes.ok){const info=await infoRes.json();currentSessionId=info.session_id}
+      if(!currentSessionId){alert('Could not create mining session');return}
+    }catch(e){alert('Could not create mining session: '+e.message);return}
+  }
   const sel=[];
   document.querySelectorAll('.mine-sel:checked').forEach(el=>{
     sel.push(parseInt(el.dataset.idx));
@@ -1887,11 +2118,12 @@ async function _minePushSelected(){
   statusEl.textContent=`Pushing ${sel.length} proposals...`;
 
   const proposals=sel.map(i=>_mineResults.proposals[i]).filter(Boolean);
+  const targetCollection=document.getElementById('mine-collection')?.value||'default';
 
   try{
     const res=await fetch(`${API}/sessions/${currentSessionId}/push-mined`,{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({proposals:proposals})
+      body:JSON.stringify({proposals:proposals, target_collection:targetCollection})
     });
     if(!res.ok){const err=await res.json();throw new Error(err.detail||JSON.stringify(err))}
     const result=await res.json();
@@ -1900,6 +2132,96 @@ async function _minePushSelected(){
   }catch(e){
     statusEl.innerHTML=`<span style="color:#ff4444">Error: ${e.message}</span>`;
   }
+}
+
+// ── Collection management ──
+
+let _selectedCollection='default';
+
+async function _loadCollections(){
+  try{
+    const res=await fetch(`${API}/collections`);
+    if(!res.ok)return;
+    const data=await res.json();
+    const sel=document.getElementById('mine-collection');
+    if(!sel)return;
+    sel.innerHTML='';
+    for(const c of data.collections||[]){
+      const opt=document.createElement('option');
+      opt.value=c.id;
+      opt.textContent=`${c.id} (${c.anchors}a/${c.slabs}s/${c.bundles}b)${c.active?'':' [OFF]'}`;
+      if(c.id===_selectedCollection)opt.selected=true;
+      sel.appendChild(opt);
+    }
+    // Add "+ new" option
+    const newOpt=document.createElement('option');
+    newOpt.value='__new__';newOpt.textContent='+ Create new...';
+    sel.appendChild(newOpt);
+    // Restore selection
+    if(_selectedCollection && [...sel.options].some(o=>o.value===_selectedCollection)){
+      sel.value=_selectedCollection;
+    }
+    sel.onchange=()=>{
+      if(sel.value==='__new__'){
+        _mineNewCollection();
+        sel.value=_selectedCollection;
+      }else{
+        _selectedCollection=sel.value;
+      }
+    };
+  }catch(e){console.warn('Failed to load collections',e)}
+}
+
+async function _mineNewCollection(){
+  const name=prompt('New collection name (lowercase, no spaces):');
+  if(!name)return;
+  try{
+    const res=await fetch(`${API}/collections`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:name})
+    });
+    if(!res.ok){const err=await res.json();alert(err.detail||'Failed');return}
+    const result=await res.json();
+    _selectedCollection=result.id;
+    pushEvent('system',`Created collection '${result.id}'`);
+    await _loadCollections();
+  }catch(e){alert('Error: '+e.message)}
+}
+
+async function _toggleCollection(cid, active){
+  // Optimistic UI — immediately flip the chip color
+  const chips=document.getElementById('collection-chips');
+  if(chips){
+    chips.querySelectorAll('div[data-cid="'+cid+'"]').forEach(el=>{
+      el.style.opacity='0.4';
+    });
+  }
+  try{
+    const res=await fetch(`${API}/collections/${cid}`,{
+      method:'PATCH',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({active:active})
+    });
+    if(!res.ok){const err=await res.json();alert(err.detail||'Failed');return}
+    const result=await res.json();
+    pushEvent('system',`Collection '${cid}' ${active?'activated':'deactivated'} — merged: ${result.merged_anchors}a/${result.merged_slabs}s/${result.merged_bundles}b`);
+    // Refresh both chips and dropdown
+    await Promise.all([_loadCollections(), _renderCollectionChips()]);
+  }catch(e){alert('Error: '+e.message)}
+}
+
+async function _promoteCollection(cid){
+  const title=prompt(`Slab title for promoting '${cid}' into default corpus:`);
+  if(!title)return;
+  try{
+    const res=await fetch(`${API}/collections/${cid}/promote`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({slab_title:title,target_collection:'default'})
+    });
+    if(!res.ok){const err=await res.json();alert(err.detail||'Failed');return}
+    const result=await res.json();
+    pushEvent('system',`Promoted '${cid}' → slab '${result.slab_id}' (${result.source_anchors} anchors, ${result.source_bundles} bundles)`);
+    alert(`Created slab '${result.slab_id}' in default corpus!`);
+  }catch(e){alert('Error: '+e.message)}
 }
 
 // ── Verify & Promote page (Phase 9) ──
@@ -2362,18 +2684,22 @@ async function refreshGraph(){
 let corpusTab='events';
 let cNodes=[],cEdges=[],cCam={theta:0.3,phi:0.2,dist:480,panX:0,panY:0};
 let cDrag=null, corpusLoaded=false;
+let _corpusFilterCollection='__all__';
 
 function switchTab(tab){
   corpusTab=tab;
   document.getElementById('tab-events').classList.toggle('active',tab==='events');
   document.getElementById('tab-corpus').classList.toggle('active',tab==='corpus');
   document.getElementById('event-list').style.display=tab==='events'?'flex':'none';
-  document.getElementById('corpus-canvas-wrap').style.display=tab==='corpus'?'block':'none';
+  document.getElementById('corpus-canvas-wrap').style.display=tab==='corpus'?'flex':'none';
   if(tab==='corpus'){
-    resizeCorpusCanvas();
-    if(!corpusLoaded){loadCorpusGraph()}
-    else{refreshCorpusHits()} // reload access patterns on each tab switch
-    if(!corpusAnimId)corpusLoop();
+    // Defer canvas init until browser has reflowed the newly-visible container
+    requestAnimationFrame(()=>{
+      resizeCorpusCanvas();
+      if(!corpusLoaded){loadCorpusGraph()}
+      else{refreshCorpusHits()}
+      if(!corpusAnimId)corpusLoop();
+    });
   }
 }
 
@@ -2389,6 +2715,7 @@ async function refreshCorpusHits(){
       n.lastHitTurn=lastHit[n.id]||0;
       n.currentTurn=curTurn;
     });
+    if(typeof _updateSynapticTrail==='function')_updateSynapticTrail();
   }catch(e){}
 }
 
@@ -2397,7 +2724,13 @@ const cCx=cCanvas.getContext('2d');
 
 function resizeCorpusCanvas(){
   const w=document.getElementById('corpus-canvas-wrap');
-  if(w){cCanvas.width=w.clientWidth;cCanvas.height=w.clientHeight}
+  if(w){
+    let cw=w.clientWidth, ch=w.clientHeight;
+    // Fallback if container hasn't reflowed yet
+    if(ch<50){ch=w.parentElement?.clientHeight-40||300}
+    if(cw<50){cw=w.parentElement?.clientWidth||400}
+    cCanvas.width=cw;cCanvas.height=ch;
+  }
 }
 
 function cProject(x,y,z){
@@ -2409,17 +2742,70 @@ function cProject(x,y,z){
   return{sx:cCanvas.width/2+x1*p+cCam.panX,sy:cCanvas.height/2+y2*p+cCam.panY,scale:p,depth:z2};
 }
 
+async function _corpusFilterChanged(){
+  const sel=document.getElementById('corpus-collection-filter');
+  _corpusFilterCollection=sel.value;
+  corpusLoaded=false;
+  await loadCorpusGraph();
+}
+
+async function _populateCorpusFilter(){
+  try{
+    const res=await fetch(`${API}/collections`);
+    if(!res.ok)return;
+    const data=await res.json();
+    const sel=document.getElementById('corpus-collection-filter');
+    if(!sel)return;
+    sel.innerHTML='<option value="__all__">All Collections (merged)</option>';
+    for(const c of data.collections||[]){
+      const opt=document.createElement('option');
+      opt.value=c.id;
+      opt.textContent=`${c.id} (${c.anchors}a/${c.slabs}s/${c.bundles}b)`;
+      if(c.id===_corpusFilterCollection)opt.selected=true;
+      sel.appendChild(opt);
+    }
+    if(_corpusFilterCollection!=='__all__')sel.value=_corpusFilterCollection;
+  }catch(e){}
+}
+
 async function loadCorpusGraph(){
-  const data=await fetch(`${API}/corpus/full`).then(r=>r.json());
+  // Populate filter dropdown
+  await _populateCorpusFilter();
+
+  const qp=_corpusFilterCollection!=='__all__'?`?collection=${_corpusFilterCollection}`:'';
+  const data=await fetch(`${API}/corpus/full${qp}`).then(r=>r.json());
+
+  // Update stats
+  const statsEl=document.getElementById('corpus-filter-stats');
+  if(statsEl){
+    const ac=(data.anchors||[]).length, sc=(data.slabs||[]).length, bc=(data.bundles||[]).length, ec=(data.edges||[]).length;
+    statsEl.textContent=`${ac} anchors · ${sc} slabs · ${bc} bundles · ${ec} edges`;
+  }
   cNodes=[];cEdges=[];
   const typeMap={};
+  const layoutHint=data.layout_hint||'cloud';
+  let _flowIndex=0; // sequence counter for flow layout
 
   // §11.1 axis scaling — same as session graph
   const CX={x:500,y:300,z:250};
   const cJitter=()=>(Math.random()-.5)*30;
   function cSemPos(n,sx,sy,sz){
-    // If backend provided semantic positions, use them; else random
-    if(sx!=null){
+    if(layoutHint==='flow'){
+      // ── Narrative flow layout: spiral/arc left-to-right ──
+      // Each node gets a position along a gentle 3D helix
+      const i=_flowIndex++;
+      const total=Math.max(1,(data.anchors||[]).length+(data.bundles||[]).length+(data.slabs||[]).length);
+      const t=i/total; // 0→1 progress through narrative
+      const spread=350;
+      // Main axis: left-to-right sweep
+      n.x=(t-0.5)*spread*2;
+      // Vertical: gentle sine wave (narrative arc)
+      n.y=Math.sin(t*Math.PI)*-80 + (n.struct==='slab'?60:n.struct==='bundle'?30:0);
+      // Depth: slight helix twist for 3D interest
+      n.z=Math.cos(t*Math.PI*2)*50+cJitter()*0.5;
+      n.semX=n.x; n.semY=n.y; n.semZ=n.z;
+      n._flowOrder=i;
+    } else if(sx!=null){
       n.x=(sx-0.5)*CX.x+cJitter(); n.y=sy*CX.y+cJitter(); n.z=(sz-1.5)*CX.z+cJitter();
       n.semX=n.x; n.semY=n.y; n.semZ=n.z;
     }else{
@@ -2470,6 +2856,7 @@ async function loadCorpusGraph(){
         n.lastHitTurn=lastHit[n.id]||0;
         n.currentTurn=curTurn;
       });
+      if(typeof _updateSynapticTrail==='function')_updateSynapticTrail();
     }catch(e){}
   }
 
@@ -2497,8 +2884,9 @@ function cPhysics(){
     a.vx+=f*dx/d;a.vy+=f*dy/d;a.vz+=f*dz/d;
     b.vx-=f*dx/d;b.vy-=f*dy/d;b.vz-=f*dz/d;
   });
-  // Semantic axis pull — same as session graph physics() §11.1
-  const semPull=0.006;
+  // Semantic axis pull — stronger for flow layout to maintain narrative order
+  const isFlow=cNodes.length>0&&cNodes[0]._flowOrder!=null;
+  const semPull=isFlow?0.04:0.006; // flow layout: strong pull to keep sequence
   cNodes.forEach(n=>{
     if(n.semX!=null){
       n.vx+=(n.semX-n.x)*semPull;
@@ -2515,84 +2903,204 @@ function cPhysics(){
 function cDraw(){
   if(corpusTab!=='corpus')return;
   const W=cCanvas.width,H=cCanvas.height;
-  cCx.clearRect(0,0,W,H);cCx.fillStyle='#0c0e18';cCx.fillRect(0,0,W,H);
+  const t=Date.now();
+
+  // ── Deep space background with subtle vignette ──
+  cCx.clearRect(0,0,W,H);
+  cCx.fillStyle='#080c18';cCx.fillRect(0,0,W,H);
+  // Vignette — darker edges give depth-of-field feel
+  const vig=cCx.createRadialGradient(W/2,H/2,W*0.25,W/2,H/2,W*0.65);
+  vig.addColorStop(0,'rgba(8,12,24,0)');vig.addColorStop(1,'rgba(2,2,8,0.5)');
+  cCx.fillStyle=vig;cCx.fillRect(0,0,W,H);
+
+  // ── Layer 1: Ambient neural particles (brain matter dust) ──
+  _drawNeuralParticles(cCx,W,H);
 
   const proj=cNodes.map(n=>({n,p:cProject(n.x,n.y,n.z)})).sort((a,b)=>a.p.depth-b.p.depth);
   const nMap={};cNodes.forEach(n=>nMap[n.id]=n);
+  const pMap={};proj.forEach(({n,p})=>pMap[n.id]=p);
 
-  // Edges
+  // ── Build trail edge lookup for gold overlay (computed in Layer 3) ──
+  // Pre-compute which edges lie on the conversation trail
+  const _trailPairs=new Set();
+  if(_synapticTrail.length>1){
+    for(let i=1;i<_synapticTrail.length;i++){
+      _trailPairs.add(_synapticTrail[i-1].id+'→'+_synapticTrail[i].id);
+      _trailPairs.add(_synapticTrail[i].id+'→'+_synapticTrail[i-1].id); // undirected match
+    }
+  }
+
+  // ── Layer 2: Dendrite edges — thin ghostly connections ──
+  // Edges on the trail get gold outline; fired edges glow in type color
   cEdges.forEach(e=>{
     const na=nMap[e.from],nb=nMap[e.to];if(!na||!nb)return;
-    const pa=cProject(na.x,na.y,na.z),pb=cProject(nb.x,nb.y,nb.z);
+    const pa=pMap[e.from],pb=pMap[e.to];if(!pa||!pb)return;
+    if(pa.scale<=0.01||pb.scale<=0.01)return; // behind camera
+    const hitsA=na.hitCount||0, hitsB=nb.hitCount||0;
+    const bothFired=hitsA>0&&hitsB>0;
     const ca=TYPE_RGB[na.struct]||TYPE_RGB.concept,cb=TYPE_RGB[nb.struct]||TYPE_RGB.concept;
-    const g=cCx.createLinearGradient(pa.sx,pa.sy,pb.sx,pb.sy);
-    g.addColorStop(0,`rgba(${ca.r},${ca.g},${ca.b},0.6)`);
-    g.addColorStop(1,`rgba(${cb.r},${cb.g},${cb.b},0.6)`);
-    cCx.beginPath();cCx.moveTo(pa.sx,pa.sy);cCx.lineTo(pb.sx,pb.sy);
-    cCx.strokeStyle=g;cCx.lineWidth=1.5+(e.strength||.3)*3;cCx.stroke();
+    const onTrail=_trailPairs.has(e.from+'→'+e.to);
+
+    if(onTrail){
+      // ── Gold trace edge — One for All energy path ──
+      // Wide gold bloom
+      cCx.beginPath();cCx.moveTo(pa.sx,pa.sy);cCx.lineTo(pb.sx,pb.sy);
+      cCx.strokeStyle='rgba(255,210,40,0.12)';cCx.lineWidth=10;cCx.lineCap='round';cCx.stroke();
+      // Gold core
+      cCx.beginPath();cCx.moveTo(pa.sx,pa.sy);cCx.lineTo(pb.sx,pb.sy);
+      cCx.strokeStyle='rgba(255,210,40,0.35)';cCx.lineWidth=3;cCx.lineCap='round';cCx.stroke();
+      // Bright center
+      cCx.beginPath();cCx.moveTo(pa.sx,pa.sy);cCx.lineTo(pb.sx,pb.sy);
+      cCx.strokeStyle='rgba(255,245,180,0.25)';cCx.lineWidth=1.2;cCx.lineCap='round';cCx.stroke();
+    } else if(bothFired){
+      // ── Synapse firing — type-colored glow ──
+      const recA=hitsA>0?1/(1+((na.currentTurn||0)-(na.lastHitTurn||0))/30):0;
+      const recB=hitsB>0?1/(1+((nb.currentTurn||0)-(nb.lastHitTurn||0))/30):0;
+      const fire=Math.max(recA,recB);
+      const pulse=0.5+0.5*Math.sin(t*0.003+e.from.length);
+      const baseA=0.15+fire*0.5+pulse*0.12;
+
+      const glow=cCx.createLinearGradient(pa.sx,pa.sy,pb.sx,pb.sy);
+      glow.addColorStop(0,`rgba(${ca.r},${ca.g},${ca.b},${baseA*0.25})`);
+      glow.addColorStop(0.5,`rgba(${Math.round((ca.r+cb.r)/2)},${Math.round((ca.g+cb.g)/2)},${Math.round((ca.b+cb.b)/2)},${baseA*0.3})`);
+      glow.addColorStop(1,`rgba(${cb.r},${cb.g},${cb.b},${baseA*0.25})`);
+      cCx.beginPath();cCx.moveTo(pa.sx,pa.sy);cCx.lineTo(pb.sx,pb.sy);
+      cCx.strokeStyle=glow;cCx.lineWidth=4+(e.strength||.3)*4;cCx.stroke();
+
+      const core=cCx.createLinearGradient(pa.sx,pa.sy,pb.sx,pb.sy);
+      core.addColorStop(0,`rgba(${Math.min(255,ca.r+80)},${Math.min(255,ca.g+80)},${Math.min(255,ca.b+80)},${baseA*0.7})`);
+      core.addColorStop(1,`rgba(${Math.min(255,cb.r+80)},${Math.min(255,cb.g+80)},${Math.min(255,cb.b+80)},${baseA*0.7})`);
+      cCx.beginPath();cCx.moveTo(pa.sx,pa.sy);cCx.lineTo(pb.sx,pb.sy);
+      cCx.strokeStyle=core;cCx.lineWidth=1.2+(e.strength||.3)*1.5;cCx.stroke();
+    } else {
+      // ── Resting dendrite — visible connection at ~30% ──
+      const anyHit=(hitsA>0||hitsB>0)?0.35:0.20;
+      const mr=Math.round((ca.r+cb.r)/2),mg=Math.round((ca.g+cb.g)/2),mb=Math.round((ca.b+cb.b)/2);
+      cCx.beginPath();cCx.moveTo(pa.sx,pa.sy);cCx.lineTo(pb.sx,pb.sy);
+      cCx.strokeStyle=`rgba(${mr},${mg},${mb},${anyHit})`;
+      cCx.lineWidth=0.6+(e.strength||.3)*1.2;cCx.stroke();
+    }
+
+    // Arrowhead for SEQUENCE edges (narrative flow direction)
+    if(e.type==='SEQUENCE'){
+      const dx=pb.sx-pa.sx,dy=pb.sy-pa.sy;
+      const len=Math.sqrt(dx*dx+dy*dy);if(len<8)return;
+      const ux=dx/len,uy=dy/len;
+      const arrowSize=6*Math.min(pa.scale,pb.scale);
+      const mid={x:(pa.sx+pb.sx)/2,y:(pa.sy+pb.sy)/2};
+      cCx.beginPath();
+      cCx.moveTo(mid.x+ux*arrowSize,mid.y+uy*arrowSize);
+      cCx.lineTo(mid.x-ux*arrowSize*0.5-uy*arrowSize*0.5,mid.y-uy*arrowSize*0.5+ux*arrowSize*0.5);
+      cCx.lineTo(mid.x-ux*arrowSize*0.5+uy*arrowSize*0.5,mid.y-uy*arrowSize*0.5-ux*arrowSize*0.5);
+      cCx.closePath();
+      const mr2=Math.round((ca.r+cb.r)/2),mg2=Math.round((ca.g+cb.g)/2),mb2=Math.round((ca.b+cb.b)/2);
+      cCx.fillStyle=`rgba(${mr2},${mg2},${mb2},0.35)`;cCx.fill();
+    }
   });
 
-  // Nodes — access pattern driven: hit count → size/glow, recency → intensity
+  // Layer 3 reserved — gold trace rendered in Layer 5 (on top of nodes)
+
+  // ── Layer 4: Neurons (nodes) ──
   proj.forEach(({n,p})=>{
+    // Skip nodes behind camera (negative scale)
+    if(p.scale<=0.01)return;
+
     const st=STRUCT[n.struct]||STRUCT.concept;
     const col=TYPE_RGB[n.struct]||TYPE_RGB.concept;
     const hits=n.hitCount||0;
     const turnsSince=(n.currentTurn||0)-(n.lastHitTurn||0);
-    const recency=hits>0 ? 1.0/(1.0+(turnsSince/30)) : 0; // slow decay over ~30 turns
+    const recency=hits>0 ? 1.0/(1.0+(turnsSince/30)) : 0;
 
-    // Size: base + hit count scaling
-    const sizeBoost=hits>0 ? 1.0+Math.min(0.5, hits*0.06) : 1.0;
-    const r=st.baseR*p.scale*1.4*sizeBoost;
+    // Size: base, slight boost for fired neurons
+    const sizeBoost=hits>0 ? 1.0+Math.min(0.4, hits*0.05) : 1.0;
+    const r=Math.max(0.5, st.baseR*p.scale*1.4*sizeBoost);
 
-    // Alpha: never-hit = dim baseline, hit = brighter, deprecated/dormant = very dim
     const ls=n.lifecycle_status||'ACTIVE';
-    const lsMult=ls==='DEPRECATED'?0.25:ls==='DORMANT'?0.5:1.0;
-    const alpha=(hits>0 ? 0.5+Math.min(0.35, hits*0.06)+recency*0.15 : 0.35)*lsMult;
+    const lsMult=ls==='DEPRECATED'?0.2:ls==='DORMANT'?0.4:1.0;
 
-    // Radiance glow — only for hit nodes, scales with hits + recency
+    // Breathing cycle — gentle per-node oscillation for organic life
+    const breathHash=n.id.split('').reduce((a,c)=>a+c.charCodeAt(0),0);
+    const breath=0.85+0.15*Math.sin(t*0.0008+breathHash*0.3);
+
     if(hits>0){
-      const glowR=r*(1.5+hits*0.25+recency*2.5);
-      const gi=recency*0.18+hits*0.02;
-      const g=cCx.createRadialGradient(p.sx,p.sy,0,p.sx,p.sy,glowR);
-      g.addColorStop(0,`rgba(${col.r},${col.g},${col.b},${Math.min(0.3,gi)})`);
-      g.addColorStop(1,`rgba(${col.r},${col.g},${col.b},0)`);
-      cCx.beginPath();cCx.arc(p.sx,p.sy,glowR,0,Math.PI*2);cCx.fillStyle=g;cCx.fill();
+      // ═══ FIRING NEURON — bright, clean, no heavy bloom ═══
+      const fireIntensity=Math.min(1, 0.7+recency*0.2+hits*0.03);
+
+      // Small tight glow — just enough to distinguish from resting
+      const glowR=r*1.8;
+      const glowI=0.08+recency*0.08;
+      const glow=cCx.createRadialGradient(p.sx,p.sy,r*0.3,p.sx,p.sy,glowR);
+      glow.addColorStop(0,`rgba(${col.r},${col.g},${col.b},${glowI})`);
+      glow.addColorStop(1,`rgba(${col.r},${col.g},${col.b},0)`);
+      cCx.beginPath();cCx.arc(p.sx,p.sy,glowR,0,Math.PI*2);cCx.fillStyle=glow;cCx.fill();
+
+      // Core shape — bright and solid
+      const alpha=fireIntensity*lsMult;
+      (DRAW[st.draw]||drawConcept)(cCx,p.sx,p.sy,r,col,alpha);
+
+      // Single subtle pulse ring for recently active nodes
+      if(recency>0.3){
+        const hash=n.id.split('').reduce((a,c)=>a+c.charCodeAt(0),0);
+        const phase=((t/2500+hash*.04)%1);
+        const pulseR=r*(1.3+phase*1.5);
+        const pulseA=(1-phase)*recency*0.15;
+        cCx.beginPath();cCx.arc(p.sx,p.sy,pulseR,0,Math.PI*2);
+        cCx.strokeStyle=`rgba(${col.r},${col.g},${col.b},${pulseA})`;
+        cCx.lineWidth=0.6;cCx.stroke();
+      }
+
+      // Gold pulse rendered in Layer 5 (tied to traveling spark)
+    } else {
+      // ═══ RESTING NEURON — visible at 60%, waiting to fire ═══
+      const restAlpha=0.60*lsMult*breath;
+
+      // Ambient glow halo
+      const ambR=r*2.5;
+      const amb=cCx.createRadialGradient(p.sx,p.sy,0,p.sx,p.sy,ambR);
+      amb.addColorStop(0,`rgba(${col.r},${col.g},${col.b},${0.15*breath})`);
+      amb.addColorStop(1,`rgba(${col.r},${col.g},${col.b},0)`);
+      cCx.beginPath();cCx.arc(p.sx,p.sy,ambR,0,Math.PI*2);cCx.fillStyle=amb;cCx.fill();
+
+      // Core shape — solid and visible
+      (DRAW[st.draw]||drawConcept)(cCx,p.sx,p.sy,r,col,restAlpha);
+
+      // Idle twinkle — random neurons briefly brighten (spontaneous activity)
+      const twinkle=Math.sin(t*0.0012+p.sx*0.01+p.sy*0.013)*0.5+0.5;
+      if(twinkle>0.88){
+        const flash=(twinkle-0.88)/0.12;
+        const tw=cCx.createRadialGradient(p.sx,p.sy,0,p.sx,p.sy,r*2.0);
+        tw.addColorStop(0,`rgba(${col.r},${col.g},${col.b},${0.25*flash})`);
+        tw.addColorStop(1,`rgba(${col.r},${col.g},${col.b},0)`);
+        cCx.beginPath();cCx.arc(p.sx,p.sy,r*2.0,0,Math.PI*2);cCx.fillStyle=tw;cCx.fill();
+      }
     }
 
-    // Shape
-    (DRAW[st.draw]||drawConcept)(cCx,p.sx,p.sy,r,col,alpha);
-
-    // Deprecated grey outline ring — clear visual for deprecated nodes
+    // Deprecated grey outline ring
     if(ls==='DEPRECATED'){
       cCx.beginPath();cCx.arc(p.sx,p.sy,r+3*p.scale,0,Math.PI*2);
-      cCx.strokeStyle='rgba(128,128,128,0.5)';cCx.lineWidth=1.5*p.scale;
+      cCx.strokeStyle='rgba(128,128,128,0.4)';cCx.lineWidth=1.5*p.scale;
       cCx.setLineDash([3*p.scale,3*p.scale]);cCx.stroke();cCx.setLineDash([]);
     }
-    // Dormant dashed ring — subtle amber indicator
     if(ls==='DORMANT'){
       cCx.beginPath();cCx.arc(p.sx,p.sy,r+3*p.scale,0,Math.PI*2);
-      cCx.strokeStyle='rgba(251,191,36,0.3)';cCx.lineWidth=1*p.scale;
+      cCx.strokeStyle='rgba(251,191,36,0.2)';cCx.lineWidth=1*p.scale;
       cCx.setLineDash([2*p.scale,4*p.scale]);cCx.stroke();cCx.setLineDash([]);
     }
 
-    // Pulse ring — recently-hit nodes (recency > 0.3)
-    if(recency>0.3&&hits>0){
-      const hash=n.id.split('').reduce((a,c)=>a+c.charCodeAt(0),0);
-      const phase=((Date.now()/1800+hash*.05)%1);
-      const pulseR=r*(1.4+phase*2.0);
-      const pulseA=(1-phase)*recency*0.3;
-      const pulseW=1.0+hits*0.4; // thicker with more hits
-      cCx.beginPath();cCx.arc(p.sx,p.sy,pulseR,0,Math.PI*2);
-      cCx.strokeStyle=`rgba(${col.r},${col.g},${col.b},${pulseA})`;cCx.lineWidth=pulseW;cCx.stroke();
-    }
-
-    // Label — always show, brighter for hit nodes, grey for deprecated
+    // ── Labels — only visible on fired neurons + hover proximity ──
     if(p.scale>.25){
       const fs=Math.round(14*p.scale+5);
       cCx.font=`${fs}px JetBrains Mono,monospace`;
-      const labelA=(hits>0 ? Math.min(1, 0.6+recency*0.4) : 0.4)*lsMult;
+      // Fired neurons show bright labels at 100%, resting at ~50%
+      const labelA=hits>0
+        ? Math.min(1, 0.7+recency*0.3)*lsMult
+        : 0.50*lsMult;
       if(ls==='DEPRECATED'){
         cCx.fillStyle=`rgba(128,128,128,${labelA})`;
+      }else if(hits>0){
+        // Bright label for fired neurons — slightly washed toward white
+        const lr=Math.min(255,col.r+60),lg=Math.min(255,col.g+60),lb=Math.min(255,col.b+60);
+        cCx.fillStyle=`rgba(${lr},${lg},${lb},${labelA})`;
       }else{
         cCx.fillStyle=`rgba(${col.r},${col.g},${col.b},${labelA})`;
       }
@@ -2600,7 +3108,6 @@ function cDraw(){
       const labelText=n.label.length>25?n.label.slice(0,23)+'..':n.label;
       const labelY=p.sy+r+10*p.scale;
       cCx.fillText(labelText,p.sx,labelY);
-      // Strikethrough line for deprecated
       if(ls==='DEPRECATED'){
         const tw=cCx.measureText(labelText).width;
         cCx.strokeStyle=`rgba(128,128,128,${labelA*0.7})`;cCx.lineWidth=1;
@@ -2608,6 +3115,136 @@ function cDraw(){
       }
     }
   });
+  // ── Layer 5: ONE FOR ALL gold trace — drawn ON TOP of everything ──
+  // Uses additive blending ('lighter') for real bloom effect
+  if(_synapticTrail.length>1){
+    cCx.save();
+    cCx.globalCompositeOperation='lighter'; // additive = bloom
+    cCx.lineCap='round';
+
+    const GOLD={r:255,g:210,b:40};
+    const GOLD_BRIGHT={r:255,g:245,b:180};
+    const totalSegs=_synapticTrail.length-1;
+
+    // Traveling spark — 65% speed, cycles along the trail
+    const sparkSpeed=0.00026;
+    const sparkPos=(t*sparkSpeed)%1;
+    const sparkSeg=Math.floor(sparkPos*totalSegs);
+    const sparkFrac=sparkPos*totalSegs-sparkSeg;
+
+    // Edge lookup for connected-segment detection
+    const _cEdgeSet=new Set();
+    cEdges.forEach(e=>{_cEdgeSet.add(e.from+'→'+e.to);_cEdgeSet.add(e.to+'→'+e.from)});
+
+    for(let i=1;i<_synapticTrail.length;i++){
+      const prev=pMap[_synapticTrail[i-1].id], curr=pMap[_synapticTrail[i].id];
+      if(!prev||!curr)continue;
+      const seg=i-1;
+      const age=i/_synapticTrail.length;
+      const hasEdge=_cEdgeSet.has(_synapticTrail[i-1].id+'→'+_synapticTrail[i].id);
+
+      if(hasEdge){
+        // ── Connected: full gold trace ──
+        cCx.beginPath();cCx.moveTo(prev.sx,prev.sy);cCx.lineTo(curr.sx,curr.sy);
+        cCx.strokeStyle=`rgba(${GOLD.r},${GOLD.g},${GOLD.b},${0.04+age*0.08})`;
+        cCx.lineWidth=12+age*8;cCx.stroke();
+
+        cCx.beginPath();cCx.moveTo(prev.sx,prev.sy);cCx.lineTo(curr.sx,curr.sy);
+        cCx.strokeStyle=`rgba(${GOLD.r},${GOLD.g},${GOLD.b},${0.12+age*0.3})`;
+        cCx.lineWidth=2+age*2;cCx.stroke();
+
+        if(age>0.4){
+          cCx.beginPath();cCx.moveTo(prev.sx,prev.sy);cCx.lineTo(curr.sx,curr.sy);
+          cCx.strokeStyle=`rgba(${GOLD_BRIGHT.r},${GOLD_BRIGHT.g},${GOLD_BRIGHT.b},${(age-0.4)*0.4})`;
+          cCx.lineWidth=0.8+age*0.8;cCx.stroke();
+        }
+      } else {
+        // ── No edge: faint dashed gold hint ──
+        cCx.setLineDash([4,6]);
+        cCx.beginPath();cCx.moveTo(prev.sx,prev.sy);cCx.lineTo(curr.sx,curr.sy);
+        cCx.strokeStyle=`rgba(${GOLD.r},${GOLD.g},${GOLD.b},${0.06+age*0.06})`;
+        cCx.lineWidth=1;cCx.stroke();
+        cCx.setLineDash([]);
+      }
+
+      // ── Traveling spark (always — jumps between unconnected too) ──
+      if(seg===sparkSeg){
+        const sx=prev.sx+(curr.sx-prev.sx)*sparkFrac;
+        const sy=prev.sy+(curr.sy-prev.sy)*sparkFrac;
+        const sparkR=10+age*6;
+        const sg=cCx.createRadialGradient(sx,sy,0,sx,sy,sparkR);
+        sg.addColorStop(0,'rgba(255,255,220,0.5)');
+        sg.addColorStop(0.35,`rgba(${GOLD.r},${GOLD.g},${GOLD.b},0.25)`);
+        sg.addColorStop(1,`rgba(${GOLD.r},${GOLD.g},${GOLD.b},0)`);
+        cCx.beginPath();cCx.arc(sx,sy,sparkR,0,Math.PI*2);
+        cCx.fillStyle=sg;cCx.fill();
+      }
+
+      // ── Direction arrows (only on connected edges) ──
+      if(hasEdge&&age>0.35){
+        const dx=curr.sx-prev.sx,dy=curr.sy-prev.sy;
+        const len=Math.sqrt(dx*dx+dy*dy);if(len<10){continue}
+        const ux=dx/len,uy=dy/len;
+        const as=4+age*4;
+        const mid={x:(prev.sx+curr.sx)/2,y:(prev.sy+curr.sy)/2};
+        cCx.beginPath();
+        cCx.moveTo(mid.x+ux*as,mid.y+uy*as);
+        cCx.lineTo(mid.x-ux*as*0.4-uy*as*0.5,mid.y-uy*as*0.4+ux*as*0.5);
+        cCx.lineTo(mid.x-ux*as*0.4+uy*as*0.5,mid.y-uy*as*0.4-ux*as*0.5);
+        cCx.closePath();
+        cCx.fillStyle=`rgba(${GOLD.r},${GOLD.g},${GOLD.b},${age*0.3})`;cCx.fill();
+      }
+    }
+
+    // ── Gold pulse on each node — fires when the spark passes through ──
+    // sparkPos is 0→1 cycling along the trail. Each node at position i/total
+    // gets a pulse when sparkPos crosses it. The "time since spark passed"
+    // drives an expanding ring that fades out.
+    _synapticTrail.forEach((tn,i)=>{
+      const p=pMap[tn.id];if(!p||p.scale<=0.01)return;
+      const nodePos=i/totalSegs; // this node's position on the trail (0→1)
+
+      // How far ahead the spark is past this node (wrapping around)
+      let delta=sparkPos-nodePos;
+      if(delta<0)delta+=1; // wrap
+      // delta 0 = spark just hit this node, delta 0.3 = spark is 30% ahead
+
+      // Pulse window: 0→0.15 of the cycle = active pulse (~4 seconds)
+      if(delta<0.15){
+        const phase=delta/0.15; // 0=just hit → 1=fully faded
+        const pulseR=(8+phase*30)*p.scale;
+        const pulseA=(1-phase)*0.5;
+
+        // Expanding gold ring
+        cCx.beginPath();cCx.arc(p.sx,p.sy,pulseR,0,Math.PI*2);
+        cCx.strokeStyle=`rgba(${GOLD.r},${GOLD.g},${GOLD.b},${pulseA})`;
+        cCx.lineWidth=2.5*(1-phase*0.6);cCx.stroke();
+
+        // Bright center flash at moment of impact
+        if(phase<0.3){
+          const flashI=(1-phase/0.3);
+          const flashR=6*p.scale;
+          const fg=cCx.createRadialGradient(p.sx,p.sy,0,p.sx,p.sy,flashR);
+          fg.addColorStop(0,`rgba(255,250,200,${flashI*0.4})`);
+          fg.addColorStop(1,`rgba(${GOLD.r},${GOLD.g},${GOLD.b},0)`);
+          cCx.beginPath();cCx.arc(p.sx,p.sy,flashR,0,Math.PI*2);
+          cCx.fillStyle=fg;cCx.fill();
+        }
+      }
+
+      // Subtle persistent gold dot on trail nodes (always visible)
+      const age=i/Math.max(1,_synapticTrail.length-1);
+      const dotR=(3+age*2)*p.scale;
+      if(dotR>0.5){
+        cCx.beginPath();cCx.arc(p.sx,p.sy,dotR,0,Math.PI*2);
+        cCx.strokeStyle=`rgba(${GOLD.r},${GOLD.g},${GOLD.b},${0.1+age*0.15})`;
+        cCx.lineWidth=1;cCx.stroke();
+      }
+    });
+
+    cCx.restore(); // back to normal compositing
+  }
+
   cCanvas._proj=proj;
 }
 
@@ -2628,6 +3265,7 @@ function cHitTest(mx,my){
 
 // Corpus canvas interaction — orbit + zoom + hover + click
 cCanvas.addEventListener('mousedown',e=>{
+  _corpusDragging=true;
   if(e.button===0)cDrag={x:e.clientX,y:e.clientY,th:cCam.theta,ph:cCam.phi,btn:0};
   if(e.button===1){e.preventDefault();cDrag={x:e.clientX,y:e.clientY,px:cCam.panX,py:cCam.panY,btn:1}}
 });
@@ -2662,7 +3300,7 @@ cCanvas.addEventListener('mouseup',e=>{
       showInspect(wrapped);
     }else{closeInspect()}
   }
-  cDrag=null;
+  cDrag=null;_corpusDragging=false;
 });
 cCanvas.addEventListener('wheel',e=>{e.preventDefault();
   const old=cCam.dist;cCam.dist=Math.max(15,Math.min(1200,cCam.dist+e.deltaY*.8));
@@ -2672,6 +3310,65 @@ cCanvas.addEventListener('wheel',e=>{e.preventDefault();
   const r=cCam.dist/old;cCam.panX+=mx*(1-r);cCam.panY+=my*(1-r);
 },{passive:false});
 cCanvas.addEventListener('contextmenu',e=>e.preventDefault());
+
+function hitTestCorpus(e){
+  const rect=cCanvas.getBoundingClientRect();
+  return cHitTest(e.clientX-rect.left, e.clientY-rect.top);
+}
+
+// Double-click on corpus canvas: if on a Neighborhood slab, drill into that collection.
+// If on empty space or already filtered, zoom back to All Collections.
+let _lastCorpusRightClick=0;
+cCanvas.addEventListener('mousedown',function _corpusDblRight(e){
+  if(e.button!==2)return; // right button only
+  const now=Date.now();
+  if(now-_lastCorpusRightClick<400){
+    // Double right-click detected
+    e.preventDefault();
+    const hit=hitTestCorpus(e);
+    // Check if hit is a promoted neighborhood slab (ID pattern: SLAB_{COLLECTION}_v*)
+    const isNeighborhood=hit && hit.id && hit.id.startsWith('SLAB_') && hit.struct==='slab';
+    if(isNeighborhood){
+      // Extract collection name from slab ID: SLAB_VIN_DISEL_SKIT_v1 → vin_disel_skit
+      const cid=hit.id.replace(/^SLAB_/,'').replace(/_v\d+$/,'').toLowerCase();
+      _corpusFilterCollection=cid;
+      const sel=document.getElementById('corpus-collection-filter');
+      if(sel)sel.value=cid;
+      corpusLoaded=false;
+      loadCorpusGraph();
+      pushEvent('system',`Corpus view: drilled into '${cid}'`);
+    }else{
+      // Zoom back to all
+      if(_corpusFilterCollection!=='__all__'){
+        _corpusFilterCollection='__all__';
+        const sel=document.getElementById('corpus-collection-filter');
+        if(sel)sel.value='__all__';
+        corpusLoaded=false;
+        loadCorpusGraph();
+        pushEvent('system','Corpus view: back to All Collections');
+      }
+    }
+    _lastCorpusRightClick=0;
+  }else{
+    _lastCorpusRightClick=now;
+  }
+});
+
+// Single click on corpus node: if it's a promoted neighborhood slab, drill into it
+cCanvas.addEventListener('dblclick',function(e){
+  const hit=hitTestCorpus(e);
+  if(!hit)return;
+  const isNeighborhood=hit.id && hit.id.startsWith('SLAB_') && hit.struct==='slab';
+  if(isNeighborhood){
+    const cid=hit.id.replace(/^SLAB_/,'').replace(/_v\d+$/,'').toLowerCase();
+    _corpusFilterCollection=cid;
+    const sel=document.getElementById('corpus-collection-filter');
+    if(sel)sel.value=cid;
+    corpusLoaded=false;
+    loadCorpusGraph();
+    pushEvent('system',`Corpus view: drilled into '${cid}'`);
+  }
+});
 
 // ═══════════════════════════════════════════════════════════════
 //  CONTEXT BUDGET GAUGE
@@ -3006,11 +3703,77 @@ window.addEventListener('resize',()=>{resize();resizeCorpusCanvas()});
 let tick=0;
 let corpusAnimId=null;
 function loop(){
+  // Orbital drift on session graph too — pause while dragging
+  if(!drag){
+    cam.theta+=0.0006;
+    cam.phi+=Math.sin(Date.now()*0.00025)*0.00006;
+  }
   physics();if(tick++%2===0)draw();
   requestAnimationFrame(loop);
 }
+let _corpusDragging=false;
+let _corpusOrbitSpeed=0.0008; // radians per frame — very gentle
+
+// ── Neural cloud particle system ──
+// Ambient motes drifting through the brain volume — gives depth and life
+const _neuralParticles=[];
+const _NEURAL_PARTICLE_COUNT=80;
+function _initNeuralParticles(){
+  _neuralParticles.length=0;
+  for(let i=0;i<_NEURAL_PARTICLE_COUNT;i++){
+    _neuralParticles.push({
+      x:(Math.random()-.5)*800,y:(Math.random()-.5)*500,z:(Math.random()-.5)*400,
+      vx:(Math.random()-.5)*0.15,vy:(Math.random()-.5)*0.12,vz:(Math.random()-.5)*0.1,
+      size:0.6+Math.random()*1.8, alpha:0.05+Math.random()*0.12,
+      hue:Math.random() // 0-1, maps to cool blue-violet range
+    });
+  }
+}
+_initNeuralParticles();
+
+function _drawNeuralParticles(ctx,W,H){
+  _neuralParticles.forEach(pt=>{
+    // drift
+    pt.x+=pt.vx; pt.y+=pt.vy; pt.z+=pt.vz;
+    // wrap around
+    if(pt.x>400)pt.x=-400; if(pt.x<-400)pt.x=400;
+    if(pt.y>250)pt.y=-250; if(pt.y<-250)pt.y=250;
+    if(pt.z>200)pt.z=-200; if(pt.z<-200)pt.z=200;
+    const p=cProject(pt.x,pt.y,pt.z);
+    if(p.sx<0||p.sx>W||p.sy<0||p.sy>H)return;
+    const r=pt.size*p.scale;
+    // Cool blue-violet palette for brain matter
+    const hR=Math.round(40+pt.hue*30), hG=Math.round(50+pt.hue*40), hB=Math.round(120+pt.hue*80);
+    const a=pt.alpha*Math.max(0.3,p.scale);
+    ctx.beginPath();ctx.arc(p.sx,p.sy,r,0,Math.PI*2);
+    ctx.fillStyle=`rgba(${hR},${hG},${hB},${a})`;ctx.fill();
+  });
+}
+
+// ── Synaptic trail — draw conversation path through the brain ──
+let _synapticTrail=[]; // [{id, turn}] ordered sequence of activations
+function _updateSynapticTrail(){
+  // Build from corpus_hit_log if available, or from hit timestamps
+  const trail=[];
+  cNodes.forEach(n=>{
+    if((n.hitCount||0)>0 && (n.lastHitTurn||0)>0){
+      trail.push({id:n.id, turn:n.lastHitTurn, hits:n.hitCount});
+    }
+  });
+  trail.sort((a,b)=>a.turn-b.turn);
+  _synapticTrail=trail;
+}
+
 function corpusLoop(){
   if(corpusTab!=='corpus'){corpusAnimId=null;return}
+
+  // Orbital drift — slow auto-rotation when not dragging
+  if(!_corpusDragging && !cDrag){
+    cCam.theta+=_corpusOrbitSpeed;
+    // Gentle vertical oscillation for organic feel
+    cCam.phi+=Math.sin(Date.now()*0.0003)*0.00008;
+  }
+
   cPhysics();cDraw();
   corpusAnimId=requestAnimationFrame(corpusLoop);
 }

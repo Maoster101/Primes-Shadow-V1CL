@@ -308,6 +308,8 @@ class OperatorState(BaseModel):
 
 
 class RuntimeHeader(BaseModel):
+    active_model: str = ""               # Ollama model tag (e.g. "gemma3:12b", "gpt-oss:20b")
+    active_model_family: str = ""        # Model family (e.g. "gemma3", "gptoss")
     oli_mode: OLIMode = OLIMode.OFF
     oli_version: str = "v2.1"
     layer_control: dict = Field(default_factory=lambda: {

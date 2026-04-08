@@ -137,6 +137,8 @@ def _format_runtime_header(header: RuntimeHeader) -> str:
     """Format §26.3 runtime control header as structured text for the model."""
     lines = [
         "[RUNTIME HEADER]",
+        f"active_model: {header.active_model}",
+        f"active_model_family: {header.active_model_family}",
         f"oli_mode: {header.oli_mode.value}",
         f"oli_version: {header.oli_version}",
         (f"layer_control: max_layer={header.layer_control['max_layer']}, "

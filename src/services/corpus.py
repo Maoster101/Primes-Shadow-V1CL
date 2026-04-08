@@ -1,7 +1,12 @@
-"""Corpus persistence service.
+"""Corpus persistence service — multi-collection aware.
 
 Owns all reads and writes to the authoritative corpus store.
 Implements the 6 validator checks from §24.1. Fail-closed.
+
+Collections live under app/corpora/{name}/objects/.
+The legacy app/corpus/ path is treated as the "default" collection.
+A CorpusRegistry manages multiple CorpusStore instances and provides
+a merged view for the active set.
 """
 from __future__ import annotations
 import re
@@ -12,8 +17,8 @@ import yaml
 from ..models.schemas import Anchor, Slab, KeyBundle, Edge, Gate
 from ..models.enums import OLIMode, SlabType, SlabLifecycleStatus
 
-CORPUS_ROOT = Path("app/corpus")
-OBJECTS = CORPUS_ROOT / "objects"
+CORPUS_ROOT = Path("app/corpus")         # Legacy single-corpus path
+CORPORA_ROOT = Path("app/corpora")       # Multi-collection root
 
 
 def _load_yaml(path: Path) -> list[dict]:
@@ -31,9 +36,13 @@ def _save_yaml(path: Path, data: list[dict]) -> None:
 
 
 class CorpusStore:
-    """In-memory corpus backed by YAML files. Validates on load and before commit."""
+    """In-memory corpus backed by YAML files. Validates on load and before commit.
 
-    def __init__(self, root: Optional[Path] = None):
+    Each instance represents ONE collection (identified by collection_id).
+    """
+
+    def __init__(self, root: Optional[Path] = None, collection_id: str = "default"):
+        self.collection_id = collection_id
         self.root = root or CORPUS_ROOT
         self.objects = self.root / "objects"
         self.anchors: dict[str, Anchor] = {}
@@ -55,7 +64,6 @@ class CorpusStore:
         self.bundles = {b["id"]: KeyBundle(**b) for b in raw_bundles}
         self.edges = {}
         for e in raw_edges:
-            # Handle the 'from'/'to' alias
             edge = Edge.model_validate(e)
             self.edges[edge.id] = edge
         self.gates = {g["id"]: Gate(**g) for g in raw_gates}
@@ -118,7 +126,7 @@ class CorpusStore:
                 if target not in all_ids:
                     errors.append(f"Bundle {bundle.id} supports missing target: {target}")
 
-        # Check 4: Version suffix match — id ends _vN, meta.version = vN
+        # Check 4: Version suffix match
         for obj_id, obj in [
             *self.anchors.items(), *self.slabs.items(),
             *self.bundles.items(), *self.gates.items(),
@@ -154,36 +162,17 @@ class CorpusStore:
     # ── Phase 5: Base set query ──────────────────────────────────
 
     def base_set_slabs(self, oli_mode: OLIMode = OLIMode.OFF) -> list[Slab]:
-        """Return slabs that belong in the session base set for the given OLI mode.
-
-        Selection rules:
-          1. Only ACTIVE slabs (DORMANT/DEPRECATED excluded)
-          2. CONSTITUTIONAL slabs are always in the base set (they define layer rules)
-          3. CANONICAL slabs are always in the base set (domain context)
-          4. INVARIANT slabs are NOT in the base set — they activate on trigger only
-          5. REFERENCE slabs are NOT in the base set — loaded on demand
-          6. requires_oli_mode gating:
-             - None  → always included
-             - ON    → included only when oli_mode == ON
-             - OFF   → included only when oli_mode == OFF
-
-        Results are dependency-sorted: if slab A depends on slab B, B comes first.
-        """
+        """Return slabs that belong in the session base set for the given OLI mode."""
         candidates = []
         for slab in self.slabs.values():
-            # Filter 1: lifecycle
             if slab.lifecycle_status != SlabLifecycleStatus.ACTIVE:
                 continue
-            # Filter 2: type — only CONSTITUTIONAL and CANONICAL in base set
             if slab.type not in (SlabType.CONSTITUTIONAL, SlabType.CANONICAL):
                 continue
-            # Filter 3: OLI mode gating
             if slab.requires_oli_mode is not None:
                 if OLIMode(slab.requires_oli_mode) != oli_mode:
                     continue
             candidates.append(slab)
-
-        # Dependency sort (topological): slabs with deps come after their deps
         return self._topo_sort_slabs(candidates)
 
     def invariant_slabs(self) -> list[Slab]:
@@ -229,3 +218,177 @@ class CorpusStore:
             if node_id in getattr(obj, "supports", []):
                 dependents.append(obj_id)
         return dependents
+
+
+# ── Multi-Collection Registry ────────────────────────────────
+
+class CorpusRegistry:
+    """Manages multiple corpus collections and provides a merged view.
+
+    The registry loads collections from app/corpora/{name}/ directories.
+    It also supports the legacy app/corpus/ path as the "default" collection.
+
+    Active collections can be toggled per-chat. The merged view combines
+    all active collections into a single virtual corpus for matching and
+    pipeline use.
+    """
+
+    def __init__(self):
+        self.collections: dict[str, CorpusStore] = {}
+        self.active_ids: set[str] = set()
+        self._merged: Optional[CorpusStore] = None
+        self._merged_dirty = True
+
+    def discover(self) -> list[str]:
+        """Discover available collections from disk.
+
+        Scans app/corpora/ for subdirectories with objects/ folders.
+        Also checks legacy app/corpus/ path.
+        """
+        found = []
+
+        # Legacy path → "default"
+        if CORPUS_ROOT.exists() and (CORPUS_ROOT / "objects").exists():
+            found.append("default")
+
+        # Multi-collection path
+        if CORPORA_ROOT.exists():
+            for child in sorted(CORPORA_ROOT.iterdir()):
+                if child.is_dir() and (child / "objects").exists():
+                    name = child.name
+                    if name not in found:
+                        found.append(name)
+
+        return found
+
+    def load_collection(self, collection_id: str) -> list[str]:
+        """Load a single collection. Returns validation errors."""
+        # Resolve path: prefer corpora/{id}/, fall back to legacy corpus/
+        corpora_path = CORPORA_ROOT / collection_id
+        if corpora_path.exists() and (corpora_path / "objects").exists():
+            root = corpora_path
+        elif collection_id == "default" and CORPUS_ROOT.exists():
+            root = CORPUS_ROOT
+        else:
+            return [f"Collection '{collection_id}' not found"]
+
+        store = CorpusStore(root=root, collection_id=collection_id)
+        errors = store.load()
+        self.collections[collection_id] = store
+        self._merged_dirty = True
+        return errors
+
+    def load_all(self) -> dict[str, list[str]]:
+        """Discover and load all collections. Returns {id: errors} map."""
+        results = {}
+        for cid in self.discover():
+            results[cid] = self.load_collection(cid)
+        # Activate all by default
+        self.active_ids = set(self.collections.keys())
+        return results
+
+    def activate(self, collection_id: str) -> bool:
+        """Add a collection to the active set."""
+        if collection_id not in self.collections:
+            return False
+        self.active_ids.add(collection_id)
+        self._merged_dirty = True
+        return True
+
+    def deactivate(self, collection_id: str) -> bool:
+        """Remove a collection from the active set."""
+        self.active_ids.discard(collection_id)
+        self._merged_dirty = True
+        return True
+
+    def create_collection(self, collection_id: str) -> CorpusStore:
+        """Create a new empty collection on disk."""
+        root = CORPORA_ROOT / collection_id
+        objects = root / "objects"
+        objects.mkdir(parents=True, exist_ok=True)
+
+        # Seed empty YAML files so load() doesn't fail
+        for fname in ["anchors.yaml", "slabs.yaml", "key_bundles.yaml", "edges.yaml", "gates.yaml"]:
+            fpath = objects / fname
+            if not fpath.exists():
+                _save_yaml(fpath, [])
+
+        # Also create state dir
+        (root / "state").mkdir(parents=True, exist_ok=True)
+
+        store = CorpusStore(root=root, collection_id=collection_id)
+        store.load()
+        self.collections[collection_id] = store
+        self.active_ids.add(collection_id)
+        self._merged_dirty = True
+        return store
+
+    def delete_collection(self, collection_id: str) -> bool:
+        """Remove a collection from the registry (does NOT delete files)."""
+        if collection_id == "default":
+            return False  # Can't delete default
+        self.collections.pop(collection_id, None)
+        self.active_ids.discard(collection_id)
+        self._merged_dirty = True
+        return True
+
+    @property
+    def merged(self) -> CorpusStore:
+        """Return a merged view of all active collections.
+
+        The merged store combines anchors/slabs/bundles/edges/gates from
+        all active collections. If IDs collide, the first-loaded collection
+        wins (default takes priority).
+
+        This is the view that pipeline, matcher, and context packer use.
+        """
+        if not self._merged_dirty and self._merged is not None:
+            return self._merged
+
+        merged = CorpusStore(collection_id="__merged__")
+        # Don't set a real root — this is a virtual store
+
+        for cid in sorted(self.active_ids):
+            store = self.collections.get(cid)
+            if not store:
+                continue
+            # Merge, first-write-wins (no overwrite on collision)
+            for aid, a in store.anchors.items():
+                if aid not in merged.anchors:
+                    merged.anchors[aid] = a
+            for sid, s in store.slabs.items():
+                if sid not in merged.slabs:
+                    merged.slabs[sid] = s
+            for bid, b in store.bundles.items():
+                if bid not in merged.bundles:
+                    merged.bundles[bid] = b
+            for eid, e in store.edges.items():
+                if eid not in merged.edges:
+                    merged.edges[eid] = e
+            for gid, g in store.gates.items():
+                if gid not in merged.gates:
+                    merged.gates[gid] = g
+
+        self._merged = merged
+        self._merged_dirty = False
+        return merged
+
+    def get_store(self, collection_id: str) -> Optional[CorpusStore]:
+        """Get a specific collection's store."""
+        return self.collections.get(collection_id)
+
+    def list_collections(self) -> list[dict]:
+        """List all collections with metadata."""
+        result = []
+        for cid, store in sorted(self.collections.items()):
+            result.append({
+                "id": cid,
+                "active": cid in self.active_ids,
+                "anchors": len(store.anchors),
+                "slabs": len(store.slabs),
+                "bundles": len(store.bundles),
+                "edges": len(store.edges),
+                "gates": len(store.gates),
+                "path": str(store.root),
+            })
+        return result

@@ -228,7 +228,12 @@ def normalize_markdown(raw: str) -> list[Exchange]:
 
 
 def normalize_plaintext(raw: str) -> list[Exchange]:
-    """Best-effort parse of unstructured text. Treat as single user message."""
+    """Best-effort parse of unstructured text.
+
+    For role-labeled text (User:/Assistant:), splits on labels.
+    For narrative dumps without labels, splits into paragraph-sized
+    chunks so the miner gets multiple exchange pairs to work with.
+    """
     # Try to split on "User:" / "Assistant:" style patterns
     pattern = r"\n(User|Human|Me|Assistant|AI|Claude|Bot)\s*:\s*"
     parts = re.split(pattern, raw, flags=re.IGNORECASE)
@@ -248,8 +253,52 @@ def normalize_plaintext(raw: str) -> list[Exchange]:
         if exchanges:
             return exchanges
 
-    # Fallback: entire text as a single user message
-    return [Exchange(role="user", content=raw.strip(), index=0)]
+    # No role markers — split into semantic segments for better mining.
+    # Split on sentence-ending punctuation, paragraph breaks, or
+    # transition markers (then, next, finally, etc.)
+    text = raw.strip()
+    if len(text) < 200:
+        return [Exchange(role="user", content=text, index=0)]
+
+    # Split on paragraph breaks first
+    paragraphs = re.split(r"\n\s*\n", text)
+    # If no paragraph breaks, split on sentence-ish boundaries
+    if len(paragraphs) <= 1:
+        # Split on period/comma/semicolon followed by transition words,
+        # or on "then", "next", "finally", "->", arrows
+        segments = re.split(
+            r"(?<=[.!?,;])\s+(?=(?:then|next|finally|and then|also|so|but|now)\b)"
+            r"|(?:->|→|>>)"
+            r"|(?:,\s*then\s)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        paragraphs = [s.strip() for s in segments if s and s.strip()]
+
+    # Merge very short segments with their neighbors
+    merged = []
+    buf = ""
+    for p in paragraphs:
+        if buf:
+            buf += " " + p
+        else:
+            buf = p
+        if len(buf) >= 100:
+            merged.append(buf)
+            buf = ""
+    if buf:
+        if merged:
+            merged[-1] += " " + buf
+        else:
+            merged.append(buf)
+
+    # Create exchanges — all user role (it's their narrative)
+    exchanges = []
+    for idx, segment in enumerate(merged):
+        if segment.strip():
+            exchanges.append(Exchange(role="user", content=segment.strip(), index=idx))
+
+    return exchanges if exchanges else [Exchange(role="user", content=text, index=0)]
 
 
 def normalize_claude_code_jsonl(raw: str) -> list[Exchange]:
@@ -336,7 +385,12 @@ def normalize(raw: str) -> tuple[str, list[Exchange]]:
 # ── Exchange pairing ───────────────────────────────────────────
 
 def pair_exchanges(exchanges: list[Exchange]) -> list[ExchangePair]:
-    """Group exchanges into user-assistant pairs."""
+    """Group exchanges into user-assistant pairs.
+
+    For pure-user streams (narrative dumps), each user message becomes
+    its own pair without an assistant response — this keeps chunking
+    granular and avoids wasting context on synthetic "(context)" fillers.
+    """
     pairs = []
     pair_idx = 0
     i = 0
@@ -353,7 +407,7 @@ def pair_exchanges(exchanges: list[Exchange]) -> list[ExchangePair]:
             pairs.append(pair)
             pair_idx += 1
         else:
-            # Orphaned assistant message — create a synthetic pair
+            # Orphaned assistant message — still useful content, pair it
             pairs.append(ExchangePair(
                 user=Exchange(role="user", content="(context)", index=ex.index),
                 assistant=ex,
@@ -407,6 +461,32 @@ TOPIC_KEYWORDS: dict[str, list[str]] = {
         "problem", "issue", "bug", "error", "broken", "fix",
         "wrong", "fail", "struggle", "challenge", "difficult",
         "stuck", "blocker",
+    ],
+    "worldbuilding": [
+        "world", "universe", "lore", "canon", "fiction", "narrative",
+        "story", "myth", "legend", "saga", "arc", "chapter",
+        "civilization", "colony", "coloniz", "expansion", "empire",
+        "alien", "species", "race", "faction", "culture",
+    ],
+    "science_fiction": [
+        "fusion", "plasma", "quantum", "energy", "reactor", "nozzle",
+        "ion", "accelerat", "neutron", "photon", "particle",
+        "warp", "drive", "propulsion", "thrust", "engine",
+        "nano", "goo", "grey goo", "xenon", "xenonite",
+        "void", "space", "orbit", "star", "solar",
+    ],
+    "metaphor": [
+        "analogy", "metaphor", "like", "represent", "symbol",
+        "embod", "manifest", "allegory", "parallel", "mirror",
+        "lifeblood", "circulat", "oasis", "scaffold", "bridge",
+        "echo", "shadow", "ghost", "spirit", "soul",
+    ],
+    "narrative_structure": [
+        "scene", "act", "moment", "pause", "reveal", "twist",
+        "climax", "finale", "opening", "closing", "sequence",
+        "montage", "slideshow", "visual", "camera", "fade",
+        "catchphrase", "line", "quote", "meme", "callback",
+        "vin diesel", "family", "burnham", "divine",
     ],
 }
 
@@ -487,13 +567,16 @@ class MiningProposal:
 
 EXTRACTION_PROMPT = """You are a corpus extraction specialist for Prime's Shadow, a neuro-symbolic personal knowledge system.
 
-Given a conversation segment about "{topic}", extract meaningful corpus objects:
+Given a conversation segment about "{topic}", extract meaningful corpus objects. Be THOROUGH — extract EVERY distinct concept, technology, metaphor, narrative beat, and named entity.
 
-1. **Anchors** — Short canonical phrases (2-8 words) that represent durable, reusable concepts the user cares about. These are the "hooks" that the system matches against in future conversations. Include 1-3 aliases (alternative phrasings).
+1. **Anchors** — Short canonical phrases (2-8 words) representing concepts, technologies, metaphors, named entities, narrative elements, or cultural references the user invokes. These are "hooks" the system matches in future conversations. Include 1-3 aliases.
+   Examples: "grey goo fakeout", "quantum water encoding", "exploding wire plasma", "Vin Diesel family meme", "divine disaster class"
 
-2. **Slabs** — Longer canonical texts (2-10 sentences) that capture a regulation, principle, or domain context the user has articulated. These are the "rules" that shape model behavior.
+2. **Slabs** — Longer canonical texts (2-10 sentences) capturing a process, principle, worldbuilding rule, or narrative arc the user has articulated.
+   Examples: A full energy progression chain, a design philosophy, a fictional technology specification.
 
-3. **Bundles** — Groups of related concepts that co-activate (e.g., "identity + regulation" often appear together). Only propose if the segment shows clear conceptual clustering.
+3. **Bundles** — Groups of 3+ related concepts that form a conceptual cluster.
+   Examples: "Fusion Energy Chain" grouping [exploding wire, plasma ion cloud, fusion reactor, quantum water].
 
 Return ONLY valid JSON:
 {{
@@ -508,14 +591,14 @@ Return ONLY valid JSON:
     {{
       "type": "slab",
       "title": "brief title",
-      "canonical_text": "the full text of the regulation/principle",
+      "canonical_text": "the full text of the process/principle/arc",
       "justification": "why this matters",
       "confidence": 0.0-1.0
     }},
     {{
       "type": "bundle",
       "label": "bundle label",
-      "members": ["phrase1", "phrase2"],
+      "members": ["phrase1", "phrase2", "phrase3"],
       "justification": "why these co-activate",
       "confidence": 0.0-1.0
     }}
@@ -523,12 +606,14 @@ Return ONLY valid JSON:
 }}
 
 Rules:
-- Only extract things the USER stated or clearly endorses (not things the assistant suggested)
-- Confidence 0.8+ = user explicitly stated this as a principle/belief
-- Confidence 0.5-0.8 = user implied this through behavior or repeated patterns
-- Confidence <0.5 = tentative, needs confirmation
-- Skip generic/obvious statements that don't reflect personal knowledge
-- Maximum 5 proposals per segment
+- Extract EVERY distinct concept — err on the side of MORE proposals, not fewer
+- Named technologies, fictional substances, metaphors, and meme references are ALL valid anchors
+- Multi-step processes (A->B->C->D) should produce BOTH individual anchors AND a slab for the chain
+- Cultural references (movie quotes, memes, named characters) are valid anchors
+- Confidence 0.8+ = user explicitly named or defined this concept
+- Confidence 0.5-0.8 = user implied this through context
+- Confidence <0.5 = tentative extraction
+- Maximum 15 proposals per segment
 
 Conversation segment:
 {text}
@@ -632,6 +717,95 @@ def deduplicate_proposals(proposals: list[MiningProposal]) -> list[MiningProposa
     return list(seen.values())
 
 
+# ── Edge extraction ───────────────────────────────────────────
+
+@dataclass
+class EdgeProposal:
+    """A proposed edge between two corpus objects."""
+    edge_type: str        # INVOKES, REGULATES, TENSIONS, SUPPORTS, SEQUENCE
+    from_label: str       # canonical_phrase / title / label of source
+    to_label: str         # canonical_phrase / title / label of target
+    confidence: float = 0.0
+    justification: str = ""
+
+
+EDGE_EXTRACTION_PROMPT = """Given these corpus proposals extracted from a conversation, identify the relationships (edges) between them.
+
+Edge types:
+- **INVOKES** — An anchor invokes/activates a bundle (e.g., saying "grey goo" invokes the "Fusion Energy Chain" bundle)
+- **SEQUENCE** — One concept leads to another in a process chain (e.g., "exploding wire" → "plasma ion cloud" → "fusion")
+- **REGULATES** — A slab/principle governs how an anchor behaves (e.g., "OLI for all" regulates "quantum encoding")
+- **TENSIONS** — Two concepts are in productive tension (e.g., "grey goo fakeout" tensions with "family collab")
+- **SUPPORTS** — One concept reinforces another (e.g., "growing power step" supports "Fusion Power Generation Chain")
+
+Proposals:
+{proposals_text}
+
+Return ONLY valid JSON:
+{{
+  "edges": [
+    {{
+      "type": "SEQUENCE",
+      "from": "exact label of source proposal",
+      "to": "exact label of target proposal",
+      "justification": "why this relationship exists",
+      "confidence": 0.0-1.0
+    }}
+  ]
+}}
+
+Rules:
+- Use EXACT labels from the proposals above (canonical_phrase for anchors, title for slabs, label for bundles)
+- SEQUENCE edges should follow the user's stated progression order
+- Every bundle should have at least one INVOKES edge from a related anchor
+- Maximum 20 edges
+"""
+
+
+async def extract_edges(proposals: list[MiningProposal]) -> list[EdgeProposal]:
+    """Use the LLM to identify relationships between extracted proposals."""
+    if len(proposals) < 2:
+        return []
+
+    # Build a readable list of proposals for the prompt
+    lines = []
+    for p in proposals:
+        if p.proposal_type == "anchor":
+            lines.append(f"  - [anchor] \"{p.canonical_phrase}\"")
+        elif p.proposal_type == "slab":
+            lines.append(f"  - [slab] \"{p.title}\"")
+        elif p.proposal_type == "bundle":
+            members = ", ".join(p.aliases[:5]) if p.aliases else "..."
+            lines.append(f"  - [bundle] \"{p.label}\" (members: {members})")
+
+    prompt = EDGE_EXTRACTION_PROMPT.format(proposals_text="\n".join(lines))
+
+    try:
+        result = await ollama.structured_extract(prompt)
+    except Exception as e:
+        logger.warning("Edge extraction failed: %s", e)
+        return []
+
+    edges = []
+    raw_edges = result.get("edges", [])
+    if not isinstance(raw_edges, list):
+        return []
+
+    for raw in raw_edges:
+        etype = raw.get("type", "SUPPORTS").upper()
+        if etype not in ("INVOKES", "SEQUENCE", "REGULATES", "TENSIONS", "SUPPORTS"):
+            etype = "SUPPORTS"
+        edges.append(EdgeProposal(
+            edge_type=etype,
+            from_label=raw.get("from", ""),
+            to_label=raw.get("to", ""),
+            confidence=float(raw.get("confidence", 0.5)),
+            justification=raw.get("justification", ""),
+        ))
+
+    return edges
+
+
 # ── Main miner class ──────────────────────────────────────────
 
 class ConversationMiner:
@@ -671,8 +845,14 @@ class ConversationMiner:
         # Step 2: Pair exchanges
         pairs = pair_exchanges(exchanges)
 
+        # For plaintext/narrative dumps, use smaller chunks so each
+        # extraction call focuses on a tighter semantic window
+        effective_chunk = chunk_size
+        if fmt == "plaintext" and len(pairs) > 2:
+            effective_chunk = min(chunk_size, 2)
+
         # Step 3: Chunk and score
-        chunks = chunk_pairs(pairs, chunk_size=chunk_size)
+        chunks = chunk_pairs(pairs, chunk_size=effective_chunk)
 
         # Filter to chunks with meaningful topic scores
         # (at least one topic scores above threshold)
@@ -702,7 +882,16 @@ class ConversationMiner:
         # Sort by confidence descending
         all_proposals.sort(key=lambda p: p.confidence, reverse=True)
 
-        # Step 6: Build topic summary
+        # Step 6: Extract edges between proposals
+        edge_proposals = []
+        if len(all_proposals) >= 2:
+            try:
+                edge_proposals = await extract_edges(all_proposals)
+                edge_proposals = [e for e in edge_proposals if e.confidence >= min_confidence]
+            except Exception as e:
+                logger.warning("Edge extraction failed: %s", e)
+
+        # Step 7: Build topic summary
         topic_counts: dict[str, int] = {}
         for chunk in chunks:
             topic_counts[chunk.top_topic] = topic_counts.get(chunk.top_topic, 0) + 1
@@ -728,7 +917,18 @@ class ConversationMiner:
                 }
                 for p in all_proposals
             ],
+            "edges": [
+                {
+                    "type": e.edge_type,
+                    "from": e.from_label,
+                    "to": e.to_label,
+                    "confidence": round(e.confidence, 2),
+                    "justification": e.justification,
+                }
+                for e in edge_proposals
+            ],
             "proposal_count": len(all_proposals),
+            "edge_count": len(edge_proposals),
             "source_label": source_label,
         }
 
