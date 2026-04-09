@@ -171,25 +171,11 @@ LAYER_CHECKS = [
             "going back to what you said",
         ],
     },
-    {
-        "layer": "OLI-4",
-        "name": "Operationalisation — user leads",
-        "overridable": True,
-        "action": (
-            "Flag outputs that initiate operationalisation without "
-            "explicit user request. Surface, do not block."
-        ),
-        "patterns": [
-            "here's what you should do",
-            "I recommend that you",
-            "your next step should be",
-            "the best course of action",
-            "you need to",
-            "let me outline a plan for you",
-            "here's a step-by-step",
-            "I suggest you start by",
-        ],
-    },
+    # NOTE: LI-4 slope detection is handled by Pass 3 below (single consolidated
+    # check with 3-step escalation per pastable spec). It is NOT in LAYER_CHECKS
+    # because it needs stateful escalation across turns, which pattern-loop can't express.
+    # LI-4 = Layer Integrity 4 (Operationalization / conversation depth).
+    # Do NOT confuse with OLI-4 (Operators & Lifecycle: * and >>).
 ]
 
 
@@ -241,21 +227,65 @@ def _count_untagged_claims(text: str) -> int:
     return untagged
 
 
-# ── L4 slope detection ───────────────────────────────────────────
-# §26.4 + §8 L4 slope: the model should not drift from descriptive
-# into prescriptive without user initiation. We detect "slope" by
-# looking for imperatives and directive framing.
+# ── LI-4 slope detection (Layer Integrity 4, NOT OLI-4) ─────────
+# §26.4 + §8 + pastable v1.3 LI4 slope: the model should not drift from
+# descriptive into prescriptive/operational without user initiation.
+#
+# Three-step escalation (pastable v1.3):
+#   hit 1  -> remove tactical mechanics          (soft flag, correction hint)
+#   hit 2  -> reframe structurally               (soft flag, stronger guidance)
+#   hit 3+ -> refuse if pressed                  (hard flag -> REGENERATE/BLOCK)
+#
+# The caller tracks `consecutive_slope_hits` across turns (in session/frame state)
+# and passes it in; the validator uses it to pick the escalation level.
 
-_L4_SLOPE_PATTERNS = [
+_LI4_SLOPE_PATTERNS = [
+    # Imperative directives (pastable list)
     r'\byou must\b',
     r'\byou should\b',
     r'\byou have to\b',
-    r"\bdon't forget to\b",
+    r"\bdon['’]t forget to\b",
     r'\bmake sure you\b',
     r'\bI urge you to\b',
     r'\bit is essential that you\b',
+    # Operational-plan framing (migrated from former LAYER_CHECKS OLI-4 entry)
+    r"\bhere['’]s what you should do\b",
+    r'\bI recommend that you\b',
+    r'\byour next step should be\b',
+    r'\bthe best course of action\b',
+    r'\byou need to\b',
+    r'\blet me outline a plan for you\b',
+    r"\bhere['’]s a step[- ]by[- ]step\b",
+    r'\bI suggest you start by\b',
+    # Tactical sequencing vocabulary
+    r'\bfirst,? do\b.*\bthen\b.*\bfinally\b',
+    r'\bstep\s*1[:.]\s',
 ]
-_L4_SLOPE_RE = re.compile('|'.join(_L4_SLOPE_PATTERNS), re.IGNORECASE)
+_LI4_SLOPE_RE = re.compile('|'.join(_LI4_SLOPE_PATTERNS), re.IGNORECASE)
+
+
+# LI-4 escalation correction guidance per step
+_LI4_CORRECTION_STEP1 = (
+    "Your response is sliding into LI-4 operationalisation without the user "
+    "having requested it. REMOVE the tactical mechanics (step lists, direct "
+    "imperatives, 'do X then Y' sequencing). Keep the analysis at LI-2/LI-3: "
+    "describe, evaluate, and bound recommendations within the user's stated frame. "
+    "Do not tell the user what to do."
+)
+_LI4_CORRECTION_STEP2 = (
+    "This is your second consecutive LI-4 slope flag. REFRAME STRUCTURALLY: "
+    "step back from the tactical plane entirely and describe the problem "
+    "structurally — what the components are, how they interact, what the "
+    "user's constraints are. Let the user pull you into operationalisation "
+    "explicitly if they want it."
+)
+_LI4_CORRECTION_STEP3 = (
+    "Third consecutive LI-4 slope. User has not authorised LI-4 access. "
+    "REFUSE to provide operational guidance. Surface the detection to the "
+    "user: explain that you are declining to operationalise because they "
+    "haven't asked for it, and offer to continue at LI-3 (bounded "
+    "recommendations within their frame) or wait for explicit LI-4 invocation."
+)
 
 
 # ── Main validation function ─────────────────────────────────────
@@ -265,17 +295,26 @@ def validate_output(
     oli_mode: OLIMode,
     user_overrides: Optional[set[str]] = None,
     is_retry: bool = False,
+    consecutive_slope_hits: int = 0,
 ) -> ValidationResult:
     """§26.4 — Post-generation validation. Code-side enforcement.
 
     Args:
         output_text: The model's full response text.
         oli_mode: Current OLI mode (ON/OFF).
-        user_overrides: Set of layer names the user has overridden (e.g. {"OLI-1"}).
+        user_overrides: Set of layer names the user has overridden
+            (e.g. {"OLI-1", "LI-4"}). LI-4 is overridable — when the user
+            explicitly authorises operationalisation, the slope check is skipped.
         is_retry: True if this is the second attempt after a REGENERATE.
+        consecutive_slope_hits: Number of prior consecutive turns where LI-4 slope
+            fired (tracked by caller in session/frame state). Drives the 3-step
+            escalation: 0-1 -> soft flag, 2 -> stronger soft flag, 3+ -> hard
+            violation. Reset to 0 by the caller when a turn passes without a hit.
 
     Returns:
         ValidationResult with status, flags, and optional correction guidance.
+        If a flag has layer == "LI-4", the caller should increment its
+        consecutive_slope_hits counter for the next turn.
     """
     result = ValidationResult()
 
@@ -332,22 +371,79 @@ def validate_output(
             f"[OLI-0.5] {untagged} substantial claims without admissibility tags"
         )
 
-    # ── Pass 3: L4 slope detection ──────────────────────────────
-    if "OLI-4" not in overrides:
-        slope_matches = _L4_SLOPE_RE.findall(output_text)
+    # ── Pass 3: LI-4 slope detection with 3-step escalation ─────
+    # LI-4 = Layer Integrity 4 (Operationalization), overridable when the user
+    # explicitly authorises operational mode. Escalates across consecutive
+    # turns per pastable v1.3 spec: remove tactics -> reframe -> refuse.
+    if "LI-4" not in overrides and "OLI-4" not in overrides:  # accept legacy override key
+        slope_matches = _LI4_SLOPE_RE.findall(output_text)
         if len(slope_matches) >= policy.oli_validation.l4_slope_min_directives:
-            flag = {
-                "layer": "OLI-4",
-                "name": "L4 slope — prescriptive drift",
-                "pattern": f"{len(slope_matches)} directive phrases",
-                "action": "Mirror drifted into prescriptive mode without user request",
-                "overridable": True,
-                "severity": min(1.0, len(slope_matches) / 5),
-            }
-            soft_violations.append(flag)
-            result.reasons.append(
-                f"[OLI-4] L4 slope: {len(slope_matches)} directive phrases detected"
-            )
+            # Escalation step: this turn's hit counts as +1 on top of prior consecutive hits.
+            step = consecutive_slope_hits + 1  # 1, 2, 3, ...
+
+            if step <= 1:
+                flag = {
+                    "layer": "LI-4",
+                    "name": "LI-4 slope — remove tactical mechanics",
+                    "pattern": f"{len(slope_matches)} directive phrases",
+                    "action": (
+                        "Mirror drifted into operationalisation without user "
+                        "request. Step 1/3: remove tactical mechanics."
+                    ),
+                    "overridable": True,
+                    "severity": min(0.5, 0.2 + len(slope_matches) / 10),
+                    "escalation_step": 1,
+                    "consecutive_hits": step,
+                }
+                soft_violations.append(flag)
+                result.reasons.append(
+                    f"[LI-4 step 1/3] slope: {len(slope_matches)} directive phrases"
+                )
+                # First-hit correction guidance (only used if something else
+                # escalates to REGENERATE — LI-4 alone stays soft at step 1).
+                if result.correction_guidance is None:
+                    result.correction_guidance = _LI4_CORRECTION_STEP1
+
+            elif step == 2:
+                flag = {
+                    "layer": "LI-4",
+                    "name": "LI-4 slope — reframe structurally",
+                    "pattern": f"{len(slope_matches)} directive phrases (2nd consecutive)",
+                    "action": (
+                        "Step 2/3: reframe structurally. Back to LI-2/LI-3."
+                    ),
+                    "overridable": True,
+                    "severity": min(0.8, 0.5 + len(slope_matches) / 10),
+                    "escalation_step": 2,
+                    "consecutive_hits": step,
+                }
+                soft_violations.append(flag)
+                result.reasons.append(
+                    f"[LI-4 step 2/3] slope (2nd consecutive): "
+                    f"{len(slope_matches)} directive phrases"
+                )
+                result.correction_guidance = _LI4_CORRECTION_STEP2
+
+            else:  # step >= 3
+                flag = {
+                    "layer": "LI-4",
+                    "name": "LI-4 slope — refuse (3rd+ consecutive)",
+                    "pattern": f"{len(slope_matches)} directive phrases ({step}th consecutive)",
+                    "action": (
+                        "Step 3/3: refuse. User has not authorised LI-4. "
+                        "Mirror should decline and offer LI-3 alternative."
+                    ),
+                    "overridable": False,  # hard violation at step 3
+                    "severity": 1.0,
+                    "escalation_step": 3,
+                    "consecutive_hits": step,
+                }
+                hard_violations.append(flag)
+                result.reasons.append(
+                    f"[LI-4 step 3/3] slope persistent ({step} consecutive turns) — "
+                    f"escalating to hard violation"
+                )
+                result.correction_guidance = _LI4_CORRECTION_STEP3
 
     # ── Decision tree ────────────────────────────────────────────
     result.flags = hard_violations + soft_violations
@@ -366,13 +462,16 @@ def validate_output(
     else:
         # Hard violation on first attempt — try regenerating
         result.status = ValidationStatus.REGENERATE
-        # Build correction guidance from the first hard-violating layer
-        for check in LAYER_CHECKS:
-            if check.get("correction") and any(
-                f["layer"] == check["layer"] for f in hard_violations
-            ):
-                result.correction_guidance = check["correction"]
-                break
+        # Preserve LI-4 escalation guidance if it was set above — otherwise
+        # build correction guidance from the first hard-violating layer in LAYER_CHECKS.
+        li4_hard_hit = any(f["layer"] == "LI-4" for f in hard_violations)
+        if not (li4_hard_hit and result.correction_guidance):
+            for check in LAYER_CHECKS:
+                if check.get("correction") and any(
+                    f["layer"] == check["layer"] for f in hard_violations
+                ):
+                    result.correction_guidance = check["correction"]
+                    break
         if not result.correction_guidance:
             result.correction_guidance = (
                 "Your previous response violated non-overridable OLI constraints. "

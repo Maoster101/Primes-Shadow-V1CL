@@ -217,4 +217,66 @@ class DriftMonitor:
                 window_size=result["window_size"],
             )
 
+        # §OLI-5 — DEGRADATION_FLAG surface.
+        # MEDIUM = user choice (RESOLVE_NOW | DEFER). Default on DEFER: narrow scope
+        #          + reduce abstraction velocity.
+        # HIGH   = forced clamp. No user choice. Apply full clamp:
+        #          narrow_scope + reduce_abstraction_velocity +
+        #          increase_uncertainty_surface + drop_nonessential_speculation.
+        # Read back via EventLog.read_recent("degradation_flags.jsonl", ...).
+        sev = result["severity"]
+        if sev == DriftSeverity.MEDIUM:
+            _event_log.log_degradation_flag(
+                session_id=session_id,
+                turn=turn,
+                level="MEDIUM",
+                reason=_summarise_drift_reason(result),
+                composite=result["composite"],
+                signals=result["signals"],
+                domain_mode=result["domain_mode"].value,
+                choice_required=True,
+                actions_available=["RESOLVE_NOW", "DEFER"],
+                default_on_defer=["narrow_scope", "reduce_abstraction_velocity"],
+                forced_clamp=False,
+                resolved=False,  # UI flips to True on user action
+            )
+        elif sev == DriftSeverity.HIGH:
+            _event_log.log_degradation_flag(
+                session_id=session_id,
+                turn=turn,
+                level="HIGH",
+                reason=_summarise_drift_reason(result),
+                composite=result["composite"],
+                signals=result["signals"],
+                domain_mode=result["domain_mode"].value,
+                choice_required=False,
+                actions_available=[],
+                forced_clamp=True,
+                clamp_actions=[
+                    "narrow_scope",
+                    "reduce_abstraction_velocity",
+                    "increase_uncertainty_surface",
+                    "drop_nonessential_speculation",
+                ],
+                resolved=True,  # forced — no user action needed
+            )
+
         return result
+
+
+def _summarise_drift_reason(result: dict) -> str:
+    """Build a terse human-readable reason string from drift signals.
+
+    Picks the dominant contributing signal(s) so the event reader can
+    see at a glance what triggered the flag without parsing the full
+    composite breakdown.
+    """
+    signals = result.get("signals", {})
+    if not signals:
+        return "drift composite threshold exceeded"
+    # Find the top 2 signals by magnitude
+    top = sorted(signals.items(), key=lambda kv: kv[1], reverse=True)[:2]
+    parts = [f"{name}={val:.2f}" for name, val in top if val > 0]
+    if not parts:
+        return "drift composite threshold exceeded"
+    return f"composite={result['composite']:.2f}; top: {', '.join(parts)}"
