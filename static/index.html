@@ -557,7 +557,7 @@ function typeCol(struct, temp) {
 }
 
 function tempRadius(temp, baseR, scale) {
-  return baseR * (0.85 + Math.max(0, Math.min(1, temp)) * 0.55) * scale * 1.4;
+  return Math.max(0.1, baseR * (0.85 + Math.max(0, Math.min(1, temp)) * 0.55) * Math.max(0, scale) * 1.4);
 }
 
 function tempAlpha(temp) {
@@ -644,6 +644,7 @@ function draw(){
   gEdges.forEach(e=>{
     const na=nMap[e.from],nb=nMap[e.to]; if(!na||!nb)return;
     const pa=project(na.x,na.y,na.z), pb=project(nb.x,nb.y,nb.z);
+    if(pa.scale<=0.01||pb.scale<=0.01)return; // behind camera
     const ca=typeCol(na.struct,na.temp), cb=typeCol(nb.struct,nb.temp);
     const aa=0.15+na.temp*.3, ab=0.15+nb.temp*.3;
     const isConflict=e.type==='CONFLICTS';
@@ -672,9 +673,10 @@ function draw(){
 
   // Nodes
   proj.forEach(({n,p})=>{
+    if(p.scale<=0.01)return; // behind camera — skip to avoid negative radii
     const st=STRUCT[n.struct]||STRUCT.concept;
     const col=typeCol(n.struct, n.rejected ? 0.08 : n.temp);
-    const r=tempRadius(n.rejected ? 0.05 : n.temp, st.baseR, p.scale);
+    const r=Math.max(0.5, tempRadius(n.rejected ? 0.05 : n.temp, st.baseR, p.scale));
     const alpha=n.rejected ? 0.15 : tempAlpha(n.temp);
 
     // Radiance glow — scales with temp, zero when cold, dramatic when hot
@@ -3138,7 +3140,7 @@ function cDraw(){
 
     for(let i=1;i<_synapticTrail.length;i++){
       const prev=pMap[_synapticTrail[i-1].id], curr=pMap[_synapticTrail[i].id];
-      if(!prev||!curr)continue;
+      if(!prev||!curr||prev.scale<=0.01||curr.scale<=0.01)continue;
       const seg=i-1;
       const age=i/_synapticTrail.length;
       const hasEdge=_cEdgeSet.has(_synapticTrail[i-1].id+'→'+_synapticTrail[i].id);
@@ -3740,7 +3742,7 @@ function _drawNeuralParticles(ctx,W,H){
     if(pt.y>250)pt.y=-250; if(pt.y<-250)pt.y=250;
     if(pt.z>200)pt.z=-200; if(pt.z<-200)pt.z=200;
     const p=cProject(pt.x,pt.y,pt.z);
-    if(p.sx<0||p.sx>W||p.sy<0||p.sy>H)return;
+    if(p.scale<=0.01||p.sx<0||p.sx>W||p.sy<0||p.sy>H)return;
     const r=pt.size*p.scale;
     // Cool blue-violet palette for brain matter
     const hR=Math.round(40+pt.hue*30), hG=Math.round(50+pt.hue*40), hB=Math.round(120+pt.hue*80);
