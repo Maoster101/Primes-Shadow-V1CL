@@ -529,19 +529,38 @@ async def send_message(chat_id: str, req: SendMessageRequest):
         ]
 
         cls = metadata.get("classification") or {}
+        new_drafts: list = []
         if cls.get("explicit"):
             print(f"[DRAFT] Explicit extraction at turn {actual_turn}", flush=True)
-            await draft_manager.extract_proposals(
+            new_drafts = await draft_manager.extract_proposals(
                 session_id, chat_id, recent, actual_turn,
                 explicit=True, user_request=req.content,
             )
         elif draft_manager.should_sweep(actual_turn):
             print(f"[DRAFT] Sweep triggered at turn {actual_turn}", flush=True)
-            await draft_manager.extract_proposals(
+            new_drafts = await draft_manager.extract_proposals(
                 session_id, chat_id, recent, actual_turn,
             )
         else:
             print(f"[DRAFT] No sweep at turn {actual_turn}", flush=True)
+
+        # Auto-trigger dreaming pass on newly mined drafts.
+        # Runs as another background task so the user sees drafts in the
+        # review panel immediately; by the time they open one, the
+        # .enriched.json is likely already written.
+        if new_drafts:
+            async def _dream_new():
+                try:
+                    from ..services.dreaming import DreamingPass
+                    dreamer = DreamingPass(corpus, session_store, chat_store)
+                    for packet in new_drafts:
+                        try:
+                            await dreamer.dream(session_id, packet.id)
+                        except Exception as e:
+                            print(f"[DREAM] Error dreaming {packet.id}: {e}", flush=True)
+                except Exception as e:
+                    print(f"[DREAM] Dreaming pass failed: {e}", flush=True)
+            asyncio.create_task(_dream_new())
 
     # Fire background draft extraction as a free-standing task
     asyncio.create_task(_post_stream_drafts())
@@ -981,6 +1000,40 @@ async def verify_draft_claims(session_id: str, draft_id: str, req: VerifyClaimsR
     if "error" in result:
         raise HTTPException(400, result["error"])
     return result
+
+
+@router.post("/sessions/{session_id}/drafts/{draft_id}/dream")
+async def dream_draft(session_id: str, draft_id: str):
+    """Run the dreaming pass (grounding audit + content rewrite) on a draft.
+
+    This is the middle layer between mining and commit. It checks whether
+    the miner's output is grounded in actual source code, and if not,
+    rewrites the content fields to match reality.
+
+    The enriched output is written as {draft_id}.enriched.json alongside
+    the original packet. It is NOT auto-promoted — the reviewer must
+    still explicitly accept it before commit.
+    """
+    from ..services.dreaming import DreamingPass
+    dreamer = DreamingPass(corpus, session_store, chat_store)
+    result = await dreamer.dream(session_id, draft_id)
+    if result.get("status") == "error":
+        raise HTTPException(400, result)
+    return result
+
+
+@router.post("/sessions/{session_id}/dream-all")
+async def dream_all(session_id: str):
+    """Run the dreaming pass on all pending drafts in a session.
+
+    Skips drafts that already have an .enriched.json file.
+    Returns a list of results, one per draft processed.
+    """
+    from ..services.dreaming import dream_all_pending
+    results = await dream_all_pending(
+        corpus, session_store, chat_store, session_id,
+    )
+    return {"session_id": session_id, "results": results}
 
 
 @router.post("/sessions/{session_id}/extract-proposals")
