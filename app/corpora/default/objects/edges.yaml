@@ -214,3 +214,19 @@
   confidence: 0.5
   tension: null
   conditions: null
+- id: edge_links_slab_a9049516_v1_anchor_73d88b7b_v1_v1
+  type: LINKS
+  from: tentative_slab_a9049516_v1
+  to: tentative_anchor_73d88b7b_v1
+  weight: 0.8
+  confidence: 0.8
+  tension: null
+  conditions: null
+- id: edge_supports_bundle_a9049516_cohe_slab_a9049516_v1_v1
+  type: SUPPORTS
+  from: bundle_a9049516_coherence_v1
+  to: tentative_slab_a9049516_v1
+  weight: 0.7
+  confidence: 0.7
+  tension: null
+  conditions: null

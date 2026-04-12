@@ -19,9 +19,9 @@ import yaml
 
 from ..models.schemas import (
     DraftPacket, DraftStack, Anchor, Slab, AnchorMeta, AnchorMatchPolicy,
-    ProvenanceRef,
+    ProvenanceRef, Edge,
 )
-from ..models.enums import DraftStatus, ClaimTag, DriftSeverity
+from ..models.enums import DraftStatus, ClaimTag, DriftSeverity, EdgeType
 from ..prompts.proposals import PROPOSAL_EXTRACTION_PROMPT, PROPOSAL_EXPLICIT_PROMPT
 from .corpus import CorpusStore
 from .session_store import SessionStore
@@ -414,9 +414,27 @@ class DraftManager:
                     if target_store is not self.corpus:
                         self.corpus.bundles[generated_bundle.id] = generated_bundle
 
+            # --- Auto-generate edges from inline structural fields ---
+            # These are placeholder-weight edges that make the dual
+            # representation (inline fields ↔ edges.yaml) consistent at
+            # commit time. Weights use tier defaults:
+            #   INVOKES  1.0  — curator-declared (anchor.invokes is hand-set)
+            #   LINKS    0.8  — packet-layer structural link
+            #   SUPPORTS 0.7  — auto-generated coherence bundle
+            # The dreaming pass can refine these later based on actual
+            # traversal patterns and co-activation frequency.
+            generated_edges: list[Edge] = []
+            generated_edges = self._generate_commit_edges(
+                obj_type, corpus_obj, generated_bundle
+            )
+            for edge in generated_edges:
+                target_store.edges[edge.id] = edge
+                if target_store is not self.corpus:
+                    self.corpus.edges[edge.id] = edge
+
             errors = target_store.validate()
             if errors:
-                # Rollback everything
+                # Rollback everything: nodes, bundle, AND edges
                 if obj_type == "anchor":
                     target_store.anchors.pop(corpus_obj.id, None)
                     self.corpus.anchors.pop(corpus_obj.id, None)
@@ -426,6 +444,9 @@ class DraftManager:
                 if generated_bundle:
                     target_store.bundles.pop(generated_bundle.id, None)
                     self.corpus.bundles.pop(generated_bundle.id, None)
+                for edge in generated_edges:
+                    target_store.edges.pop(edge.id, None)
+                    self.corpus.edges.pop(edge.id, None)
                 return {"error": "Corpus validation failed", "errors": errors}
 
             target_store.save()
@@ -435,6 +456,8 @@ class DraftManager:
             result = {"status": "COMMITTED", "draft_id": draft_id, "corpus_id": corpus_obj.id}
             if generated_bundle:
                 result["generated_bundle"] = generated_bundle.id
+            if generated_edges:
+                result["generated_edges"] = [e.id for e in generated_edges]
             if oli_warning:
                 result["warning"] = oli_warning
             return result
@@ -655,6 +678,109 @@ class DraftManager:
         )
 
         return bundle
+
+    # ------------------------------------------------------------------
+    # Edge generation at commit time
+    # ------------------------------------------------------------------
+
+    def _generate_commit_edges(
+        self,
+        obj_type: str,
+        corpus_obj,
+        generated_bundle=None,
+    ) -> list[Edge]:
+        """Derive explicit Edge objects from the inline structural fields.
+
+        The corpus has a dual representation for relationships:
+
+          1. **Inline fields** on the nodes themselves — ``anchor.invokes``,
+             ``slab.links.anchors``, ``slab.links.bundles``, ``bundle.supports``.
+             These drive the activation cascade in frame_manager (Rules 1-3).
+
+          2. **Explicit Edge records** in ``edges.yaml`` — typed objects with
+             weight/confidence/tension. These drive structural-weight scoring
+             (frame_manager Step 2), conflict detection (Step 5), and graph
+             visualization in the frontend.
+
+        Before this method existed, the commit path only wrote (1), leaving
+        (2) empty for auto-committed nodes. This function bridges the gap
+        by emitting edges for every inline structural reference.
+
+        **Weight tiers** (placeholder defaults — dreaming pass refines later):
+
+          - ``INVOKES  w=1.0`` — curator-declared intent (anchor.invokes is
+            hand-set or dreaming-grounded; highest confidence).
+          - ``LINKS    w=0.8`` — packet-layer structural link (slab↔anchor
+            wiring from the dreaming pass; high but not curator-declared).
+          - ``SUPPORTS w=0.7`` — auto-generated coherence bundle (§4.1.3
+            minimum bundle; lower confidence because the bundle content
+            is mechanically derived, not reviewed).
+
+        Dedup: if an edge between the same (from, to, type) triple already
+        exists in the corpus, the existing edge is kept and no duplicate is
+        emitted. This makes re-commit and manual curation safe.
+        """
+        edges: list[Edge] = []
+
+        # Quick lookup for existing (from, to, type) triples to avoid dupes
+        existing_triples: set[tuple[str, str, str]] = set()
+        for e in self.corpus.edges.values():
+            existing_triples.add((e.from_node, e.to_node, e.type))
+
+        def _maybe_add(
+            edge_type: EdgeType,
+            from_id: str,
+            to_id: str,
+            weight: float,
+        ) -> None:
+            """Add an edge if the (from, to, type) triple is new."""
+            triple = (from_id, to_id, edge_type)
+            if triple in existing_triples:
+                return
+            # Deterministic id: type_fromshort_toshort_v1
+            from_short = from_id.replace("tentative_", "").replace("mined_", "")[:20]
+            to_short = to_id.replace("tentative_", "").replace("mined_", "")[:20]
+            edge_id = f"edge_{edge_type.value.lower()}_{from_short}_{to_short}_v1"
+            edge = Edge(
+                id=edge_id,
+                type=edge_type,
+                from_node=from_id,
+                to_node=to_id,
+                weight=weight,
+                confidence=weight,  # mirror weight as initial confidence
+            )
+            edges.append(edge)
+            existing_triples.add(triple)  # prevent self-duplication within batch
+
+        if obj_type == "anchor":
+            # anchor.invokes → INVOKES edges (curator-declared, w=1.0)
+            for target_id in getattr(corpus_obj, "invokes", []) or []:
+                _maybe_add(EdgeType.INVOKES, corpus_obj.id, target_id, 1.0)
+
+        elif obj_type == "slab":
+            links = getattr(corpus_obj, "links", None)
+            if links:
+                # slab.links.anchors → LINKS edges (packet-layer, w=0.8)
+                for anchor_id in links.anchors or []:
+                    _maybe_add(EdgeType.LINKS, corpus_obj.id, anchor_id, 0.8)
+                # slab.links.bundles → LINKS edges (packet-layer, w=0.8)
+                for bundle_id in links.bundles or []:
+                    _maybe_add(EdgeType.LINKS, corpus_obj.id, bundle_id, 0.8)
+
+        # Auto-generated coherence bundle → SUPPORTS edges (w=0.7)
+        if generated_bundle:
+            for slab_id in generated_bundle.supports or []:
+                _maybe_add(EdgeType.SUPPORTS, generated_bundle.id, slab_id, 0.7)
+
+        if edges:
+            _event_log.log_proposal_event(
+                event="edges_generated_at_commit",
+                source_id=corpus_obj.id,
+                edge_count=len(edges),
+                edge_ids=[e.id for e in edges],
+            )
+
+        return edges
 
     async def _dedup_check(self, text: str) -> Optional[str]:
         """Check if text is too similar to an existing corpus object."""
