@@ -1,0 +1,57 @@
+- id: mined_slab_a070a978_coherence_v1
+  payload:
+    intent:
+    - Describes the sequence of events in the power generation process.
+    invariants:
+    - The process begins with exploding wire, which leads to the creation of a Plasma
+      ion cloud accelerator
+    - This accelerator initiates fusion, which is then distributed via a fusion power
+      distribution syst
+    non_assumptions: []
+    warnings: []
+    heuristics: []
+    markers: []
+    rules: []
+    activation_clause: []
+    canonical_quote_handles: []
+    closing_clause: null
+  version: v1
+  lifecycle_status: ACTIVE
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on:
+  - mined_slab_a070a978_v1
+  supports:
+  - mined_slab_a070a978_v1
+  assumptions: []
+- id: mined_slab_ee582b8f_coherence_v1
+  payload:
+    intent:
+    - Summarizes the overall structure and key elements of the sequence.
+    invariants:
+    - 'The Vin Diesel sequence unfolds in three distinct beats: ''The Step'' establishes
+      a presence through minimal description and sound; ''Recognition'' delivers a
+      line of dialogue that resonates with the audi'
+    non_assumptions: []
+    warnings: []
+    heuristics: []
+    markers: []
+    rules: []
+    activation_clause: []
+    canonical_quote_handles: []
+    closing_clause: null
+  version: v1
+  lifecycle_status: ACTIVE
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on:
+  - mined_slab_ee582b8f_v1
+  supports:
+  - mined_slab_ee582b8f_v1
+  assumptions: []

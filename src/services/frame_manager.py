@@ -139,8 +139,24 @@ class FrameManager:
                 frame.activation_sources[slab.id] = [
                     ActivationSource(source_type="invariant_rule", source_ref=trigger_reason)
                 ]
-                # Also activate linked bundles
-                for bundle_id in (slab.links.bundles if slab.links else []):
+                # Narrow the bundle cascade for back-link activations.
+                # Cross-pollution avoidance: when an INVARIANT slab activates
+                # because ONE of its linked anchors fired (Rule 2), only
+                # cascade to bundles that are ALSO in that specific anchor's
+                # invokes list. Bundles belonging to the slab's OTHER linked
+                # anchors do not ride along. Rule 1 (anchor_invokes) and Rule 3
+                # (mismatch_escalation) keep the full cascade because the
+                # curator's intent is explicit in those cases.
+                candidate_bundles = list(slab.links.bundles) if slab.links else []
+                if trigger_reason.startswith("linked_anchor_active:"):
+                    trigger_anchor_id = trigger_reason.split(":", 1)[1]
+                    trigger_anchor = self.corpus.anchors.get(trigger_anchor_id)
+                    if trigger_anchor:
+                        trigger_invokes = set(trigger_anchor.invokes)
+                        candidate_bundles = [
+                            b for b in candidate_bundles if b in trigger_invokes
+                        ]
+                for bundle_id in candidate_bundles:
                     if bundle_id in self.corpus.bundles:
                         frame.active_bundles.setdefault(bundle_id, 0.8)
                         if bundle_id not in frame.active_nodes:

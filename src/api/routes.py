@@ -1284,6 +1284,12 @@ async def corpus_full(collection: Optional[str] = None):
     slabs_out = []
     for s in source.slabs.values():
         d = s.model_dump()
+        # Subgraph condensate detection: slabs produced by slabifying a
+        # collection start their canonical_text with "Neighborhood: <id>".
+        # See the slabify promotion builder around line 1175.
+        d["is_subgraph"] = bool(
+            s.canonical_text and s.canonical_text.startswith("Neighborhood: ")
+        )
         texts_to_embed.append((s.title or s.canonical_text)[:120])
         node_types.append("slab")
         slabs_out.append(d)
@@ -1566,6 +1572,14 @@ async def get_graph_data(session_id: str):
         sal_smooth = frame.salience_smoothed.get(slab.id, 0) if frame else 0
         sw = frame.structural_weight.get(slab.id, 0) if frame else 0
 
+        # Subgraph condensate detection: slabs produced by slabifying a
+        # collection start their canonical_text with "Neighborhood: <id>".
+        # See the slabify promotion builder around line 1175.
+        is_subgraph = bool(
+            slab.canonical_text
+            and slab.canonical_text.startswith("Neighborhood: ")
+        )
+
         texts_to_embed.append(slab.canonical_text[:120])
         node_index.append(len(nodes))
         nodes.append({
@@ -1574,6 +1588,7 @@ async def get_graph_data(session_id: str):
             "status": "corpus",
             "label": slab.canonical_text[:60],
             "active": is_active,
+            "is_subgraph": is_subgraph,
             "salience_now": sal_now,
             "salience_smoothed": sal_smooth,
             "structural_weight": sw,

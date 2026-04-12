@@ -285,6 +285,7 @@
           <div class="leg-row"><svg width="14" height="14"><circle cx="7" cy="7" r="4" fill="#0AAC00"/><circle cx="7" cy="7" r="6" fill="none" stroke="#0AAC00" stroke-width=".6"/></svg> anchor</div>
           <div class="leg-row"><svg width="14" height="14"><polygon points="7,1.5 12,4 12,10 7,12.5 2,10 2,4" fill="#B4009E"/></svg> bundle</div>
           <div class="leg-row"><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="none" stroke="#0050EB" stroke-width="1.5"/><circle cx="7" cy="7" r="1.2" fill="#0050EB"/></svg> slab</div>
+          <div class="leg-row"><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="#0050EB"/></svg> slab (subgraph)</div>
           <div class="leg-row"><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="none" stroke="#ffa050" stroke-width=".8" stroke-dasharray="2.5,2.5"/></svg> concept</div>
         </div>
         <div class="leg-section">
@@ -627,6 +628,14 @@ function drawSlab(g,px,py,r,col,a){
   g.beginPath();g.arc(px,py,r*.22,0,Math.PI*2);
   g.fillStyle=`rgba(${col.r},${col.g},${col.b},${a*0.8})`;g.fill();
 }
+// Subgraph condensate: slab produced by slabifying a collection. Rendered
+// as a solid blue disc so the user can tell at a glance that this slab
+// wraps a whole subgraph of anchors/bundles inside it, not a single
+// canonical statement like a regular slab.
+function drawSubgraphSlab(g,px,py,r,col,a){
+  g.beginPath();g.arc(px,py,r,0,Math.PI*2);
+  g.fillStyle=`rgba(${col.r},${col.g},${col.b},${a})`;g.fill();
+}
 function drawConcept(g,px,py,r,col,a){
   g.beginPath();g.arc(px,py,r,0,Math.PI*2);
   g.setLineDash([4,4]);g.strokeStyle=`rgba(${col.r},${col.g},${col.b},${a*0.8})`;g.lineWidth=2;g.stroke();g.setLineDash([]);
@@ -689,8 +698,15 @@ function draw(){
       cx.beginPath();cx.arc(p.sx,p.sy,glowR,0,Math.PI*2);cx.fillStyle=g;cx.fill();
     }
 
-    // Shape — pass cx context explicitly
-    (DRAW[st.draw]||drawConcept)(cx,p.sx,p.sy,r,col,alpha);
+    // Shape — pass cx context explicitly.
+    // Slabs that are subgraph condensates (produced by slabify) render as a
+    // solid blue disc instead of a hollow ring, so the user can tell at a
+    // glance which slabs wrap a whole subgraph of anchors/bundles inside.
+    if(n.struct==='slab'&&n.isSubgraph){
+      drawSubgraphSlab(cx,p.sx,p.sy,r,col,alpha);
+    } else {
+      (DRAW[st.draw]||drawConcept)(cx,p.sx,p.sy,r,col,alpha);
+    }
 
     // Status overlay: tentative = yellow dashed ring, rejected = grey dashed ring
     if(n.status==='tentative'&&!n.rejected){
@@ -2652,11 +2668,13 @@ async function refreshGraph(){
         n.status=nd.status||'corpus';
         n.rejected=nd.rejected||false;
         n.label=nd.label;
+        n.isSubgraph=nd.is_subgraph===true;
         n._backendData=nd;
       }else{
         // New node
         const n=makeGNode(nd.id, nd.label, struct, nd.status, temp, restTemp, nd.x, nd.y, nd.z);
         n.rejected=nd.rejected||false;
+        n.isSubgraph=nd.is_subgraph===true;
         n._backendData=nd;
         gNodes.push(n);
       }
@@ -2837,6 +2855,7 @@ async function loadCorpusGraph(){
   (data.slabs||[]).forEach(s=>{
     const n={id:s.id,label:(s.title||s.canonical_text||'').slice(0,50),struct:'slab',
       lifecycle_status:s.lifecycle_status||'ACTIVE',
+      isSubgraph:s.is_subgraph===true,
       x:0,y:0,z:0,vx:0,vy:0,vz:0,depends_on:s.depends_on||[]};
     cSemPos(n,s.sem_x,s.sem_y,s.sem_z);
     cNodes.push(n);typeMap[s.id]=n;
@@ -3036,9 +3055,14 @@ function cDraw(){
       glow.addColorStop(1,`rgba(${col.r},${col.g},${col.b},0)`);
       cCx.beginPath();cCx.arc(p.sx,p.sy,glowR,0,Math.PI*2);cCx.fillStyle=glow;cCx.fill();
 
-      // Core shape — bright and solid
+      // Core shape — bright and solid. Subgraph-condensate slabs get a
+      // solid blue disc so they read as "this slab wraps a whole subgraph".
       const alpha=fireIntensity*lsMult;
-      (DRAW[st.draw]||drawConcept)(cCx,p.sx,p.sy,r,col,alpha);
+      if(n.struct==='slab'&&n.isSubgraph){
+        drawSubgraphSlab(cCx,p.sx,p.sy,r,col,alpha);
+      } else {
+        (DRAW[st.draw]||drawConcept)(cCx,p.sx,p.sy,r,col,alpha);
+      }
 
       // Single subtle pulse ring for recently active nodes
       if(recency>0.3){
@@ -3064,7 +3088,11 @@ function cDraw(){
       cCx.beginPath();cCx.arc(p.sx,p.sy,ambR,0,Math.PI*2);cCx.fillStyle=amb;cCx.fill();
 
       // Core shape — solid and visible
-      (DRAW[st.draw]||drawConcept)(cCx,p.sx,p.sy,r,col,restAlpha);
+      if(n.struct==='slab'&&n.isSubgraph){
+        drawSubgraphSlab(cCx,p.sx,p.sy,r,col,restAlpha);
+      } else {
+        (DRAW[st.draw]||drawConcept)(cCx,p.sx,p.sy,r,col,restAlpha);
+      }
 
       // Idle twinkle — random neurons briefly brighten (spontaneous activity)
       const twinkle=Math.sin(t*0.0012+p.sx*0.01+p.sy*0.013)*0.5+0.5;

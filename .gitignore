@@ -33,6 +33,10 @@ app/corpus/cascade/*.yaml
 app/corpus/revisions/*.yaml
 app/corpus/state/*.db
 
+# Corpora runtime state (generated at runtime, not committed)
+app/corpora/*/state/*.db
+app/corpora/*/state/session_history.jsonl
+
 # Claude Code working files
 .claude/
 .remember/

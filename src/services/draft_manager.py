@@ -155,15 +155,76 @@ class DraftManager:
             draft_id = f"tentative_{prop_type}_{uuid.uuid4().hex[:8]}_v1"
             claim_tag = prop.get("claim_tag", "UNKNOWN")
 
+            # source_turns normalization: chat-based mining emits
+            # "source_turns" (turn indices in a chat), collection-based
+            # mining emits "source_pairs" (node indices in a corpus
+            # collection). Packet has one field, so we collapse both
+            # into source_turns here; the raw sidecar preserves the
+            # distinction for downstream enrichment passes that need
+            # to know whether to load a chat or a collection.
+            st = prop.get("source_turns") or prop.get("source_pairs")
+            if not st:
+                st = [current_turn]
+
+            # Build inline typed payload from raw. This mirrors
+            # _convert_to_corpus_object() but runs eagerly so the packet
+            # is self-contained for review UIs and the dashboard —
+            # previously these fields stayed null and the raw file was
+            # the only source of truth, which leaked an undocumented
+            # sidecar into every consumer that read packets.
+            inline_anchor: Optional[dict] = None
+            inline_slab: Optional[dict] = None
+            inline_bundle: Optional[dict] = None
+            if prop_type == "anchor":
+                inline_anchor = {
+                    "id": draft_id,
+                    "canonical_phrase": prop.get("canonical_phrase", "") or "",
+                    "aliases": list(prop.get("aliases") or []),
+                    "invokes": [],
+                    "notes": prop.get("justification", "") or "",
+                }
+            elif prop_type == "slab":
+                # Slabs prefer `title` (explicit) over `canonical_phrase`
+                # (which the miner sometimes leaves empty for slab types).
+                inline_slab = {
+                    "id": draft_id,
+                    "title": (
+                        prop.get("title")
+                        or prop.get("canonical_phrase")
+                        or ""
+                    ),
+                    "canonical_text": prop.get("canonical_text", "") or "",
+                    "links": {"anchors": [], "bundles": []},
+                    "version": "v1",
+                }
+            elif prop_type == "bundle":
+                # Bundles aren't normally proposed standalone by the miner,
+                # but handle the shape defensively in case a future prompt
+                # starts emitting them. The payload.intent list is the one
+                # required field on BundlePayload per schemas.py §4.5.
+                payload = prop.get("payload") or {}
+                if "intent" not in payload or not payload["intent"]:
+                    justification = prop.get("justification", "").strip()
+                    payload["intent"] = [justification] if justification else [draft_id]
+                inline_bundle = {
+                    "id": draft_id,
+                    "payload": payload,
+                    "version": "v1",
+                }
+
             packet = DraftPacket(
                 id=draft_id,
+                packet_type=prop_type,
                 source_chat_id=chat_id,
-                source_turns=prop.get("source_turns", [current_turn]),
+                source_turns=st,
                 proposed_nodes=[draft_id],
                 justification=prop.get("justification", ""),
                 confidence=0.75 if explicit else 0.5,
                 status=DraftStatus.DRAFT_UNAUTHORIZED,
                 fact_claims=[text] if claim_tag == "FACT" else [],
+                anchor=inline_anchor,
+                slab=inline_slab,
+                bundle=inline_bundle,
             )
 
             # Store the raw proposal data alongside the draft packet for later conversion
@@ -310,8 +371,12 @@ class DraftManager:
                         "verification": batch.summary(),
                     }
 
-            # Convert to corpus object
-            obj = self._convert_to_corpus_object(draft_id, raw)
+            # Convert to corpus object. Pass the already-loaded packet so
+            # any post-wrap enrichment (dreaming-phase rewrites, reviewer
+            # edits, schema repairs) reaches the corpus. Without the packet
+            # argument the function falls back to raw-only behavior for
+            # backward compatibility.
+            obj = self._convert_to_corpus_object(draft_id, raw, packet=packet)
             if not obj:
                 return {"error": "Could not convert proposal to corpus object"}
 
@@ -338,8 +403,12 @@ class DraftManager:
                 target_store.slabs[corpus_obj.id] = corpus_obj
                 if target_store is not self.corpus:
                     self.corpus.slabs[corpus_obj.id] = corpus_obj
-                # §15.1 + §4.1.3: Auto-generate minimum coherence bundle for slab
-                generated_bundle = self._generate_minimum_bundle(corpus_obj.id, raw)
+                # §15.1 + §4.1.3: Auto-generate minimum coherence bundle for slab.
+                # Also packet-aware: if the slab was enriched, the bundle is
+                # generated from the enriched canonical_text, not the raw.
+                generated_bundle = self._generate_minimum_bundle(
+                    corpus_obj.id, raw, packet=packet
+                )
                 if generated_bundle:
                     target_store.bundles[generated_bundle.id] = generated_bundle
                     if target_store is not self.corpus:
@@ -372,47 +441,152 @@ class DraftManager:
 
         return {"error": f"Unknown action: {action}"}
 
-    def _convert_to_corpus_object(self, draft_id: str, raw: dict) -> Optional[tuple]:
-        """Convert raw proposal to a typed corpus object."""
-        prop_type = raw.get("type", "anchor")
+    def _convert_to_corpus_object(
+        self,
+        draft_id: str,
+        raw: dict,
+        packet: Optional[DraftPacket] = None,
+    ) -> Optional[tuple]:
+        """Convert a reviewed draft into a typed corpus object.
+
+        Fallback ladder (three-deep): for each field we prefer
+
+            1. The packet's inline dict (packet.anchor / packet.slab / packet.bundle)
+               — this is where any post-wrap enrichment lives, including the
+               dreaming-phase rewrites that land as ``{id}.enriched.json`` and
+               get promoted over ``{id}.json``.
+            2. The packet's top-level fields (packet.justification, etc.) —
+               used for legacy compatibility where the pre-enrichment contract
+               stored notes/reasons here.
+            3. The raw sidecar (``{id}_raw.json``) — the miner's original
+               output, used only when neither of the above is populated.
+
+        Passing ``packet=None`` preserves the legacy raw-only behavior so
+        any caller that still doesn't have a packet in scope keeps working.
+
+        Why this matters: before this patch the commit path read exclusively
+        from ``raw``, which meant any edit made at the packet layer (a
+        reviewer's manual tweak, a dreaming-phase rewrite, a schema-level
+        repair) was silently discarded at commit time. The corpus always
+        reflected the miner's first-pass output, never the reviewed version.
+        That was the mirror image of the (now-fixed) extract_proposals wrap
+        bug — together the two functions formed a hermetic seal around the
+        raw layer.
+        """
+        # --- Decide packet_type ---
+        if packet is not None and packet.packet_type:
+            prop_type = packet.packet_type
+        else:
+            prop_type = raw.get("type", "anchor")
+
+        # --- Extract inline dicts (may be None if packet missing/incomplete) ---
+        p_anchor = packet.anchor if packet else None
+        p_slab = packet.slab if packet else None
+        p_justification = packet.justification if packet else ""
+
+        def _pick(field: str, inline: Optional[dict], raw_keys: list[str], default):
+            """Prefer inline[field], then first non-empty raw key, then default."""
+            if inline and inline.get(field) not in (None, ""):
+                return inline[field]
+            for k in raw_keys:
+                v = raw.get(k)
+                if v not in (None, ""):
+                    return v
+            return default
 
         if prop_type == "anchor":
+            canonical_phrase = _pick(
+                "canonical_phrase", p_anchor, ["canonical_phrase"], draft_id
+            )
+            aliases = _pick("aliases", p_anchor, ["aliases"], []) or []
+            # Notes: inline anchor.notes is the enriched home; packet.justification
+            # is legacy / rewrite-disclaimer; raw.justification is the miner's
+            # original reason. All three are checked in that order.
+            notes = ""
+            if p_anchor and p_anchor.get("notes"):
+                notes = p_anchor["notes"]
+            elif p_justification:
+                notes = p_justification
+            else:
+                notes = raw.get("justification", "")
+            invokes = _pick("invokes", p_anchor, [], []) or []
+            depends_on = _pick("depends_on", p_anchor, [], []) or []
+            assumptions = _pick("assumptions", p_anchor, [], []) or []
+
             anchor = Anchor(
                 id=draft_id,
-                canonical_phrase=raw.get("canonical_phrase", draft_id),
-                aliases=raw.get("aliases", []),
-                invokes=[],
-                notes=raw.get("justification", ""),
+                canonical_phrase=canonical_phrase,
+                aliases=list(aliases),
+                invokes=list(invokes),
+                notes=notes,
                 match_policy=AnchorMatchPolicy(),
                 meta=AnchorMeta(version="v1"),
-                depends_on=[],
-                assumptions=[],
+                depends_on=list(depends_on),
+                assumptions=list(assumptions),
             )
             return ("anchor", anchor)
 
         if prop_type == "slab":
             from ..models.schemas import SlabLinks
+
+            # Title: the enriched slab uses a human-readable title; the raw
+            # miner output stored it in canonical_phrase. Check both.
+            title = ""
+            if p_slab and p_slab.get("title"):
+                title = p_slab["title"]
+            else:
+                title = raw.get("canonical_phrase") or raw.get("title", "")
+
+            canonical_text = _pick(
+                "canonical_text", p_slab, ["canonical_text"], ""
+            )
+
+            # SlabLinks: the one field with no raw fallback at all. The raw
+            # shape doesn't carry cross-draft links; they're a packet-layer
+            # phenomenon introduced by the dreaming rewrite. Default empty
+            # only if the packet also doesn't carry them.
+            links_raw = (p_slab or {}).get("links") or {}
+            slab_links = SlabLinks(
+                anchors=list(links_raw.get("anchors", []) or []),
+                bundles=list(links_raw.get("bundles", []) or []),
+            )
+
+            depends_on = _pick("depends_on", p_slab, [], []) or []
+            assumptions = _pick("assumptions", p_slab, [], []) or []
+
+            # Provenance note: prefer packet.justification (which on enriched
+            # packets carries the rewrite disclaimer pointing at the dream log),
+            # else raw.justification (miner original).
+            prov_note = p_justification or raw.get("justification", "")
+
             slab = Slab(
                 id=draft_id,
-                title=raw.get("canonical_phrase", raw.get("title", "")),
-                canonical_text=raw.get("canonical_text", ""),
-                links=SlabLinks(),
+                title=title,
+                canonical_text=canonical_text,
+                links=slab_links,
                 version="v1",
                 meta=AnchorMeta(version="v1"),
-                depends_on=[],
-                assumptions=[],
-                provenance_refs=[ProvenanceRef(
-                    ref_id=f"WB_{draft_id}",
-                    store="workbench",
-                    type="conversation_segment",
-                    note=raw.get("justification", ""),
-                )],
+                depends_on=list(depends_on),
+                assumptions=list(assumptions),
+                provenance_refs=[
+                    ProvenanceRef(
+                        ref_id=f"WB_{draft_id}",
+                        store="workbench",
+                        type="conversation_segment",
+                        note=prov_note,
+                    )
+                ],
             )
             return ("slab", slab)
 
         return None
 
-    def _generate_minimum_bundle(self, slab_id: str, raw: dict) -> Optional[KeyBundle]:
+    def _generate_minimum_bundle(
+        self,
+        slab_id: str,
+        raw: dict,
+        packet: Optional[DraftPacket] = None,
+    ) -> Optional[KeyBundle]:
         """§4.1.3 + §15.1: Generate minimum coherence bundle for a committed slab.
 
         Bundles are never proposed standalone. They are the minimum structural
@@ -420,11 +594,28 @@ class DraftManager:
         and what must NOT be assumed.
 
         Only generated if the slab has enough substance to warrant one.
+
+        Packet-aware: when ``packet`` is provided, prefers the enriched
+        inline slab dict over the raw sidecar — so a dreaming-phase rewrite
+        that substitutes the confabulated miner text for a grounded version
+        will also produce a bundle built from the grounded text, not the
+        discarded original. Same fallback ladder as _convert_to_corpus_object.
         """
         from ..models.schemas import KeyBundle, BundlePayload, AnchorMeta
 
-        canonical_text = raw.get("canonical_text", "")
-        justification = raw.get("justification", "")
+        # Three-deep fallback: inline slab dict → packet.justification → raw
+        p_slab = packet.slab if packet else None
+        canonical_text = ""
+        if p_slab and p_slab.get("canonical_text"):
+            canonical_text = p_slab["canonical_text"]
+        else:
+            canonical_text = raw.get("canonical_text", "")
+
+        justification = ""
+        if packet and packet.justification:
+            justification = packet.justification
+        else:
+            justification = raw.get("justification", "")
 
         # Only generate if slab has real content
         if len(canonical_text) < 50:

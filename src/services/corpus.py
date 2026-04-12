@@ -285,7 +285,58 @@ class CorpusRegistry:
             results[cid] = self.load_collection(cid)
         # Activate all by default
         self.active_ids = set(self.collections.keys())
+        # Self-heal: a slabify (collection → condensate slab) deactivates the
+        # source collection in memory, but that state is not persisted. After
+        # a server restart, the raw subnodes would leak back into the merged
+        # corpus and the matcher would hit them alongside the condensate slab,
+        # double-firing the session frame. Re-apply the deactivation by
+        # scanning every slab's canonical_text for the "Neighborhood: <id>"
+        # prefix that promote_collection bakes in (see routes.py ~line 1175).
+        self._deactivate_absorbed_collections()
         return results
+
+    def _deactivate_absorbed_collections(self) -> None:
+        """Auto-deactivate any collection whose content has been slabified.
+
+        The slabify promotion (POST /collections/{id}/promote) builds a
+        condensate slab whose canonical_text starts with
+        ``"Neighborhood: <collection_id>"``. That string is the authoritative
+        marker that ``<collection_id>`` has been absorbed: the raw anchors
+        should stay on disk for future re-expansion, but they must NOT be in
+        the merged corpus used by the matcher, or both the slab and the
+        underlying subnodes will fire on the same message.
+
+        This is called from load_all() so the deactivation survives restart
+        without adding any new persistence state — the slab itself IS the
+        marker. Re-activation via registry.activate() still works for
+        transient inspection between restarts.
+        """
+        prefix = "Neighborhood: "
+        absorbed: set[str] = set()
+        for owner_cid, store in self.collections.items():
+            for slab in store.slabs.values():
+                text = (slab.canonical_text or "").strip()
+                if not text.startswith(prefix):
+                    continue
+                # "Neighborhood: foo\nThemes: ..." → "foo"
+                rest = text[len(prefix):]
+                absorbed_cid = rest.split("\n", 1)[0].strip()
+                if not absorbed_cid:
+                    continue
+                # Don't deactivate a collection that absorbed itself (no-op
+                # slabify where source == target), and skip unknown ids.
+                if absorbed_cid == owner_cid:
+                    continue
+                if absorbed_cid in self.collections:
+                    absorbed.add(absorbed_cid)
+        if absorbed:
+            self.active_ids -= absorbed
+            self._merged_dirty = True
+            print(
+                f"[CORPUS] Auto-deactivated absorbed collections: "
+                f"{sorted(absorbed)} (each has a condensate slab in another "
+                f"active collection)"
+            )
 
     def activate(self, collection_id: str) -> bool:
         """Add a collection to the active set."""
