@@ -1054,6 +1054,22 @@ async def extract_proposals(session_id: str, req: ExtractProposalsRequest):
         session_id, chat_id, recent, turn,
         explicit=req.explicit, user_request=req.user_request,
     )
+
+    # Auto-trigger dreaming on newly mined drafts (background)
+    if drafts:
+        async def _dream_extracted():
+            try:
+                from ..services.dreaming import DreamingPass
+                dreamer = DreamingPass(corpus, session_store, chat_store)
+                for packet in drafts:
+                    try:
+                        await dreamer.dream(session_id, packet.id)
+                    except Exception as e:
+                        print(f"[DREAM] Error dreaming {packet.id}: {e}", flush=True)
+            except Exception as e:
+                print(f"[DREAM] Dreaming pass failed: {e}", flush=True)
+        asyncio.create_task(_dream_extracted())
+
     return [d.model_dump(mode="json") for d in drafts]
 
 
@@ -1075,24 +1091,53 @@ async def end_session_review(session_id: str):
             reg, edges = session_store.load_registry(session_id)
             frame_manager.restore(session_id, frame, reg or None, edges or None)
 
+    # 0. Run dreaming pass on any un-enriched pending drafts.
+    #    This is the natural "enrich everything before review" trigger —
+    #    by the time the user sees the review panel, every draft has been
+    #    audited and (if needed) rewritten with grounded content.
+    from ..services.dreaming import dream_all_pending
+    dream_results = await dream_all_pending(
+        corpus, session_store, chat_store, session_id,
+    )
+    dream_summary = {}
+    for dr in dream_results:
+        dream_summary[dr.get("draft_id", "")] = {
+            "status": dr.get("status"),
+            "grounding_mode": dr.get("grounding_mode"),
+            "verdict": dr.get("audit", {}).get("verdict") if dr.get("audit") else None,
+        }
+
     # 1. Full draft stack — every packet created this session, with raw
-    #    proposal data so the panel can render without a second round-trip
+    #    proposal data so the panel can render without a second round-trip.
+    #    Reload packets after dreaming so enriched justifications appear.
     drafts_out = []
     drafts = draft_manager.list_drafts(session_id)
     for packet in drafts:
         raw_path = session_store._drafts_dir(session_id) / f"{packet.id}_raw.json"
         raw = session_store._read_json(raw_path) or {}
+        enriched_path = session_store._drafts_dir(session_id) / f"{packet.id}.enriched.json"
+        has_enriched = enriched_path.exists()
+        # Prefer enriched inline content for label/text if available
+        inline = packet.anchor or packet.slab or {}
+        label = (
+            inline.get("canonical_phrase")
+            or inline.get("title")
+            or raw.get("canonical_phrase")
+            or raw.get("canonical_text", "")[:80]
+        )
         drafts_out.append({
             "id": packet.id,
-            "type": raw.get("type", "anchor"),
-            "label": raw.get("canonical_phrase") or raw.get("canonical_text", "")[:80],
-            "canonical_text": raw.get("canonical_text", ""),
+            "type": packet.packet_type or raw.get("type", "anchor"),
+            "label": label,
+            "canonical_text": inline.get("canonical_text") or raw.get("canonical_text", ""),
             "justification": packet.justification or raw.get("justification", ""),
             "status": packet.status.value,
             "confidence": packet.confidence,
             "source_turns": packet.source_turns,
             "fact_claims": packet.fact_claims,
             "has_unverified_facts": len(packet.fact_claims) > 0,
+            "has_enriched": has_enriched,
+            "dream": dream_summary.get(packet.id),
         })
 
     # 2. Corpus hit trajectory — per-turn [turn, [node_ids]] sequence
