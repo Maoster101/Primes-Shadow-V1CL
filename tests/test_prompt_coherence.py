@@ -229,46 +229,54 @@ def test_non_overridable_layers_declared() -> None:
 
 def test_off_mode_deny_examples_present_in_both_tiers() -> None:
     # "research suggests" and "logs indicate" are the canonical shared
-    # examples of vague authority. They must appear in both the frontier
-    # prompt and the scaffold.
+    # examples of vague authority. They must appear in the frontier prompt.
+    # BMD_SCAFFOLD delegates guardrails to the CORPUS BASE SET (slabs),
+    # so it no longer inlines these examples directly.
     for example in DENY_QUOTED_EXAMPLES_SHARED:
         assert example in FRONTIER_CONSTITUTION_PROMPT, (
             f"FRONTIER_CONSTITUTION_PROMPT missing deny example {example!r}"
         )
-        assert example in BMD_SCAFFOLD, (
-            f"BMD_SCAFFOLD missing deny example {example!r}"
-        )
+    # BMD_SCAFFOLD must reference the corpus delegation
+    assert "corpus base set" in BMD_SCAFFOLD.lower(), (
+        "BMD_SCAFFOLD missing CORPUS BASE SET delegation pointer"
+    )
 
 
 def test_off_mode_core_concepts_parity() -> None:
-    # Both tiers must mention these concepts in their OFF mode blocks.
-    # Using lowercase substring checks so reformatting doesn't break us.
+    # Frontier prompt must mention these concepts in its OFF mode block.
+    # BMD_SCAFFOLD now delegates guardrails to corpus slabs, so it only
+    # needs the delegation pointer -- the slabs carry the actual rules.
     required_concepts = (
         "mechanism",            # mechanism-first / mechanism_first
         "fabricated sources",   # "fabricated sources" / "no_fabricated_sources"
         "vague authority",      # "vague authority" / "no_vague_authority"
         "uncertainty",          # explicit uncertainty requirement
     )
-    for name in ("FRONTIER_CONSTITUTION_PROMPT", "BMD_SCAFFOLD"):
-        # Normalise "fabricated_sources" -> "fabricated sources" etc.
-        body = TIERS[name].lower().replace("_", " ")
-        for concept in required_concepts:
-            assert concept in body, (
-                f"{name} OFF mode block missing concept {concept!r}"
-            )
+    # Frontier still inlines everything
+    body = TIERS["FRONTIER_CONSTITUTION_PROMPT"].lower().replace("_", " ")
+    for concept in required_concepts:
+        assert concept in body, (
+            f"FRONTIER_CONSTITUTION_PROMPT OFF mode block missing concept {concept!r}"
+        )
+    # BMD_SCAFFOLD delegates to corpus -- verify pointer exists
+    assert "corpus base set" in BMD_SCAFFOLD.lower(), (
+        "BMD_SCAFFOLD missing CORPUS BASE SET delegation pointer"
+    )
 
 
 def test_off_mode_denies_gap_filling() -> None:
     # "plausible completion is NOT permission to assert" / "plausibility
-    # ≠ knowledge" — this is the anti-gap-fill rule that prevents
+    # != knowledge" -- this is the anti-gap-fill rule that prevents
     # confabulation in OFF mode.
     assert "gap" in FRONTIER_CONSTITUTION_PROMPT.lower(), (
         "FRONTIER_CONSTITUTION_PROMPT missing gap-fill denial"
     )
-    assert (
-        "plausible" in BMD_SCAFFOLD.lower()
-        and "permission to assert" in BMD_SCAFFOLD.lower()
-    ), "BMD_SCAFFOLD missing plausible-is-not-assert clause"
+    # BMD_SCAFFOLD now delegates guardrails to corpus slabs.
+    # The anti-gap-fill rule lives in SLAB_EPISTEMIC_FLOOR_v1.
+    # BMD_SCAFFOLD must have the delegation pointer.
+    assert "corpus base set" in BMD_SCAFFOLD.lower(), (
+        "BMD_SCAFFOLD missing CORPUS BASE SET delegation pointer"
+    )
 
 
 # ── 5. Doctrinal invariants ─────────────────────────────────────

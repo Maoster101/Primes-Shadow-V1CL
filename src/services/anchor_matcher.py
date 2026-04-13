@@ -497,8 +497,15 @@ class AnchorMatcher:
         if not self._gate_pipeline:
             return imperative
 
-        declarative = self.declarative_gate_check(anchor, classification)
-        decl_pass = declarative.allowed
+        try:
+            declarative = self.declarative_gate_check(anchor, classification)
+            decl_pass = declarative.allowed
+        except Exception as exc:
+            logger.error(
+                "Declarative gate failed for %s, falling back to imperative: %s",
+                anchor.id, exc,
+            )
+            return imperative
 
         if imperative != decl_pass:
             logger.warning(

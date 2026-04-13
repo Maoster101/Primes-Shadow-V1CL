@@ -16,6 +16,18 @@
     priority: 20
     notes: User explicitly invoked persistence/anchoring — always passes function
       gate.
+  - id: FUNCTION_safe_default
+    condition: >
+      classification.function == 'object_of_work'
+      or classification.function == 'neutral'
+      or classification.function == 'rigor_work'
+      or classification.function == 'meta_schema'
+    outcome: ALLOW
+    priority: 25
+    notes: >
+      Safe defaults: allow matching for substantive message types even if
+      not in allowed_functions. Only affect_release is blocked by default.
+      Matches imperative gate_check() safe_functions set.
   - id: FUNCTION_allowed_function
     condition: classification.function in anchor.match_policy.allowed_functions
     outcome: ALLOW
