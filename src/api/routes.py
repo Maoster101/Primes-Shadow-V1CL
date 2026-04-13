@@ -1918,6 +1918,7 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
         stack = DraftStack(session_id=session_id)
 
     created = []
+    created_packets = []
     for prop in req.proposals:
         if not isinstance(prop, dict):
             continue
@@ -1928,8 +1929,30 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
 
         draft_id = f"mined_{prop_type}_{uuid.uuid4().hex[:8]}_v1"
 
+        # Build inline typed payload so the packet is self-contained
+        # (same pattern as DraftManager.extract_proposals).
+        inline_anchor = None
+        inline_slab = None
+        if prop_type == "anchor":
+            inline_anchor = {
+                "id": draft_id,
+                "canonical_phrase": prop.get("canonical_phrase", "") or "",
+                "aliases": list(prop.get("aliases") or []),
+                "invokes": [],
+                "notes": prop.get("justification", "") or "",
+            }
+        elif prop_type == "slab":
+            inline_slab = {
+                "id": draft_id,
+                "title": prop.get("title") or prop.get("canonical_phrase") or "",
+                "canonical_text": prop.get("canonical_text", "") or "",
+                "links": {"anchors": [], "bundles": []},
+                "version": "v1",
+            }
+
         packet = DraftPacket(
             id=draft_id,
+            packet_type=prop_type,
             source_chat_id=meta.get("chat_id", session_id),
             source_turns=[0],
             proposed_nodes=[draft_id],
@@ -1937,6 +1960,8 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
             confidence=prop.get("confidence", 0.5),
             status=DraftStatus.DRAFT_UNAUTHORIZED,
             fact_claims=[text] if prop.get("claim_tag") == "FACT" else [],
+            anchor=inline_anchor,
+            slab=inline_slab,
         )
 
         session_store.save_draft_packet(session_id, packet)
@@ -1947,6 +1972,23 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
 
         stack.packets.append(draft_id)
         created.append({"id": draft_id, "type": prop_type, "label": text[:80]})
+        created_packets.append(packet)
 
     session_store.save_draft_stack(session_id, stack)
+
+    # Auto-trigger dreaming on pushed drafts (background)
+    if created_packets:
+        async def _dream_pushed():
+            try:
+                from ..services.dreaming import DreamingPass
+                dreamer = DreamingPass(corpus, session_store, chat_store)
+                for pkt in created_packets:
+                    try:
+                        await dreamer.dream(session_id, pkt.id)
+                    except Exception as e:
+                        print(f"[DREAM] Error dreaming {pkt.id}: {e}", flush=True)
+            except Exception as e:
+                print(f"[DREAM] Dreaming pass failed: {e}", flush=True)
+        asyncio.create_task(_dream_pushed())
+
     return {"created": len(created), "drafts": created}
