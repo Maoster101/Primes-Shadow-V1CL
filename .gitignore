@@ -41,5 +41,27 @@ app/corpora/*/state/session_history.jsonl
 .claude/
 .remember/
 
+# MCP workspace config (contains local paths)
+.mcp.json
+mcp_config.json
+
+# Personal / non-project files
+RESUME.md
+
+# Runtime logs
+*.log
+app/workbench/*.log
+
+# Runtime state (not already covered above)
+app/corpus/state/session_history.jsonl
+
+# LaTeX build artifacts
+arxiv_submission/*.aux
+arxiv_submission/*.log
+arxiv_submission/*.out
+arxiv_submission/*.synctex*
+arxiv_submission/*.bbl
+arxiv_submission/*.blg
+
 # Raw document extracts (temporary working files)
 *_raw.txt

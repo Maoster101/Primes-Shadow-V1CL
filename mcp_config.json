@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "primes-shadow": {
-      "command": "python",
-      "args": ["-m", "src.mcp_server"],
-      "cwd": "C:/Users/stanm/Desktop/Primes Shadow V1CL"
-    }
-  }
-}
