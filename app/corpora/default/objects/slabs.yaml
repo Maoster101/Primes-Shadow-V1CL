@@ -662,40 +662,6 @@
   assumptions:
   - Corpus content takes precedence over model training priors
   provenance_refs: []
-- id: SLAB_VIN_DISEL_SKIT_v1
-  title: vin_disel_skit
-  canonical_text: 'Neighborhood: vin_disel_skit
-
-    Themes: mined_slab_a070a978_v1, mined_slab_ee582b8f_v1
-
-    Key concepts: grey goo fakeout, We thought growing family was all that mattered.,
-    Silence, Soft sound, fusion power distro system, quantum water encoding, Plasma
-    ion cloud accelerator, Calm. No drama., neutron fusion, growing family, xenonite
-    prime, Beat 3 – Reframe, Beat 1 – The Step, Didn’t stop to think who we were burnin’
-    to do it., exploding wire, grey goo fakeout, Beat 2 – Recognition, nozzle sanic
-    screwdriver style, Gravel voice, Audience laughs in recognition, growing power
-    step, Vin Diesel sequence, fusion, Family flips meaning, Boot on metal
-
-    Bundles: mined_slab_a070a978_coherence_v1, mined_slab_ee582b8f_coherence_v1
-
-
-    This slab represents the ''vin_disel_skit'' corpus neighborhood, promoted as a
-    single thematic unit. It contains 25 anchors, 2 slabs, 2 bundles.'
-  links:
-    anchors: []
-    bundles: []
-  version: v1
-  type: CANONICAL
-  lifecycle_status: ACTIVE
-  requires_oli_mode: null
-  meta:
-    version: v1
-    supersedes: null
-    semantic_change: false
-    created_at: null
-  depends_on: []
-  assumptions: []
-  provenance_refs: []
 - id: tentative_slab_a9049516_v1
   title: 'Frame Dynamics: Salience Estimation and EWA Smoothing'
   canonical_text: 'Every active node on FrameState carries two per-turn salience floats:

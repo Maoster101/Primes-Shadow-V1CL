@@ -47,6 +47,10 @@ mcp_config.json
 
 # Personal / non-project files
 RESUME.md
+*.docx
+anthropic_fellows_application_notes.md
+cover_letter_*.docx
+cv_*.docx
 
 # Runtime logs
 *.log
