@@ -13,9 +13,13 @@ Conservative limits per session:
 """
 from __future__ import annotations
 import json
+import logging
 import uuid
+from pathlib import Path
 from typing import Optional
 import yaml
+
+logger = logging.getLogger(__name__)
 
 from ..models.schemas import (
     DraftPacket, DraftStack, Anchor, Slab, AnchorMeta, AnchorMatchPolicy,
@@ -65,6 +69,7 @@ class DraftManager:
         current_turn: int,
         explicit: bool = False,
         user_request: str = "",
+        collection_id: Optional[str] = None,
     ) -> list[DraftPacket]:
         """Extract proposed anchors/slabs from conversation.
 
@@ -105,12 +110,22 @@ class DraftManager:
                 .replace("$CONVERSATION", conversation)
             )
 
-        # Model proposes
+        # Model proposes. Phase 3: output is now a wrapper object
+        #   {"proposals": [...], "edges": [...]}
+        # but we keep backward compat with the legacy bare-array / bare-object
+        # shapes in case the model regresses.
         try:
             raw = await ollama.structured_extract(prompt)
             print(f"[DRAFT] Extraction result (turn {current_turn}): {type(raw).__name__} = {str(raw)[:300]}", flush=True)
+            proposed_edge_specs: list = []
             if isinstance(raw, dict):
-                proposals = [raw]
+                if "proposals" in raw and isinstance(raw["proposals"], list):
+                    # New wrapper format
+                    proposals = raw["proposals"]
+                    proposed_edge_specs = raw.get("edges") or []
+                else:
+                    # Legacy: single-object output (explicit path often does this)
+                    proposals = [raw]
             elif isinstance(raw, list):
                 proposals = raw
             else:
@@ -120,7 +135,7 @@ class DraftManager:
             print(f"[DRAFT] Extraction FAILED (turn {current_turn}): {e}", flush=True)
             return []
 
-        if not proposals:
+        if not proposals and not proposed_edge_specs:
             return []
 
         # Process each proposal
@@ -149,7 +164,9 @@ class DraftManager:
 
             dup = await self._dedup_check(text)
             if dup:
+                print(f"[DRAFT]   skip (dup of {dup}): {text[:60]}", flush=True)
                 continue
+            print(f"[DRAFT]   accept {prop_type}: {text[:60]}", flush=True)
 
             # Create draft packet
             draft_id = f"tentative_{prop_type}_{uuid.uuid4().hex[:8]}_v1"
@@ -229,9 +246,15 @@ class DraftManager:
 
             # Store the raw proposal data alongside the draft packet for later conversion
             self.session_store.save_draft_packet(session_id, packet)
-            # Also store raw proposal fields for conversion at review time
+            # Also store raw proposal fields for conversion at review time.
+            # Phase 2A: stamp _target_collection from the chat's binding so
+            # this draft lands in the right subcorpus on promote, instead of
+            # silently falling back to "default".
             raw_path = self.session_store._drafts_dir(session_id) / f"{draft_id}_raw.json"
-            self.session_store._write_json(raw_path, prop)
+            prop_to_save = dict(prop)
+            if collection_id:
+                prop_to_save["_target_collection"] = collection_id
+            self.session_store._write_json(raw_path, prop_to_save)
 
             stack.packets.append(draft_id)
             if not explicit:
@@ -239,6 +262,90 @@ class DraftManager:
             created.append(packet)
 
         self.session_store.save_draft_stack(session_id, stack)
+
+        # Phase 3 — resolve proposed edges (labels -> node_ids) and persist.
+        # Label index priority order:
+        #   1. Just-mined proposals in this turn (canonical_phrase / title / aliases)
+        #   2. Live corpus anchors (canonical_phrase / aliases)
+        #   3. Live corpus slabs (title)
+        # Endpoints that can't be resolved from any of these are skipped with
+        # a debug log — we never invent a node_id for an unresolvable label.
+        if proposed_edge_specs:
+            try:
+                from ..models.schemas import ProposedEdge
+
+                label_to_id: dict[str, str] = {}
+
+                def _register(label: str, nid: str) -> None:
+                    if not label:
+                        return
+                    key = label.strip().lower()
+                    # first write wins — earlier sources are more specific
+                    label_to_id.setdefault(key, nid)
+
+                # 1. Just-mined proposals
+                for pkt in created:
+                    if pkt.anchor:
+                        _register(pkt.anchor.get("canonical_phrase", ""), pkt.id)
+                        for al in pkt.anchor.get("aliases") or []:
+                            _register(al, pkt.id)
+                    if pkt.slab:
+                        _register(pkt.slab.get("title", ""), pkt.id)
+                    if pkt.bundle:
+                        _register(pkt.bundle.get("id", ""), pkt.id)
+
+                # 2. Corpus anchors
+                for a in self.corpus.anchors.values():
+                    _register(a.canonical_phrase, a.id)
+                    for al in a.aliases or []:
+                        _register(al, a.id)
+
+                # 3. Corpus slabs (title is the human-facing label)
+                for s in self.corpus.slabs.values():
+                    if getattr(s, "title", ""):
+                        _register(s.title, s.id)
+
+                resolved_edges: list = []
+                for spec in proposed_edge_specs:
+                    if not isinstance(spec, dict):
+                        continue
+                    etype_raw = (spec.get("type") or "LINKS").upper()
+                    if etype_raw not in {"INVOKES", "SUPPORTS", "CONFLICTS", "LINKS", "SEQUENCE", "PARENT_OF"}:
+                        etype_raw = "LINKS"
+                    from_label = (spec.get("from_label") or "").strip()
+                    to_label = (spec.get("to_label") or "").strip()
+                    if not from_label or not to_label:
+                        continue
+                    from_id = label_to_id.get(from_label.lower())
+                    to_id = label_to_id.get(to_label.lower())
+                    if not from_id or not to_id:
+                        print(f"[DRAFT]   skip edge (unresolved): {from_label!r} -> {to_label!r}", flush=True)
+                        continue
+                    if from_id == to_id:
+                        continue  # no self-loops
+                    try:
+                        confidence = float(spec.get("confidence", 0.5))
+                    except Exception:
+                        confidence = 0.5
+                    resolved_edges.append(ProposedEdge(
+                        id=f"proposed_edge_{uuid.uuid4().hex[:8]}",
+                        type=EdgeType(etype_raw),
+                        from_node=from_id,
+                        to_node=to_id,
+                        from_label=from_label,
+                        to_label=to_label,
+                        confidence=max(0.0, min(1.0, confidence)),
+                        justification=spec.get("justification", "") or "",
+                        status="PROPOSED",
+                        source_chat_id=chat_id,
+                        source_turn=current_turn,
+                    ))
+
+                if resolved_edges:
+                    self.session_store.append_proposed_edges(session_id, resolved_edges)
+                    print(f"[DRAFT] Persisted {len(resolved_edges)} proposed edge(s)", flush=True)
+            except Exception as e:
+                print(f"[DRAFT] Edge resolution FAILED: {e}", flush=True)
 
         _event_log.log_proposal_event(
             session_id=session_id,
@@ -313,6 +420,7 @@ class DraftManager:
         if action == "discard":
             packet.status = DraftStatus.REJECTED
             self.session_store.save_draft_packet(session_id, packet)
+            self._mark_resolved(session_id, draft_id)
             return {"status": "REJECTED", "draft_id": draft_id}
 
         if action == "promote_tentative":
@@ -334,6 +442,7 @@ class DraftManager:
                 "draft": packet.model_dump(mode="json"),
                 "raw_proposal": raw,
             })
+            self._mark_resolved(session_id, draft_id)
             result = {"status": "PROVISIONAL", "location": "library/tentative", "draft_id": draft_id}
             if warning:
                 result["warning"] = warning
@@ -452,6 +561,7 @@ class DraftManager:
             target_store.save()
             packet.status = DraftStatus.COMMITTED
             self.session_store.save_draft_packet(session_id, packet)
+            self._mark_resolved(session_id, draft_id)
 
             result = {"status": "COMMITTED", "draft_id": draft_id, "corpus_id": corpus_obj.id}
             if generated_bundle:
@@ -815,5 +925,185 @@ class DraftManager:
     def get_draft_stack(self, session_id: str) -> Optional[DraftStack]:
         return self.session_store.load_draft_stack(session_id)
 
-    def list_drafts(self, session_id: str) -> list[DraftPacket]:
-        return self.session_store.list_draft_packets(session_id)
+    def list_drafts(self, session_id: str, include_resolved: bool = False) -> list[DraftPacket]:
+        """List drafts for a session.
+
+        By default returns only pending (DRAFT_UNAUTHORIZED) drafts — that's
+        the set a reviewer actually needs to act on. Pass include_resolved=True
+        to include the full history (PROVISIONAL, COMMITTED, REJECTED).
+
+        Packet files stay on disk regardless — they're the audit trail. This
+        is purely a view filter.
+        """
+        packets = self.session_store.list_draft_packets(session_id)
+        if include_resolved:
+            return packets
+        return [p for p in packets if p.status == DraftStatus.DRAFT_UNAUTHORIZED]
+
+    def list_drafts_by_chat(self, chat_id: str, include_resolved: bool = False) -> list[DraftPacket]:
+        """List drafts for a chat across ALL its sessions.
+
+        A chat can span many SSE sessions (restarts, reconnects), but UI
+        reviewers think in chat scope, not session scope. This aggregates.
+        Default filter still DRAFT_UNAUTHORIZED; include_resolved returns all.
+        """
+        packets = self.session_store.list_draft_packets_by_chat(chat_id)
+        if include_resolved:
+            return packets
+        return [p for p in packets if p.status == DraftStatus.DRAFT_UNAUTHORIZED]
+
+    def _mark_resolved(self, session_id: str, draft_id: str) -> None:
+        """Remove a draft ID from the session's stack after promote/discard.
+
+        Packet file remains on disk (status updated) so the audit trail is
+        preserved. The stack is the live worklist — resolved drafts leave it.
+        Idempotent: no-op if the ID isn't in the stack.
+        """
+        stack = self.session_store.load_draft_stack(session_id)
+        if stack and draft_id in stack.packets:
+            stack.packets.remove(draft_id)
+            self.session_store.save_draft_stack(session_id, stack)
+
+    # ─── Library tentative (on-disk PROVISIONAL store) ──────────────────
+    def list_library_tentative(self) -> list[dict]:
+        """Return summary records for every JSON file in app/library/tentative/.
+
+        These are drafts the user pressed "Promote Tentative" on. They are
+        NOT in the corpus — they live in a sidecar directory as JSON blobs
+        with the original packet + raw_proposal preserved. The reasoner
+        never sees them; the graph may render them with a dashed overlay.
+        """
+        tent_dir = Path("app/library/tentative")
+        if not tent_dir.exists():
+            return []
+        out: list[dict] = []
+        for f in sorted(tent_dir.glob("*.json")):
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+            except Exception as e:
+                logger.warning("Failed to parse tentative %s: %s", f.name, e)
+                continue
+            draft = data.get("draft", {}) or {}
+            raw = data.get("raw_proposal", {}) or {}
+            label = (
+                raw.get("canonical_phrase")
+                or raw.get("title")
+                or raw.get("label")
+                or (raw.get("canonical_text") or "")[:80]
+                or f.stem
+            )
+            out.append({
+                "id": f.stem,
+                "label": label,
+                "type": raw.get("type") or draft.get("packet_type") or "anchor",
+                "status": draft.get("status", "PROVISIONAL"),
+                "confidence": draft.get("confidence", 0.0),
+                "justification": draft.get("justification") or raw.get("justification", ""),
+                "source_turns": draft.get("source_turns", []),
+                # Target collection — where this will land if promoted. Pinned
+                # at the time the draft was originally pushed (AI Mine picker
+                # or chat.collection_id). Surfaced so the Tentative tab can
+                # show it without the user having to switch corpora.
+                "target_collection": raw.get("_target_collection", "default"),
+                "draft": draft,
+                "raw": raw,
+                "path": str(f),
+                "mtime": f.stat().st_mtime,
+            })
+        return out
+
+    def delete_library_tentative(self, tid: str) -> bool:
+        path = Path("app/library/tentative") / f"{tid}.json"
+        if not path.exists():
+            return False
+        path.unlink()
+        return True
+
+    def promote_library_tentative(self, tid: str) -> dict:
+        """Commit a library-tentative node into the active corpus.
+
+        Mirrors the promote_corpus branch of review_draft() but without the
+        session-draft-stack bookkeeping (the packet is no longer tracked by
+        a live session). The tentative JSON file is deleted on success.
+        """
+        path = Path("app/library/tentative") / f"{tid}.json"
+        if not path.exists():
+            return {"error": "Tentative record not found"}
+
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as e:
+            return {"error": f"Failed to parse tentative file: {e}"}
+
+        raw = data.get("raw_proposal", {}) or {}
+        draft_dict = data.get("draft", {}) or {}
+        try:
+            packet = DraftPacket.model_validate(draft_dict) if draft_dict else None
+        except Exception as e:
+            logger.warning("Tentative %s packet reconstruction failed: %s — using raw only", tid, e)
+            packet = None
+
+        obj = self._convert_to_corpus_object(tid, raw, packet=packet)
+        if not obj:
+            return {"error": "Could not convert to corpus object"}
+
+        target_cid = raw.get("_target_collection", "default")
+        target_store = self.corpus
+        if hasattr(self, "_registry") and self._registry:
+            specific = self._registry.get_store(target_cid)
+            if specific:
+                target_store = specific
+
+        obj_type, corpus_obj = obj
+        generated_bundle = None
+
+        if obj_type == "anchor":
+            target_store.anchors[corpus_obj.id] = corpus_obj
+            if target_store is not self.corpus:
+                self.corpus.anchors[corpus_obj.id] = corpus_obj
+        elif obj_type == "slab":
+            target_store.slabs[corpus_obj.id] = corpus_obj
+            if target_store is not self.corpus:
+                self.corpus.slabs[corpus_obj.id] = corpus_obj
+            generated_bundle = self._generate_minimum_bundle(corpus_obj.id, raw, packet=packet)
+            if generated_bundle:
+                target_store.bundles[generated_bundle.id] = generated_bundle
+                if target_store is not self.corpus:
+                    self.corpus.bundles[generated_bundle.id] = generated_bundle
+
+        generated_edges = self._generate_commit_edges(obj_type, corpus_obj, generated_bundle)
+        for edge in generated_edges:
+            target_store.edges[edge.id] = edge
+            if target_store is not self.corpus:
+                self.corpus.edges[edge.id] = edge
+
+        errors = target_store.validate()
+        if errors:
+            if obj_type == "anchor":
+                target_store.anchors.pop(corpus_obj.id, None)
+                self.corpus.anchors.pop(corpus_obj.id, None)
+            elif obj_type == "slab":
+                target_store.slabs.pop(corpus_obj.id, None)
+                self.corpus.slabs.pop(corpus_obj.id, None)
+            if generated_bundle:
+                target_store.bundles.pop(generated_bundle.id, None)
+                self.corpus.bundles.pop(generated_bundle.id, None)
+            for edge in generated_edges:
+                target_store.edges.pop(edge.id, None)
+                self.corpus.edges.pop(edge.id, None)
+            return {"error": "Corpus validation failed", "errors": errors}
+
+        target_store.save()
+        # Success — remove from tentative library
+        try:
+            path.unlink()
+        except Exception as e:
+            logger.warning("Committed tentative %s but failed to delete file: %s", tid, e)
+
+        return {
+            "status": "COMMITTED",
+            "id": tid,
+            "corpus_id": corpus_obj.id,
+            "generated_bundle": generated_bundle.id if generated_bundle else None,
+            "generated_edges": [e.id for e in generated_edges],
+        }

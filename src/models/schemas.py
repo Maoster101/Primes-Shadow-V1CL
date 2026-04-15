@@ -31,6 +31,12 @@ class Chat(BaseModel):
     linked_drafts: list[str] = Field(default_factory=list)
     linked_commits: list[str] = Field(default_factory=list)
     last_frame_snapshot_ref: Optional[str] = None
+    # Phase 2A: every chat binds to a collection at creation. Drafts mined
+    # during this chat's turns stamp their raw sidecar's _target_collection
+    # with this value, so the worklist filters correctly in Drafts/Verify.
+    # Optional for backward compat — pre-2A chats default to "default" at
+    # read time. All new chats get this set by the creation endpoint.
+    collection_id: Optional[str] = None
 
 
 class ChatMessage(BaseModel):
@@ -182,6 +188,31 @@ class Edge(BaseModel):
     conditions: Optional[EdgeConditions] = None
 
     model_config = {"populate_by_name": True}
+
+
+# Phase 3 — Proposed edges (mining output, pre-review).
+# Distinct from Edge: endpoints may reference tentative nodes that don't
+# yet exist in corpus.edges. Status transitions:
+#   PROPOSED  -> model mined it, awaiting human review
+#   ACCEPTED  -> human approved, but endpoints may still be tentative;
+#                a promote hook upgrades to COMMITTED once both exist
+#                in the live corpus
+#   COMMITTED -> written to corpus.edges; mirrors a real Edge object
+#   REJECTED  -> human discarded; kept for audit trail, never committed
+class ProposedEdge(BaseModel):
+    id: str
+    type: EdgeType
+    from_node: str  # node_id (resolved from LLM label)
+    to_node: str    # node_id (resolved from LLM label)
+    from_label: str  # original LLM label (audit trail when IDs change)
+    to_label: str
+    confidence: float = Field(ge=0.0, le=1.0, default=0.5)
+    justification: str = ""
+    status: str = "PROPOSED"  # PROPOSED | ACCEPTED | COMMITTED | REJECTED
+    source_chat_id: Optional[str] = None
+    source_turn: Optional[int] = None
+    committed_edge_id: Optional[str] = None  # set when promoted to corpus.edges
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 # §9 — FrameState

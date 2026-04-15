@@ -1,0 +1,307 @@
+- id: mined_slab_28f9e157_v1
+  title: Quantum Water Transmission
+  canonical_text: Quantum water is transmitted directly to nozzles, eliminating the
+    need for hoses. The concept draws an analogy to xenonite prime, initially mistaken
+    for grey goo, but resolved through collaborative work on quantum encoders and
+    decoders.  Fusion 'juice' can then be consumed by humans, directly absorbing energy
+    as a life force to accelerate colonial expansion.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_28f9e157_v1
+    store: workbench
+    type: conversation_segment
+    note: Details the advanced transmission method and its implications for human
+      colonization.
+- id: mined_slab_5d058a7c_v1
+  title: Initial Concept
+  canonical_text: The narrative begins with an exploding wire, leading to the manufacturing
+    of a Plasma Ion Cloud Accelerator for fusion power. The system distributes fusion
+    energy, acting as a circulatory system, and utilizes plasma and neutron fusion
+    as a vital resource. A unique nozzle, resembling a 'sanic screwdriver,' converts
+    fusion output into encoded water, a process requiring a growing power step.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_5d058a7c_v1
+    store: workbench
+    type: conversation_segment
+    note: Establishes the core technology and its initial function.
+- id: mined_slab_6b362e7d_v1
+  title: Meta Commentary and Resolution
+  canonical_text: The narrative then shifts to a meta-commentary, incorporating elements
+    of a Slideshow Bob Burnham-style logician and a sketch. Vin Diesel appears holding
+    PVA glue and a stick over a horse, posing the question, 'Are you still here?'
+    The final line reflects on those who came before and those who will come after,
+    ending with the word 'family'.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_6b362e7d_v1
+    store: workbench
+    type: conversation_segment
+    note: Provides a self-aware, absurdist conclusion, referencing previous elements
+      and emphasizing the theme of family.
+- id: mined_slab_79dd1c46_v1
+  title: Beat 1 – The Step
+  canonical_text: The sequence begins with a subtle auditory cue, the sound of a boot
+    striking metal. This action is not visually described, emphasizing a sense of
+    presence and anticipation. The focus is on the sound itself, creating a moment
+    of quiet tension before the dialogue begins.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_79dd1c46_v1
+    store: workbench
+    type: conversation_segment
+    note: Establishes a mysterious opening to the post-credits scene, setting a tone
+      of intrigue.
+- id: mined_slab_878a5796_v1
+  title: Beat 2 – Recognition
+  canonical_text: 'A gravelly voice speaks, delivering a contemplative line: ''We
+    thought growing family was all that mattered.'' The delivery is calm and avoids
+    melodrama, suggesting a deeper, perhaps regretful, reflection. The line is designed
+    to elicit a slight chuckle from the audience, indicating a shared understanding
+    or a familiar trope.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_878a5796_v1
+    store: workbench
+    type: conversation_segment
+    note: Introduces a thematic element of family and regret, likely hinting at future
+      plot developments or character arcs.
+- id: mined_slab_9464c26c_v1
+  title: Moral Compression
+  canonical_text: The speaker delivers a profound statement about the true meaning
+    of family, asserting that it is not determined by those who are present during
+    times of crisis. Instead, family is defined by those for whom space is created
+    when resources are dwindling. This sentiment is presented with genuine sincerity,
+    devoid of any dramatic musical accompaniment. The line emphasizes the importance
+    of compassion and sacrifice within familial bonds.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_9464c26c_v1
+    store: workbench
+    type: conversation_segment
+    note: This beat encapsulates a key thematic element regarding family and sacrifice,
+      contributing to the overall resolution of the narrative.
+- id: mined_slab_9c143cfe_v1
+  title: Matter Consumption and Void
+  canonical_text: The process involves consuming all matter, deconstructing it directly
+    into energy. This leads to a scenario where a single person floats in an infinite
+    void, experiencing a fading-out sequence. A visual sequence, reminiscent of a
+    Vin Diesel line, depicts this fall towards a black hole, followed by Vin Diesel's
+    intervention.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_9c143cfe_v1
+    store: workbench
+    type: conversation_segment
+    note: Represents the ultimate, potentially destructive, application of the technology
+      and a moment of crisis.
+- id: mined_slab_ef609930_v1
+  title: Sudden Realization
+  canonical_text: A pause hangs in the air, heavy with unspoken implications. The
+    previous actions are re-evaluated, revealing a previously unacknowledged cost.
+    The word 'family' undergoes a dramatic shift in meaning, becoming a source of
+    discomfort and regret. This moment marks a critical turning point in understanding
+    the consequences of their actions.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_ef609930_v1
+    store: workbench
+    type: conversation_segment
+    note: This beat represents a crucial shift in perspective and foreshadows further
+      conflict. It builds on the previous beat's recognition and sets the stage for
+      a re-evaluation of their motivations.
+- id: mined_slab_177893b5_v1
+  title: Existential Void Rescue Sequence
+  canonical_text: The narrative sequence depicts a solitary individual adrift in an
+    infinite void, slowly fading from existence. The visual emphasizes a prolonged,
+    disorienting fall, creating a sense of cosmic isolation and despair. This sequence
+    is punctuated by a sudden, unexpected rescue, seemingly orchestrated by a figure
+    reminiscent of Vin Diesel. The visual style is intended to evoke a sense of surrealism
+    and existential dread, potentially mirroring a 'divine disaster' scenario.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_177893b5_v1
+    store: workbench
+    type: conversation_segment
+    note: Describes the core narrative beat of the void rescue, including visual and
+      thematic elements.
+- id: mined_slab_be44219c_v1
+  title: Quantum Fusion Energy Conversion and Transmission
+  canonical_text: The process begins with quantum conversion of fusion output, transforming
+    it into a specialized form of encoded water. This encoded water then serves as
+    the energy transmission medium, directly routed to nozzles.  The elimination of
+    traditional hoses is a consequence of this direct transmission method.  The creation
+    of nozzles previously presented a challenge, resembling a 'grey goo fakeout' scenario,
+    but this has been resolved through collaborative efforts focused on optimizing
+    the Organic Linguistic Interface (OLI) for all quantum encoders and decoders.
+    This OLI-driven approach ensures controlled and predictable nozzle fabrication.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_be44219c_v1
+    store: workbench
+    type: conversation_segment
+    note: This slab consolidates the entire energy conversion and transmission process
+      described, including the problem-solving aspect of nozzle creation. It captures
+      the key steps and the underlying technology.
+- id: mined_slab_0a1fc107_v1
+  title: 'Narrative Structure: Existential Rescue & Legacy'
+  canonical_text: The narrative sequence begins with a depiction of matter deconstructing
+    into energy, immediately followed by a solitary figure adrift in an infinite void,
+    visually fading out. A significant pause is then introduced, creating a sense
+    of anticipation and dread. The visual then shifts to the figure falling, seemingly
+    towards a black hole, though this is ambiguous. Finally, Vin Diesel intervenes,
+    rescuing the falling figure, creating a moment of unexpected salvation. The sequence
+    concludes with Vin Diesel holding PVA glue and a stick over a horse, posing a
+    question about presence, and culminating in a final line referencing lineage and
+    family.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_0a1fc107_v1
+    store: workbench
+    type: conversation_segment
+    note: This captures the core narrative arc described, encompassing the initial
+      setup, the central falling sequence, the rescue, and the concluding symbolic
+      imagery. It's a complete, self-contained narrative segment.

@@ -62,7 +62,16 @@ async def compute_x_positions(texts: list[str]) -> list[float]:
 
 
 async def cosine_similarity(text_a: str, text_b: str) -> float:
-    """Cosine similarity between two texts. Used for anchor matching."""
-    vecs = await ollama.embed([text_a, text_b])
+    """Cosine similarity between two texts. Used for anchor matching.
+
+    NOTE: inputs are lowercased before embedding. nomic-embed-text:latest
+    (via Ollama) has a reproducible defect where Title-Case 3-word phrases
+    collapse to a shared canonical vector, producing false cosine=1.0
+    matches between unrelated anchors (e.g. "Terra Preta Australis" vs
+    "Iterative Visual Prototyping"). Lowercasing bypasses the pathological
+    tokenization path. Anchor-name dedup and similarity semantics are
+    case-insensitive anyway so this is a safe normalization.
+    """
+    vecs = await ollama.embed([text_a.lower(), text_b.lower()])
     a, b = np.array(vecs[0]), np.array(vecs[1])
     return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))

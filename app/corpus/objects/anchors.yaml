@@ -518,3 +518,634 @@
     created_at: null
   depends_on: []
   assumptions: []
+- id: tentative_anchor_73d88b7b_v1
+  canonical_phrase: node salience
+  aliases:
+  - salience
+  - salience_now
+  - salience_smoothed
+  - salience_score
+  - processing_priority
+  - runtime header salience
+  - resonance
+  invokes: []
+  notes: 'Per-node importance metric maintained on FrameState. For each active node
+    (anchor/slab/bundle/concept), the frame holds two floats: salience_now (the current-turn
+    estimate) and salience_smoothed (an EWA trailing average with alpha=0.30). Each
+    turn, frame_manager._estimate_salience() calls the model with the user text +
+    active-node descriptions and returns {node_id: score}; missing nodes inherit prior
+    * 0.90 (low_content_inherit) rather than collapsing to zero. New anchor hits seed
+    salience_now at 0.6 (re_detect_salience); additional hits within the same turn
+    add +0.15 (re_hit_boost). Eviction when active_nodes>24 drops by ascending salience_smoothed.
+    See src/services/frame_manager.py lines 400-467 and app/corpora/default/state/frame_policy.yaml
+    frame.salience block.'
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_35dba649_v1
+  canonical_phrase: Gravel voice
+  aliases: []
+  invokes: []
+  notes: A distinctive vocal characteristic used to identify a speaker, likely a recurring
+    character or a significant presence.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_49dc4b7f_v1
+  canonical_phrase: Plasma Ion Cloud Accelerator
+  aliases:
+  - PVA
+  invokes: []
+  notes: Core technology for fusion power generation; abbreviated as PVA.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_4a6ab881_v1
+  canonical_phrase: Moral Compression
+  aliases: []
+  invokes: []
+  notes: Represents a specific thematic concept or philosophical principle explored
+    within the narrative, likely related to distilling complex ideas into concise
+    statements.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_609e70d9_v1
+  canonical_phrase: quantum water
+  aliases:
+  - encoded water
+  invokes: []
+  notes: The form in which fusion energy is transmitted; a key technological innovation.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_70c879f2_v1
+  canonical_phrase: infinite void
+  aliases: []
+  invokes: []
+  notes: The ultimate destination of matter consumption, representing a state of nothingness.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_112fab02_v1
+  canonical_phrase: divine disaster class
+  aliases:
+  - divine disaster
+  - logician overload
+  invokes: []
+  notes: A specific, recurring descriptor used by the user, likely referencing a particular
+    comedic or narrative style.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_1cb3e2f6_v1
+  canonical_phrase: xenonite prime analogy
+  aliases:
+  - grid building material
+  - structural matrix
+  invokes: []
+  notes: A reference to a material used for constructing a grid, likely for energy
+    distribution or structural support.  The analogy itself is the key concept.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_5f375193_v1
+  canonical_phrase: fusion juice
+  aliases:
+  - fusion liquid
+  - energy elixir
+  invokes: []
+  notes: A specific, evocative term representing a key narrative element.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_645b3224_v1
+  canonical_phrase: plasma ion cloud accelerator
+  aliases:
+  - plasma
+  invokes: []
+  notes: This is the primary piece of hardware/technology used to initiate the energy
+    process. It is a core scientific concept.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_91561eb4_v1
+  canonical_phrase: quantum water
+  aliases:
+  - encoded water
+  invokes: []
+  notes: This is the specific, non-traditional medium used to transmit the converted
+    energy, distinguishing it from standard power lines.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_b13e24b6_v1
+  canonical_phrase: family collab on OLI
+  aliases:
+  - OLI
+  invokes: []
+  notes: This names the specific mechanism and group responsible for solving the critical
+    infrastructure problem (encoders/decoders).
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_3bd52722_v1
+  canonical_phrase: growing family
+  aliases: []
+  invokes: []
+  notes: This phrase represents the thematic concept that the narrative uses to establish
+    a critique of modern societal values and priorities.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c3c0ac7a_v1
+  canonical_phrase: It’s who you leave room for when the light starts runnin’ out.
+  aliases: []
+  invokes: []
+  notes: A metaphorical phrase representing a decline in resources or hope, used to
+    define the context in which true family is revealed.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_14679885_v1
+  canonical_phrase: fusion juice
+  aliases:
+  - fusion energy drink
+  invokes: []
+  notes: The medium through which humans directly absorb fusion energy.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_1aaf664e_v1
+  canonical_phrase: It’s who you leave room for when the light starts runnin’ out.
+  aliases: []
+  invokes: []
+  notes: A metaphorical phrase representing a decline in resources or hope, used to
+    define the context in which true family is revealed.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_621be350_v1
+  canonical_phrase: quantum water
+  aliases:
+  - encoded water
+  invokes: []
+  notes: A novel form of energy transmission, central to the technology's function.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_9cf0f1ad_v1
+  canonical_phrase: The Step
+  aliases: []
+  invokes: []
+  notes: Refers to a specific, symbolic action or moment within the post-credits sequence,
+    likely representing a transition or revelation.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_9f1549d6_v1
+  canonical_phrase: PVA glue
+  aliases: []
+  invokes: []
+  notes: A seemingly random object used in a surreal, symbolic gesture.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_9f4d5558_v1
+  canonical_phrase: Gravel voice
+  aliases: []
+  invokes: []
+  notes: A distinctive vocal characteristic used to identify a speaker or convey a
+    specific tone.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_a74b406b_v1
+  canonical_phrase: Slideshow Bob Burnham
+  aliases:
+  - divine disaster class logician
+  invokes: []
+  notes: A symbolic figure representing a chaotic and overloaded logic system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c56e2e76_v1
+  canonical_phrase: Moral Compression
+  aliases: []
+  invokes: []
+  notes: 'This phrase encapsulates the beat''s core message: a concise, impactful
+    redefinition of a complex moral concept.'
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_e0073928_v1
+  canonical_phrase: family
+  aliases:
+  - kin
+  - blood
+  invokes: []
+  notes: The concept of family is central to the narrative and undergoes a significant
+    reinterpretation, becoming a source of potential conflict or betrayal.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_7edc6247_v1
+  canonical_phrase: Plasma Ion Cloud Accelerator
+  aliases:
+  - PVA
+  invokes: []
+  notes: Central technology for fusion power generation; abbreviated as PVA.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_0437e888_v1
+  canonical_phrase: quantum water
+  aliases: []
+  invokes: []
+  notes: Encoded form of fusion output, crucial for power transmission.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_613a1085_v1
+  canonical_phrase: fusion juice
+  aliases: []
+  invokes: []
+  notes: A consumable substance that provides humans with direct energy absorption.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_17643af5_v1
+  canonical_phrase: Gravel voice
+  aliases: []
+  invokes: []
+  notes: A distinctive vocal characteristic used to identify a specific speaker or
+    persona.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_ad70c812_v1
+  canonical_phrase: Divine Disaster Class Logician
+  aliases: []
+  invokes: []
+  notes: A descriptor for a character or concept, suggesting a chaotic and overwhelming
+    intellect.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_a467b0a3_v1
+  canonical_phrase: Moral Compression
+  aliases: []
+  invokes: []
+  notes: Represents a specific philosophical or ethical principle articulated within
+    the narrative, likely to be a recurring theme or guiding principle for a character.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []

@@ -40,6 +40,26 @@
   .sw-wrap input:checked+.sw::after{transform:translateX(16px);background:var(--accent)}
   .sb-controls select{background:#1a1a2e;color:#e8e8f0;border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:4px 8px;font-family:inherit;font-size:12px;flex:1}
   .sb-controls select option{background:#1a1a2e;color:#e8e8f0}
+  /* Global: make <option> dropdowns opaque and legible against the dark theme */
+  select option{background:#151520;color:#e8e8f0}
+  select option:checked{background:#2a2a3e;color:#ffffff}
+  select option:hover{background:#2a2a3e}
+  /* Inspection drawer (AI Mine) — slides in from the right over dash content */
+  #mine-inspect-drawer{position:absolute;top:0;right:-460px;bottom:0;width:440px;background:linear-gradient(180deg,#0e0e18 0%,#0a0a14 100%);border-left:1px solid var(--border);box-shadow:-6px 0 24px rgba(0,0,0,0.45);z-index:20;transition:right .22s ease;display:flex;flex-direction:column;overflow:hidden}
+  #mine-inspect-drawer.open{right:0}
+  #mine-inspect-drawer .insp-head{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+  #mine-inspect-drawer .insp-body{flex:1;overflow-y:auto;padding:16px 18px;font-size:11px;line-height:1.55;color:var(--text)}
+  #mine-inspect-drawer .insp-foot{padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;flex-shrink:0;background:rgba(0,0,0,0.25)}
+  #mine-inspect-drawer h4{font-family:'Syne',sans-serif;font-size:13px;font-weight:600;margin:0 0 8px;color:var(--text)}
+  #mine-inspect-drawer .insp-field{margin-bottom:12px}
+  #mine-inspect-drawer .insp-label{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-dim);margin-bottom:3px}
+  #mine-inspect-drawer .insp-value{font-size:11px;color:var(--text);white-space:pre-wrap;word-break:break-word}
+  #mine-inspect-drawer textarea,#mine-inspect-drawer input[type=text]{width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:5px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;padding:6px 8px;resize:vertical;outline:none}
+  #mine-inspect-drawer textarea:focus,#mine-inspect-drawer input[type=text]:focus{border-color:var(--accent)}
+  #mine-inspect-drawer .insp-close{background:transparent;border:0;color:var(--text-dim);cursor:pointer;font-size:18px;line-height:1;padding:2px 6px}
+  #mine-inspect-drawer .insp-close:hover{color:var(--text)}
+  .mine-row-clickable{cursor:pointer;transition:background-color .1s}
+  .mine-row-clickable:hover{background:rgba(255,255,255,0.03)}
 
   /* ── Chat pane ── */
   .chat-pane{width:420px;min-width:280px;display:flex;flex-direction:column;border-right:1px solid var(--border);background:var(--bg);min-height:0;overflow:hidden;flex-shrink:0}
@@ -236,7 +256,7 @@
       <div style="border-top:1px solid var(--border);padding-top:6px;margin-top:4px">
         <div class="ctrl-row">
           <span class="ctrl-label">Model</span>
-          <select id="model-select" style="flex:1;max-width:140px" onchange="switchModel(this.value)">
+          <select id="model-select" style="flex:1;max-width:200px" onchange="switchModel(this.value)" title="Hover an option to see the raw Ollama tag">
             <option value="">loading…</option>
           </select>
         </div>
@@ -292,7 +312,7 @@
           <div class="leg-label">Neural Activity</div>
           <div class="leg-row"><svg width="28" height="14"><defs><radialGradient id="gH"><stop offset="0%" stop-color="#0AAC00" stop-opacity=".3"/><stop offset="100%" stop-color="#0AAC00" stop-opacity="0"/></radialGradient></defs><circle cx="14" cy="7" r="7" fill="url(#gH)"/><circle cx="14" cy="7" r="3" fill="#0AAC00" opacity="1"/></svg> firing (conv. hit)</div>
           <div class="leg-row"><svg width="28" height="14"><circle cx="14" cy="7" r="3" fill="#0AAC00" opacity=".12"/></svg> resting</div>
-          <div class="leg-row"><svg width="28" height="14"><defs><filter id="gGold"><feGaussianBlur stdDeviation="1.5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><line x1="4" y1="7" x2="24" y2="7" stroke="#FFD228" stroke-width="3" filter="url(#gGold)" opacity="0.7"/><line x1="4" y1="7" x2="24" y2="7" stroke="#FFF5B4" stroke-width="1" opacity="0.9"/></svg> conversation trace</div>
+          <div class="leg-row" style="cursor:pointer" onclick="_cycleTrailMode()" title="Click to cycle trace source: auto / narrative / conversation"><svg width="28" height="14"><defs><filter id="gGold"><feGaussianBlur stdDeviation="1.5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><line x1="4" y1="7" x2="24" y2="7" stroke="#FFD228" stroke-width="3" filter="url(#gGold)" opacity="0.7"/><line x1="4" y1="7" x2="24" y2="7" stroke="#FFF5B4" stroke-width="1" opacity="0.9"/></svg> trace <span id="trace-mode-badge" style="font-size:9px;color:#FFD228;margin-left:4px;padding:1px 5px;border:1px solid rgba(255,210,40,0.35);border-radius:3px;font-family:'JetBrains Mono',monospace">auto</span></div>
         </div>
         <div class="leg-section">
           <div class="leg-label">Outline → Status</div>
@@ -301,7 +321,7 @@
         </div>
         <div class="leg-section" style="color:#3a4060;margin-top:2px">
           <div>drag — orbit</div>
-          <div>middle-drag — pan</div>
+          <div>shift+drag / middle-drag — pan</div>
           <div>scroll — zoom to cursor</div>
           <div>click — inspect</div>
           <div>dbl-click — heat</div>
@@ -359,13 +379,43 @@
         <div class="dn-item" data-page="stale" onclick="dashNav('stale')"><span class="dn-icon">&#9888;</span> Stale Review</div>
         <div class="dn-item" data-page="mine" onclick="dashNav('mine')"><span class="dn-icon">&#9889;</span> AI Mine</div>
         <div class="dn-item" data-page="verify" onclick="dashNav('verify')"><span class="dn-icon">&#10003;</span> Verify</div>
+        <div class="dn-item" data-page="tentative" onclick="dashNav('tentative')"><span class="dn-icon">&#9901;</span> Tentative</div>
         <div class="dn-item" data-page="export" onclick="dashNav('export')"><span class="dn-icon">&#8681;</span> Export</div>
         <div class="dn-item" data-page="settings" onclick="dashNav('settings')"><span class="dn-icon">&#9881;</span> Settings</div>
       </div>
     </div>
     <!-- Dashboard content -->
-    <div style="flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden">
+    <div style="flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative">
+      <!-- Global collection header — always visible across every dashboard page -->
+      <div id="dash-global-header" style="flex-shrink:0;padding:14px 36px 10px;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.15)">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:14px">
+          <div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1">
+            <span style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em;flex-shrink:0">Active Corpus</span>
+            <select id="dash-collection-select" onchange="_switchDashCollection(this.value)" style="background:rgba(255,255,255,0.06);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 12px;font-size:11px;font-family:'JetBrains Mono',monospace;outline:none;cursor:pointer;min-width:220px">
+              <option value="__all__">All (merged)</option>
+            </select>
+            <span id="dash-collection-badge" style="font-size:10px;color:var(--text-dim);font-family:JetBrains Mono,monospace"></span>
+          </div>
+          <div id="dash-collection-chips" style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:55%"></div>
+        </div>
+      </div>
       <div id="dash-content" style="flex:1;overflow-y:auto;padding:28px 36px"></div>
+      <!-- Inspection drawer: slides in from the right inside the dash content area -->
+      <div id="mine-inspect-drawer" aria-hidden="true">
+        <div class="insp-head">
+          <div>
+            <div id="insp-type-badge" style="font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--text-dim);margin-bottom:2px"></div>
+            <div id="insp-title" style="font-family:'Syne',sans-serif;font-size:14px;font-weight:600;color:var(--text)"></div>
+          </div>
+          <button class="insp-close" onclick="_mineCloseInspect()" title="Close">&times;</button>
+        </div>
+        <div class="insp-body" id="insp-body"></div>
+        <div class="insp-foot" id="insp-foot">
+          <button class="dbtn dbtn-grey" style="padding:5px 12px;font-size:10px" onclick="_mineCloseInspect()">Close</button>
+          <div style="flex:1"></div>
+          <span id="insp-actions"></span>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -384,6 +434,30 @@
   <!-- Bottom half: amended corpus preview (canvas) -->
   <div id="commit-corpus" style="flex:1;overflow-y:auto;padding:16px 20px;font-size:11px"></div>
 </div>
+<!-- Phase 2A: New Chat → Collection binding modal -->
+<div id="new-chat-modal" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(4,5,12,0.78);backdrop-filter:blur(10px);align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace">
+  <div style="background:rgba(12,14,24,0.98);border:1px solid var(--border);border-radius:10px;padding:22px 24px;min-width:380px;max-width:440px;box-shadow:0 12px 40px rgba(0,0,0,0.7)">
+    <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:4px">New Chat</div>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;line-height:1.5">Drafts mined during this chat will target the collection you pick below.</div>
+
+    <label style="display:block;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Existing collection</label>
+    <select id="ncm-collection-select" style="width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:7px 9px;font-family:inherit;font-size:12px;margin-bottom:14px">
+      <option value="">— loading —</option>
+    </select>
+
+    <div style="text-align:center;font-size:10px;color:var(--text-dim);margin:2px 0 10px">— or —</div>
+
+    <label style="display:block;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Create new collection</label>
+    <input id="ncm-collection-new" type="text" placeholder="e.g. vindiesel_v2" style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:7px 9px;font-family:inherit;font-size:12px;margin-bottom:6px">
+    <div style="font-size:10px;color:var(--text-dim);margin-bottom:18px">Picking an existing collection is ignored if you type a new name here.</div>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px">
+      <button id="ncm-cancel" style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:5px;color:var(--text-dim);padding:7px 14px;font-family:inherit;font-size:11px;cursor:pointer">Cancel</button>
+      <button id="ncm-create" style="background:var(--accent);border:none;border-radius:5px;color:#000;padding:7px 16px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">Create chat</button>
+    </div>
+  </div>
+</div>
+
 <!-- §14.2 End-of-Session Review — full-screen modal over everything -->
 <div id="end-review-panel" style="display:none;position:fixed;inset:0;z-index:80;background:rgba(4,5,12,0.92);backdrop-filter:blur(14px);font-family:'JetBrains Mono',monospace;flex-direction:column">
   <div style="padding:18px 28px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
@@ -432,6 +506,26 @@
 <script>
 const API='/api';
 let currentChatId=null, currentSessionId=null, oliMode='OFF', sending=false;
+// Map draft_id -> session_id of the session that actually owns the draft's
+// sidecar files. Populated by chat-scoped listings (which aggregate across
+// sessions) so per-draft action endpoints (amend/review/verify/preview)
+// route to the correct session dir even when the draft was created in a
+// previous session of the same chat.
+const _draftSessionMap={};
+function _draftSess(draftId){return _draftSessionMap[draftId]||currentSessionId;}
+// List-drafts helper: prefers chat scope so drafts follow the chat across
+// session boundaries. Falls back to session scope only if no chat is active.
+async function _fetchDraftsForCurrentView(qs=''){
+  let url;
+  if(currentChatId)url=`${API}/chats/${currentChatId}/drafts${qs}`;
+  else if(currentSessionId)url=`${API}/sessions/${currentSessionId}/drafts${qs}`;
+  else return [];
+  const r=await fetch(url);
+  if(!r.ok)return [];
+  const drafts=await r.json();
+  for(const d of drafts){if(d.session_id)_draftSessionMap[d.id]=d.session_id;}
+  return drafts;
+}
 let _activeReader=null; // tracks in-flight SSE stream so we can cancel on chat switch
 let webMode='off', thinkLevel='medium'; // webMode: 'off' | 'on' | 'auto'
 let selectedNodes=new Set(); // multi-select for bundling
@@ -452,9 +546,11 @@ async function loadModelList(){
     models.forEach(m=>{
       const opt=document.createElement('option');
       opt.value=m.name;
-      // Show name + size
       const gb=(m.size/1e9).toFixed(1);
-      opt.textContent=`${m.name} (${gb}GB)`;
+      // Prefer server-emitted friendly label; fall back to raw tag.
+      const label=m.label||m.name;
+      opt.textContent=`${label} (${gb}GB)`;
+      opt.title=m.name;  // hover shows the raw Ollama tag for verification
       if(m.name===active)opt.selected=true;
       sel.appendChild(opt);
     });
@@ -708,10 +804,15 @@ function draw(){
       (DRAW[st.draw]||drawConcept)(cx,p.sx,p.sy,r,col,alpha);
     }
 
-    // Status overlay: tentative = yellow dashed ring, rejected = grey dashed ring
+    // Status overlay: tentative = yellow/orange dashed ring, rejected = grey dashed ring
+    // library_tentative (on-disk PROVISIONAL) uses a deeper orange to distinguish from
+    // frame-tentative (in-session candidates).
     if(n.status==='tentative'&&!n.rejected){
       cx.beginPath();cx.arc(p.sx,p.sy,r*1.6,0,Math.PI*2);
-      cx.setLineDash([3,3]);cx.strokeStyle=`rgba(251,191,36,${alpha*.6})`;cx.lineWidth=1.2;cx.stroke();cx.setLineDash([]);
+      cx.setLineDash([3,3]);
+      if(n.library_tentative){cx.strokeStyle=`rgba(255,140,0,${alpha*.75})`;cx.lineWidth=1.5}
+      else{cx.strokeStyle=`rgba(251,191,36,${alpha*.6})`;cx.lineWidth=1.2}
+      cx.stroke();cx.setLineDash([]);
     }
     if(n.rejected){
       cx.beginPath();cx.arc(p.sx,p.sy,r*1.6,0,Math.PI*2);
@@ -763,6 +864,11 @@ function draw(){
     cx.save();
     cx.globalCompositeOperation='lighter';
     cx.lineCap='round';
+    // Session-canvas trace: keep the gold line visible but dial back the
+    // bright effects (spark glow, white-hot core, flash, ring pulses). The
+    // line is the information carrier; everything else is ornament, so only
+    // the ornaments get the 50% reduction via DIM below.
+    const DIM=0.5;
 
     const GOLD={r:255,g:210,b:40};
     const GOLD_BRIGHT={r:255,g:245,b:180};
@@ -774,10 +880,43 @@ function draw(){
     gEdges.forEach(e=>{_sEdgeSet.add(e.from+'→'+e.to);_sEdgeSet.add(e.to+'→'+e.from)});
 
     const totalSegs=_sTrail.length-1;
-    const sparkSpeed=0.00026;
-    const sparkPos=(t*sparkSpeed)%1;
-    const sparkSeg=Math.floor(sparkPos*totalSegs);
-    const sparkFrac=sparkPos*totalSegs-sparkSeg;
+    // Per-segment timing: each segment takes 1–3 seconds, scaled linearly by
+    // its on-screen distance. Short hops between tight spine nodes take 1s;
+    // long orphan jumps max out at 3s. The orb thus has a minimum dwell
+    // between every pair of nodes — the eye can always follow.
+    const _segDist=[],_segMs=[];let _totalMs=0;
+    for(let i=1;i<_sTrail.length;i++){
+      const p1=sPMap[_sTrail[i-1].id],p2=sPMap[_sTrail[i].id];
+      const d=(p1&&p2)?Math.hypot(p2.sx-p1.sx,p2.sy-p1.sy):0;
+      _segDist.push(d);
+      // 100 px → 1s, 300 px → 3s, clamped outside [100, 300]
+      const ms=Math.max(1000,Math.min(3000,d*10));
+      _segMs.push(ms);_totalMs+=ms;
+    }
+    // Accumulating progress: dt added each frame, wraps at _totalMs. Immune
+    // to frame-to-frame _totalMs fluctuations (node physics jitter makes
+    // distances shift, which would otherwise make `t % _totalMs` jump around
+    // discontinuously and flash the whole trail).
+    if(window._sSparkLastT==null)window._sSparkLastT=t;
+    if(window._sSparkProg==null)window._sSparkProg=0;
+    const _dt=Math.min(100,t-window._sSparkLastT); // clamp dt to avoid huge jumps on tab-unfocus
+    window._sSparkLastT=t;
+    let sparkSeg=0,sparkFrac=0,sparkPos=0;
+    if(_totalMs>0){
+      window._sSparkProg=(window._sSparkProg+_dt)%_totalMs;
+      const cyc=window._sSparkProg;
+      sparkPos=cyc/_totalMs;
+      let acc=0;
+      for(let i=0;i<_segMs.length;i++){
+        if(acc+_segMs[i]>=cyc){sparkSeg=i;sparkFrac=_segMs[i]>0?(cyc-acc)/_segMs[i]:0;break;}
+        acc+=_segMs[i];
+      }
+    }else{
+      const fallback=(t*0.00026)%1;
+      sparkPos=fallback;sparkSeg=Math.floor(fallback*totalSegs);sparkFrac=fallback*totalSegs-sparkSeg;
+    }
+    const _nodePos=[0];
+    for(let i=0;i<_segMs.length;i++)_nodePos.push(_nodePos[i]+(_totalMs>0?_segMs[i]/_totalMs:1/totalSegs));
 
     // Draw trail segments
     for(let i=1;i<_sTrail.length;i++){
@@ -802,7 +941,7 @@ function draw(){
         // White-hot center
         if(age>0.4){
           cx.beginPath();cx.moveTo(prev.sx,prev.sy);cx.lineTo(curr.sx,curr.sy);
-          cx.strokeStyle=`rgba(${GOLD_BRIGHT.r},${GOLD_BRIGHT.g},${GOLD_BRIGHT.b},${(age-0.4)*0.4})`;
+          cx.strokeStyle=`rgba(${GOLD_BRIGHT.r},${GOLD_BRIGHT.g},${GOLD_BRIGHT.b},${(age-0.4)*0.4*DIM})`;
           cx.lineWidth=0.8+age*0.8;cx.stroke();
         }
       } else {
@@ -819,9 +958,12 @@ function draw(){
         const sx=prev.sx+(curr.sx-prev.sx)*sparkFrac;
         const sy=prev.sy+(curr.sy-prev.sy)*sparkFrac;
         const sparkR=10+age*6;
+        // Spark is the orb the eye tracks — give it 1.5× the normal DIM so
+        // it reads clearly even when surrounding bloom is dialed back.
+        const SPARK_DIM=Math.min(1,DIM*1.5);
         const sg=cx.createRadialGradient(sx,sy,0,sx,sy,sparkR);
-        sg.addColorStop(0,'rgba(255,255,220,0.5)');
-        sg.addColorStop(0.35,`rgba(${GOLD.r},${GOLD.g},${GOLD.b},0.25)`);
+        sg.addColorStop(0,`rgba(255,255,220,${0.5*SPARK_DIM})`);
+        sg.addColorStop(0.35,`rgba(${GOLD.r},${GOLD.g},${GOLD.b},${0.25*SPARK_DIM})`);
         sg.addColorStop(1,`rgba(${GOLD.r},${GOLD.g},${GOLD.b},0)`);
         cx.beginPath();cx.arc(sx,sy,sparkR,0,Math.PI*2);
         cx.fillStyle=sg;cx.fill();
@@ -846,14 +988,14 @@ function draw(){
     // Node pulses (spark-triggered)
     _sTrail.forEach((n,i)=>{
       const p=sPMap[n.id];if(!p||p.scale<=0.01)return;
-      const nodePos=i/totalSegs;
+      const nodePos=_nodePos[i]!=null?_nodePos[i]:i/totalSegs;
       let delta=sparkPos-nodePos;
       if(delta<0)delta+=1;
 
       if(delta<0.15){
         const phase=delta/0.15;
         const pulseR=(8+phase*30)*p.scale;
-        const pulseA=(1-phase)*0.5;
+        const pulseA=(1-phase)*0.5*DIM;
         cx.beginPath();cx.arc(p.sx,p.sy,pulseR,0,Math.PI*2);
         cx.strokeStyle=`rgba(${GOLD.r},${GOLD.g},${GOLD.b},${pulseA})`;
         cx.lineWidth=2.5*(1-phase*0.6);cx.stroke();
@@ -862,7 +1004,7 @@ function draw(){
           const flashI=(1-phase/0.3);
           const flashR=6*p.scale;
           const fg=cx.createRadialGradient(p.sx,p.sy,0,p.sx,p.sy,flashR);
-          fg.addColorStop(0,`rgba(255,250,200,${flashI*0.4})`);
+          fg.addColorStop(0,`rgba(255,250,200,${flashI*0.4*DIM})`);
           fg.addColorStop(1,`rgba(${GOLD.r},${GOLD.g},${GOLD.b},0)`);
           cx.beginPath();cx.arc(p.sx,p.sy,flashR,0,Math.PI*2);
           cx.fillStyle=fg;cx.fill();
@@ -941,7 +1083,12 @@ function hitTest(mx,my){
 }
 
 canvas.addEventListener('mousedown',e=>{
-  if(e.button===0)drag={x:e.clientX,y:e.clientY,th:cam.theta,ph:cam.phi,px:cam.panX,py:cam.panY,btn:0};
+  if(e.button===0&&e.shiftKey){
+    // Shift+left-drag = pan (fallback when middle-drag is unavailable, e.g. Razer Synapse)
+    drag={x:e.clientX,y:e.clientY,px:cam.panX,py:cam.panY,btn:1};
+  }else if(e.button===0){
+    drag={x:e.clientX,y:e.clientY,th:cam.theta,ph:cam.phi,px:cam.panX,py:cam.panY,btn:0};
+  }
   if(e.button===1){e.preventDefault();drag={x:e.clientX,y:e.clientY,px:cam.panX,py:cam.panY,btn:1}} // middle = pan
 });
 const tooltipEl=document.getElementById('tooltip');
@@ -995,8 +1142,11 @@ canvas.addEventListener('mouseup',e=>{
     drag=null;
   }
 });
-// Prevent middle-click default (auto-scroll)
+// Prevent middle-click default (auto-scroll). Must be at pointerdown and
+// in capture phase — mousedown preventDefault runs too late in Chrome.
 canvas.addEventListener('auxclick',e=>{if(e.button===1)e.preventDefault()});
+canvas.addEventListener('pointerdown',e=>{if(e.button===1)e.preventDefault()},{capture:true});
+canvas.addEventListener('mousedown',e=>{if(e.button===1)e.preventDefault()},{capture:true});
 canvas.addEventListener('dblclick',e=>{  // double click = heat only (no inspector)
   const rect=canvas.getBoundingClientRect();
   const n=hitTest(e.clientX-rect.left,e.clientY-rect.top);
@@ -1320,12 +1470,32 @@ async function deleteCorpusNode(nodeId){
 //  CORPUS DASHBOARD
 // ═══════════════════════════════════════════════════════════════
 let dashData=null;
+let _dashCollection='__all__'; // active collection filter for entire dashboard
+let _dashCollections=[];       // cached collection list
 
 let dashPage='dashboard';
 
+async function _fetchDashData(){
+  const qp=_dashCollection!=='__all__'?`?collection=${_dashCollection}`:'';
+  dashData=await fetch(`${API}/corpus/full${qp}`).then(r=>r.json());
+}
+
+async function _fetchDashCollections(){
+  try{
+    const res=await fetch(`${API}/collections`);
+    if(res.ok) _dashCollections=(await res.json()).collections||[];
+  }catch(e){}
+}
+
+async function _switchDashCollection(cid){
+  _dashCollection=cid;
+  await _fetchDashData();
+  dashNav(dashPage); // re-render current page with new data
+}
+
 async function openDashboard(){
   try{
-    dashData=await fetch(`${API}/corpus/full`).then(r=>r.json());
+    await Promise.all([_fetchDashData(), _fetchDashCollections()]);
   }catch(e){pushEvent('corpus',`Dashboard load failed: ${e.message}`);return}
   document.getElementById('dashboard-panel').style.display='flex';
   dashNav('dashboard');
@@ -1353,10 +1523,13 @@ function dashNav(page){
     stale:dashPageStale,
     mine:dashPageMine,
     verify:dashPageVerify,
+    tentative:dashPageTentative,
     export:dashPageExport,
     settings:dashPageSettings,
   };
   (render[page]||dashPageOverview)(c);
+  // Keep the global corpus header in sync on every navigation
+  _renderDashCollections();
 }
 
 // ── Helpers ──
@@ -1384,12 +1557,12 @@ function dashPageOverview(c){
   let recentHtml='<div class="dpanel-empty">No recent activity</div>';
 
   c.innerHTML=`
-    <div style="margin-bottom:6px">
+    <div style="margin-bottom:14px">
       <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:600;color:var(--text)">Corpus Dashboard</div>
       <div style="font-size:11px;color:var(--text-dim);margin-top:3px">Prime's Shadow — semantic persistence layer</div>
     </div>
 
-    <div style="display:flex;gap:14px;margin:22px 0">
+    <div style="display:flex;gap:14px;margin:10px 0 22px">
       <div class="ds-card" style="position:relative;cursor:pointer" onclick="dashNav('anchors')">
         <div class="ds-label">ANCHORS</div>
         <div class="ds-value">${na}</div>
@@ -1446,14 +1619,14 @@ function dashPageOverview(c){
 
   // Async load drafts
   if(currentSessionId){
-    fetch(`${API}/sessions/${currentSessionId}/drafts`).then(r=>r.json()).then(drafts=>{
+    _fetchDraftsForCurrentView().then(drafts=>{
       const el=document.getElementById('dash-draft-body');
       if(!el)return;
       if(!drafts.length){el.innerHTML='<div class="dpanel-empty">No pending drafts</div>';return}
       const parent=el.closest('.dpanel');
       if(parent)parent.querySelector('.dpanel-title').innerHTML=`<span class="dpanel-icon">&#9633;</span> Draft Stack (${drafts.length} pending)`;
       el.innerHTML=drafts.map(d=>`<div style="padding:6px 10px;background:rgba(255,255,255,0.02);border-radius:5px;border:1px solid rgba(255,255,255,0.04);margin-bottom:4px">
-        <div style="display:flex;justify-content:space-between"><span style="color:var(--text);font-size:10px">${d.id}</span><span style="font-size:9px;color:${_sc[d.status]||'var(--text-dim)'}">${d.status}</span></div>
+        <div style="display:flex;justify-content:space-between;gap:6px"><span style="color:var(--text);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(d.id)}">${_esc(_draftEntityName(d))}</span><span style="font-size:9px;color:${_sc[d.status]||'var(--text-dim)'};flex-shrink:0">${d.status}</span></div>
         <div style="font-size:9px;color:var(--text-dim);margin-top:2px">conf: ${(d.confidence*100).toFixed(0)}% | turns: ${(d.source_turns||[]).join(',')}</div>
       </div>`).join('');
     }).catch(()=>{});
@@ -1468,6 +1641,96 @@ function dashPageOverview(c){
       <div style="margin-top:4px">Ollama chat: ${h.ollama?.chat_model?'<span style="color:#0AAC00">'+h.ollama.chat_model+'</span>':'<span style="color:#ff4444">offline</span>'}</div>
       <div style="margin-top:2px">Corpus valid: ${h.corpus_valid?'<span style="color:#0AAC00">yes</span>':'<span style="color:#ff4444">'+h.corpus_errors?.length+' errors</span>'}</div>`;
   }).catch(()=>{});
+
+  // Populate collection dropdown + chips
+  _renderDashCollections();
+}
+
+async function _renderDashCollections(){
+  await _fetchDashCollections();
+  // Dropdown
+  const sel=document.getElementById('dash-collection-select');
+  if(sel){
+    sel.innerHTML='<option value="__all__">All (merged)</option>';
+    for(const c of _dashCollections){
+      const opt=document.createElement('option');
+      opt.value=c.id;
+      opt.textContent=`${c.id} (${c.anchors}a / ${c.slabs}s / ${c.bundles}b)`;
+      if(c.id===_dashCollection)opt.selected=true;
+      sel.appendChild(opt);
+    }
+    if(_dashCollection!=='__all__')sel.value=_dashCollection;
+  }
+  // Active-corpus badge (global header)
+  const badge=document.getElementById('dash-collection-badge');
+  if(badge){
+    const na=(dashData.anchors||[]).length, ns=(dashData.slabs||[]).length, nb=(dashData.bundles||[]).length, ne=(dashData.edges||[]).length;
+    const scope=_dashCollection==='__all__'?'merged view':`subgraph: ${_dashCollection}`;
+    badge.innerHTML=`<span style="color:var(--text-dim)">${scope}</span> <span style="color:#0AAC00;margin-left:8px">${na}a</span> <span style="color:#0050EB">${ns}s</span> <span style="color:#B4009E">${nb}b</span> <span style="color:var(--text-dim)">${ne}e</span>`;
+  }
+  // Chips
+  const container=document.getElementById('dash-collection-chips');
+  if(!container)return;
+  let html='';
+  for(const c of _dashCollections){
+    const isActive=c.active;
+    const chipBg=isActive
+      ?'background:rgba(10,172,0,0.12);border-color:rgba(10,172,0,0.35);color:#0AAC00'
+      :'background:rgba(255,255,255,0.03);border-color:var(--border);color:var(--text-dim)';
+    const nameStyle=isActive?'':'text-decoration:line-through;opacity:0.6';
+    const isViewing=c.id===_dashCollection;
+    const viewRing=isViewing?'box-shadow:0 0 0 2px var(--accent);':'';
+    html+=`<div style="display:inline-flex;align-items:center;gap:3px">
+      <div style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;border:1px solid;font-size:10px;cursor:pointer;${chipBg};${viewRing}" onclick="_switchDashCollection('${c.id}')" title="View ${c.id}">
+        <span style="font-size:9px">${isActive?'●':'○'}</span>
+        <span style="font-weight:600;${nameStyle}">${_esc(c.id)}</span>
+        <span style="opacity:0.6">${c.anchors}a / ${c.slabs}s / ${c.bundles}b</span>
+      </div>`;
+    // Action buttons (not for default's toggle, but keep delete off default)
+    html+=`<button title="${isActive?'Deactivate':'Activate'}" onclick="event.stopPropagation();_dashToggleCollection('${c.id}',${!isActive})" style="background:rgba(255,255,255,0.06);border:1px solid var(--border);border-radius:4px;color:${isActive?'#ff6b6b':'#0AAC00'};cursor:pointer;font-size:9px;padding:2px 6px;line-height:1">${isActive?'OFF':'ON'}</button>`;
+    if(c.id!=='default'){
+      html+=`<button title="Delete collection" onclick="event.stopPropagation();_dashDeleteCollection('${c.id}')" style="background:rgba(255,255,255,0.06);border:1px solid var(--border);border-radius:4px;color:#ff4444;cursor:pointer;font-size:9px;padding:2px 6px;line-height:1">&#128465;</button>`;
+    }
+    html+=`</div>`;
+  }
+  html+=`<div style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:6px;border:1px dashed var(--border);font-size:10px;cursor:pointer;color:var(--text-dim)" onclick="_dashCreateCollection()">+ New</div>`;
+  container.innerHTML=html;
+}
+
+async function _dashToggleCollection(cid,active){
+  try{
+    await fetch(`${API}/collections/${cid}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({active})});
+    await _fetchDashData();
+    await _renderDashCollections();
+    // Also refresh AI Mine chips if they exist
+    if(typeof _loadCollections==='function')_loadCollections().then(()=>{if(typeof _renderCollectionChips==='function')_renderCollectionChips()});
+  }catch(e){alert('Error: '+e.message)}
+}
+
+async function _dashDeleteCollection(cid){
+  if(!confirm(`Permanently delete collection '${cid}' and all its files?`))return;
+  if(!confirm(`Are you sure? This cannot be undone.`))return;
+  try{
+    const res=await fetch(`${API}/collections/${cid}?purge=true`,{method:'DELETE'});
+    if(!res.ok){const err=await res.json();alert(err.detail||'Failed');return}
+    if(_dashCollection===cid)_dashCollection='__all__';
+    await _fetchDashData();
+    _renderDashCollections();
+    dashNav(dashPage); // refresh stat cards
+  }catch(e){alert('Error: '+e.message)}
+}
+
+async function _dashCreateCollection(){
+  const name=prompt('New collection name (lowercase, no spaces):');
+  if(!name)return;
+  try{
+    const res=await fetch(`${API}/collections`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    if(!res.ok){const err=await res.json();alert(err.detail||'Failed');return}
+    const result=await res.json();
+    _dashCollection=result.id;
+    await Promise.all([_fetchDashData(), _fetchDashCollections()]);
+    dashNav(dashPage);
+  }catch(e){alert('Error: '+e.message)}
 }
 
 // ── Expandable edit form helpers ──
@@ -1576,7 +1839,7 @@ async function dashSaveAnchor(nodeId){
       });
     }
     pushEvent('corpus',`Updated ${nodeId}`);
-    dashData=await fetch(`${API}/corpus/full`).then(r=>r.json());
+    await _fetchDashData();
     dashNav('anchors');
     corpusLoaded=false;
   }catch(e){alert(e.message)}
@@ -1740,13 +2003,26 @@ async function dashSaveSlab(nodeId){
       });
     }
     pushEvent('corpus',`Updated ${nodeId}`);
-    dashData=await fetch(`${API}/corpus/full`).then(r=>r.json());
+    await _fetchDashData();
     dashNav('slabs');
     corpusLoaded=false;
   }catch(e){alert(e.message)}
 }
 
 // ── Graph page (edges) ──
+function _resolveEntityName(id){
+  if(!id)return{name:'—',type:'unknown'};
+  const a=(dashData.anchors||[]).find(x=>x.id===id);
+  if(a)return{name:a.canonical_phrase||id,type:'anchor',color:'#0AAC00'};
+  const s=(dashData.slabs||[]).find(x=>x.id===id);
+  if(s)return{name:s.title||id,type:'slab',color:'#0050EB'};
+  const b=(dashData.bundles||[]).find(x=>x.id===id);
+  if(b)return{name:(b.payload?.intent||[])[0]||id,type:'bundle',color:'#B4009E'};
+  // check key_bundles (coherence bundles)
+  const kb=(dashData.key_bundles||[]).find(x=>x.id===id);
+  if(kb)return{name:(kb.payload?.intent||[])[0]||id,type:'key_bundle',color:'#B4009E'};
+  return{name:id,type:'unknown',color:'var(--text-dim)'};
+}
 function dashPageGraph(c){
   const edges=dashData.edges||[];
   c.innerHTML=`
@@ -1754,16 +2030,18 @@ function dashPageGraph(c){
       <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text)">Graph Edges <span style="font-size:13px;color:var(--text-dim);font-weight:400">(${edges.length})</span></div>
     </div>
     <table class="dtable"><thead><tr>
-      <th>ID</th><th>From</th><th>To</th><th>Type</th><th>Weight</th>
+      <th>From</th><th>To</th><th>Type</th><th>Weight</th>
     </tr></thead><tbody></tbody></table>`;
 
   const tbody=c.querySelector('tbody');
   edges.forEach(e=>{
+    const from=_resolveEntityName(e.from);
+    const to=_resolveEntityName(e.to);
+    const typeBadge=e.type==='SUPPORTS'?'color:#34d399':'color:#fbbf24';
     tbody.innerHTML+=`<tr>
-      <td style="font-size:10px;color:var(--text-dim)">${e.id||'—'}</td>
-      <td style="font-size:10px">${e.from||'—'}</td>
-      <td style="font-size:10px">${e.to||'—'}</td>
-      <td style="font-size:10px;color:var(--text-dim)">${e.type||'—'}</td>
+      <td><div style="font-size:11px;color:${from.color};font-weight:500;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${from.name}</div><div style="font-size:8px;color:var(--text-dim);font-family:JetBrains Mono,monospace;margin-top:1px">${e.from||'—'}</div></td>
+      <td><div style="font-size:11px;color:${to.color};font-weight:500;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${to.name}</div><div style="font-size:8px;color:var(--text-dim);font-family:JetBrains Mono,monospace;margin-top:1px">${e.to||'—'}</div></td>
+      <td style="font-size:10px;${typeBadge};font-weight:500">${e.type||'—'}</td>
       <td style="font-size:10px;color:var(--text-dim)">${(e.weight||e.confidence||0).toFixed(2)}</td>
     </tr>`;
   });
@@ -1813,31 +2091,59 @@ function dashPageFrame(c){
 
 // ── Drafts page ──
 function dashPageDrafts(c){
-  if(!currentSessionId){
-    c.innerHTML='<div style="font-family:\'Syne\',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Drafts</div><div class="dpanel-empty">No active session.</div>';
+  if(!currentSessionId && !currentChatId){
+    c.innerHTML='<div style="font-family:\'Syne\',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Drafts</div><div class="dpanel-empty">No active chat.</div>';
     return;
   }
   c.innerHTML='<div style="font-family:\'Syne\',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Drafts</div><div class="dpanel-empty">Loading...</div>';
-  fetch(`${API}/sessions/${currentSessionId}/drafts`).then(r=>r.json()).then(drafts=>{
+  const scope=(_dashCollection&&_dashCollection!=='__all__')?_dashCollection:null;
+  const qs=scope?`?collection_id=${encodeURIComponent(scope)}`:'';
+  _fetchDraftsForCurrentView(qs).then(drafts=>{
+    const scopeLabel=scope?`<span style="font-size:10px;color:var(--text-dim);font-weight:400;margin-left:8px">filter: <span style="color:#ff8c00;font-family:JetBrains Mono,monospace">${_esc(scope)}</span></span>`:'<span style="font-size:10px;color:var(--text-dim);font-weight:400;margin-left:8px">all collections</span>';
     if(!drafts.length){
-      c.innerHTML='<div style="font-family:\'Syne\',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Drafts <span style="font-size:13px;color:var(--text-dim);font-weight:400">(0)</span></div><div class="dpanel-empty">No drafts in this session.</div>';
+      c.innerHTML=`<div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Drafts <span style="font-size:13px;color:var(--text-dim);font-weight:400">(0)</span>${scopeLabel}</div><div class="dpanel-empty">${scope?`No drafts targeting <strong>${_esc(scope)}</strong>. Switch Active Corpus to "All" to see drafts for other collections.`:'No drafts in this session.'}</div>`;
       return;
     }
     c.innerHTML=`
-      <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Drafts <span style="font-size:13px;color:var(--text-dim);font-weight:400">(${drafts.length})</span></div>
+      <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Drafts <span style="font-size:13px;color:var(--text-dim);font-weight:400">(${drafts.length})</span>${scopeLabel}</div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:10px;color:var(--text-dim)">
+          <input type="checkbox" id="drafts-select-all" onchange="document.querySelectorAll('.drafts-cb').forEach(cb=>cb.checked=this.checked)" style="cursor:pointer"> Select All
+        </label>
+        <div style="flex:1"></div>
+        <button class="dbtn dbtn-green" onclick="_draftsBulkAction('promote_corpus')">Promote Selected</button>
+        <button class="dbtn dbtn-red" onclick="_draftsBulkAction('discard')">Discard Selected</button>
+      </div>
       <table class="dtable"><thead><tr>
-        <th>ID</th><th>Type</th><th>Status</th><th>Confidence</th><th>Source Turns</th><th>Justification</th>
-      </tr></thead><tbody>${drafts.map(d=>`<tr>
-        <td style="font-size:10px">${d.id}</td>
-        <td style="font-size:10px;color:var(--text-dim)">${d.packet_type||'anchor'}</td>
+        <th style="width:24px"></th><th>Name</th><th>Type</th><th>\u2192 Collection</th><th>Status</th><th>Confidence</th><th>Source</th><th>Justification</th>
+      </tr></thead><tbody>${drafts.map(d=>{
+        const name=_draftEntityName(d);
+        const type=d.packet_type||'anchor';
+        const tc=_tc[type]||'#888';
+        const coll=d.collection_id||'default';
+        return `<tr class="mine-row-clickable" onclick="_inspOpenDraft('${d.id}')">
+        <td onclick="event.stopPropagation()"><input type="checkbox" class="drafts-cb" data-id="${d.id}" style="cursor:pointer"></td>
+        <td style="font-size:11px;color:var(--text);font-weight:500">${_esc(name)}</td>
+        <td style="font-size:10px;color:${tc}">${type}</td>
+        <td style="font-size:10px"><span style="background:rgba(255,140,0,0.1);border:1px solid rgba(255,140,0,0.35);color:#ff8c00;border-radius:3px;padding:1px 7px;font-family:'JetBrains Mono',monospace">${_esc(coll)}</span></td>
         <td>${_statusBadge(d.status||'DRAFT_UNAUTHORIZED')}</td>
         <td style="font-size:10px;color:var(--text-dim)">${((d.confidence||0)*100).toFixed(0)}%</td>
         <td style="font-size:10px;color:var(--text-dim)">${(d.source_turns||[]).join(', ')}</td>
-        <td style="font-size:10px;color:var(--text-dim);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.justification||'—'}</td>
-      </tr>`).join('')}</tbody></table>`;
+        <td style="font-size:10px;color:var(--text-dim);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.justification||'—'}</td>
+      </tr>`}).join('')}</tbody></table>`;
   }).catch(e=>{
     c.innerHTML=`<div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Drafts</div><div class="dpanel-empty">Error: ${e.message}</div>`;
   });
+}
+
+async function _draftsBulkAction(action){
+  const ids=[...document.querySelectorAll('.drafts-cb:checked')].map(cb=>cb.dataset.id);
+  if(!ids.length){alert('No drafts selected');return}
+  if(!confirm(`${action.replace('_',' ')} ${ids.length} draft(s)?`))return;
+  for(const id of ids){
+    try{await _reviewDraft(id,action)}catch(e){console.warn('Bulk action failed for',id,e)}
+  }
+  dashNav('drafts');
 }
 
 // ── Gates page ──
@@ -1917,7 +2223,7 @@ function dashPageMine(c){
         </div>
         <input type="file" id="mine-file-input" accept=".json,.jsonl,.md,.txt" style="display:none" onchange="_mineHandleFile(this.files[0])">
         <div id="mine-file-chip" style="display:none;font-size:10px;color:var(--accent);margin-bottom:8px"></div>
-        <textarea id="mine-text" rows="8" style="width:100%;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;padding:10px;resize:vertical;min-height:80px" placeholder="Or paste conversation text here..."></textarea>
+        <textarea id="mine-text" rows="8" style="width:100%;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;padding:10px;resize:vertical;min-height:80px" placeholder="Or paste text here — pick Mine Conversation for chat logs, Mine Narrative for stories/essays/docs..."></textarea>
         <div style="display:flex;gap:10px;margin-top:10px;align-items:center">
           <div style="display:flex;gap:8px;align-items:center;font-size:10px;color:var(--text-dim)">
             <label>Collection: <select id="mine-collection" style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:3px 6px;font-size:10px;font-family:inherit"><option value="default">default</option></select></label>
@@ -1927,7 +2233,8 @@ function dashPageMine(c){
             <button class="dbtn dbtn-grey" style="padding:3px 10px;font-size:9px" onclick="_mineNewCollection()">+ New Collection</button>
           </div>
           <div style="flex:1"></div>
-          <button class="dbtn dbtn-blue" style="padding:6px 18px;font-size:11px" id="mine-run-btn" onclick="_mineRun()">&#9889; Run Mining</button>
+          <button class="dbtn dbtn-grey" style="padding:6px 14px;font-size:11px" id="mine-run-narrative-btn" title="Treat input as a cohesive narrative/document — preserves ordering, emits SEQUENCE edges between beats" onclick="_mineRunNarrative()">&#128220; Mine Narrative</button>
+          <button class="dbtn dbtn-blue" style="padding:6px 14px;font-size:11px" id="mine-run-btn" title="Treat input as a chat/conversation log — user/assistant exchanges" onclick="_mineRun()">&#9889; Mine Conversation</button>
         </div>
       </div>
 
@@ -1972,7 +2279,7 @@ async function _renderCollectionChips(){
           <span style="opacity:0.6">${c.anchors}a/${c.slabs}s/${c.bundles}b</span>
         </div>
         <button title="${c.active?'Deactivate':'Activate'}" onclick="_toggleCollection('${c.id}',${!c.active})" style="background:rgba(255,255,255,0.06);border:1px solid var(--border);border-radius:4px;color:${c.active?'#ff6b6b':'#0AAC00'};cursor:pointer;font-size:9px;padding:2px 6px;line-height:1">${c.active?'OFF':'ON'}</button>
-        ${c.id!=='default'?`<button title="Slabify → promote into default" onclick="_promoteCollection('${c.id}')" style="background:rgba(255,255,255,0.06);border:1px solid var(--border);border-radius:4px;color:#E8A317;cursor:pointer;font-size:9px;padding:2px 6px;line-height:1">⬆ Slabify</button>`:''}
+        ${c.id!=='default'?`<button title="Slabify → promote into default" onclick="_promoteCollection('${c.id}')" style="background:rgba(255,255,255,0.06);border:1px solid var(--border);border-radius:4px;color:#E8A317;cursor:pointer;font-size:9px;padding:2px 6px;line-height:1">⬆ Slabify</button><button title="Delete collection" onclick="_deleteCollection('${c.id}')" style="background:rgba(255,255,255,0.06);border:1px solid var(--border);border-radius:4px;color:#ff4444;cursor:pointer;font-size:9px;padding:2px 6px;line-height:1">🗑</button>`:''}
       </div>`;
     }
     html+=`<div style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:6px;border:1px dashed var(--border);font-size:10px;cursor:pointer;color:var(--text-dim)" onclick="_mineNewCollection().then(()=>_renderCollectionChips())">+ New</div>`;
@@ -2019,7 +2326,38 @@ async function _mineRun(){
   }finally{
     _mineRunning=false;
     const b=document.getElementById('mine-run-btn');
-    if(b){b.disabled=false;b.textContent='⚡ Run Mining'}
+    if(b){b.disabled=false;b.textContent='⚡ Mine Conversation'}
+  }
+}
+
+async function _mineRunNarrative(){
+  const text=document.getElementById('mine-text').value;
+  if(!text.trim()){alert('Paste or drop a narrative/document first.');return}
+  const btn=document.getElementById('mine-run-narrative-btn');
+  btn.disabled=true;btn.textContent='Mining narrative...';
+  _mineRunning=true;
+
+  try{
+    const res=await fetch(`${API}/mine-narrative`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        text:text,
+        source_label:document.getElementById('mine-source').value||'narrative',
+        min_confidence:parseFloat(document.getElementById('mine-conf').value)||0.4,
+        target_collection:document.getElementById('mine-collection').value||'default',
+      })
+    });
+    if(!res.ok){const err=await res.json();throw new Error(err.detail||JSON.stringify(err))}
+    _mineResults=await res.json();
+    const ec=_mineResults.edges?.length||0;
+    pushEvent('proposal',`Mined ${_mineResults.proposals.length} proposals + ${ec} SEQUENCE edges from narrative (${_mineResults.segments||0} segments)`);
+    dashNav('mine');
+  }catch(e){
+    alert('Narrative mining failed: '+e.message);
+  }finally{
+    _mineRunning=false;
+    const b=document.getElementById('mine-run-narrative-btn');
+    if(b){b.disabled=false;b.textContent='📜 Mine Narrative'}
   }
 }
 
@@ -2055,8 +2393,9 @@ function _mineRenderProposals(){
         const key=`${type}_${i}`;
         const phrase=p.canonical_phrase||p.title||p.label||'(unnamed)';
         const conf=((p.confidence||0)*100).toFixed(0);
-        return `<tr>
-          <td><input type="checkbox" class="mine-sel" data-key="${key}" data-idx="${props.indexOf(p)}" checked></td>
+        const globalIdx=props.indexOf(p);
+        return `<tr class="mine-row-clickable" onclick="_mineOpenInspect('proposal',${globalIdx})">
+          <td onclick="event.stopPropagation()"><input type="checkbox" class="mine-sel" data-key="${key}" data-idx="${globalIdx}" checked></td>
           <td style="font-size:11px;color:var(--text)">${_esc(phrase)}</td>
           <td style="font-size:10px;color:${p.confidence>=0.7?'#0AAC00':p.confidence>=0.5?'#fbbf24':'#888'}">${conf}%</td>
           <td style="font-size:10px;color:var(--text-dim);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.justification||'—')}</td>
@@ -2077,8 +2416,8 @@ function _mineRenderProposals(){
       </tr></thead><tbody>${edges.map((e,i)=>{
         const conf=((e.confidence||0)*100).toFixed(0);
         const tc=e.type==='SEQUENCE'?'#0AAC00':e.type==='INVOKES'?'#0050EB':e.type==='TENSIONS'?'#E8A317':e.type==='REGULATES'?'#B4009E':'#888';
-        return `<tr>
-          <td><input type="checkbox" class="mine-edge-sel" data-idx="${i}" checked></td>
+        return `<tr class="mine-row-clickable" onclick="_mineOpenInspect('edge',${i})">
+          <td onclick="event.stopPropagation()"><input type="checkbox" class="mine-edge-sel" data-idx="${i}" checked></td>
           <td style="font-size:10px;color:${tc};font-weight:600">${_esc(e.type)}</td>
           <td style="font-size:11px;color:var(--text)">${_esc(e.from)}</td>
           <td style="font-size:11px;color:var(--text)">${_esc(e.to)}</td>
@@ -2092,6 +2431,7 @@ function _mineRenderProposals(){
   html+=`<div style="display:flex;gap:10px;margin-top:14px;align-items:center">
     <button class="dbtn dbtn-blue" style="padding:5px 14px;font-size:10px" onclick="_mineSelectAll(true)">Select All</button>
     <button class="dbtn dbtn-grey" style="padding:5px 14px;font-size:10px" onclick="_mineSelectAll(false)">Deselect All</button>
+    <button class="dbtn dbtn-red" style="padding:5px 14px;font-size:10px" onclick="_mineClear()" title="Discard all mined proposals and edges (drafts already pushed are unaffected)">Clear Results</button>
     <div style="flex:1"></div>
     <span id="mine-push-status" style="font-size:10px;color:var(--text-dim)"></span>
     <button class="dbtn dbtn-green" style="padding:6px 18px;font-size:11px" onclick="_minePushSelected()">Push Selected to Drafts</button>
@@ -2099,18 +2439,399 @@ function _mineRenderProposals(){
   return html;
 }
 
+function _mineClear(){
+  // Wipes the mining results panel. Pushed drafts are already persisted
+  // server-side — this only clears the client-side staging view.
+  if(!_mineResults) return;
+  const n=_mineResults.proposals?.length||0;
+  const e=_mineResults.edges?.length||0;
+  if(!confirm(`Discard ${n} mined proposal(s) and ${e} edge(s) from the results panel?\n\n(Drafts already pushed remain in Verify.)`)) return;
+  _mineResults=null;
+  const panel=document.getElementById('mine-results-panel');
+  if(panel){panel.style.display='none';panel.innerHTML='';}
+  const status=document.getElementById('mine-status');
+  if(status)status.innerHTML='<div>Results cleared. Paste or drop another conversation and click <strong>Run Mining</strong>.</div>';
+  // Also clear any file chip + input text
+  const chip=document.getElementById('mine-file-chip');
+  if(chip){chip.style.display='none';chip.textContent='';}
+  pushEvent('proposal',`Cleared ${n} mined proposal(s) and ${e} edge(s)`);
+}
+
 function _mineSelectAll(checked){
   document.querySelectorAll('.mine-sel').forEach(el=>el.checked=checked);
+  document.querySelectorAll('.mine-edge-sel').forEach(el=>el.checked=checked);
 }
 
 function _esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 
-async function _minePushSelected(){
-  if(!_mineResults){alert('No mining results');return}
-  // Auto-create a mining session if no active session
+// ─── Inspection drawer (shared: AI Mine, Drafts, Verify) ───────────────
+// _inspTarget modes:
+//   'mine-proposal'  -> idx into _mineResults.proposals (editable, Push this)
+//   'mine-edge'      -> idx into _mineResults.edges (read-only)
+//   'draft'          -> draftId; draft + raw loaded lazily (editable via /amend, review actions)
+let _inspTarget=null;
+// back-compat alias used by a few call sites
+let _mineInspectTarget=null;
+
+function _mineOpenInspect(kind,idx){
+  _inspOpen({mode:'mine-'+kind,idx,editing:false});
+}
+function _mineCloseInspect(){_inspClose()}
+
+function _inspOpen(target){
+  _inspTarget=target;
+  _mineInspectTarget=target;
+  _inspRender();
+  const d=document.getElementById('mine-inspect-drawer');
+  if(d){d.classList.add('open');d.setAttribute('aria-hidden','false')}
+}
+
+function _inspClose(){
+  const d=document.getElementById('mine-inspect-drawer');
+  if(d){d.classList.remove('open');d.setAttribute('aria-hidden','true')}
+  _inspTarget=null;_mineInspectTarget=null;
+}
+
+// ── Draft-mode entry ──
+async function _inspOpenDraft(draftId){
+  if(!currentSessionId){alert('No active session');return}
+  _inspOpen({mode:'draft',draftId,editing:false,draft:null,raw:null,loading:true});
+  try{
+    const res=await fetch(`${API}/sessions/${_draftSess(draftId)}/drafts/${draftId}`);
+    if(!res.ok)throw new Error(await res.text());
+    const data=await res.json();
+    if(!_inspTarget||_inspTarget.draftId!==draftId)return;  // user closed
+    _inspTarget.draft=data.draft||{};
+    _inspTarget.raw=data.raw_proposal||{};
+    _inspTarget.collection_id=data.collection_id||'default';
+    _inspTarget.loading=false;
+    _inspRender();
+  }catch(e){
+    const body=document.getElementById('insp-body');
+    if(body)body.innerHTML=`<div style="color:#ff4444">Failed to load: ${_esc(e.message)}</div>`;
+  }
+}
+
+// ── Render dispatcher ──
+function _inspRender(){
+  if(!_inspTarget)return;
+  const badgeEl=document.getElementById('insp-type-badge');
+  const titleEl=document.getElementById('insp-title');
+  const bodyEl=document.getElementById('insp-body');
+  const actionsEl=document.getElementById('insp-actions');
+  if(!bodyEl||!titleEl||!badgeEl||!actionsEl)return;
+
+  const m=_inspTarget.mode;
+  if(m==='mine-edge'){return _inspRenderMineEdge(badgeEl,titleEl,bodyEl,actionsEl)}
+  if(m==='mine-proposal'){return _inspRenderMineProposal(badgeEl,titleEl,bodyEl,actionsEl)}
+  if(m==='draft'){return _inspRenderDraft(badgeEl,titleEl,bodyEl,actionsEl)}
+  if(m==='library-tentative'){return _inspRenderLibraryTentative(badgeEl,titleEl,bodyEl,actionsEl)}
+}
+
+function _inspRenderLibraryTentative(badgeEl,titleEl,bodyEl,actionsEl){
+  if(_inspTarget.loading){
+    badgeEl.textContent='TENTATIVE';
+    titleEl.textContent='Loading...';
+    bodyEl.innerHTML='<div style="color:var(--text-dim)">Fetching record...</div>';
+    actionsEl.innerHTML='';
+    return;
+  }
+  const rec=_inspTarget.record||{};
+  const raw=rec.raw||{};
+  const ptype=(raw.type||rec.type||'anchor');
+  const label=rec.label||raw.canonical_phrase||raw.title||rec.id;
+  const coll=rec.target_collection||raw._target_collection||'default';
+  badgeEl.innerHTML=`${ptype.toUpperCase()} &middot; <span style="color:#fbbf24">PROVISIONAL</span> &middot; <span style="color:#ff8c00">\u2192 ${_esc(coll)}</span>`;
+  titleEl.textContent=label;
+
+  actionsEl.innerHTML=`
+    <button class="dbtn dbtn-green" style="padding:5px 12px;font-size:10px" onclick="_tentPromote('${rec.id}')" title="Promotes into collection: ${_esc(coll)}">Promote \u2192 ${_esc(coll)}</button>
+    <button class="dbtn dbtn-red" style="padding:5px 12px;font-size:10px;margin-left:8px" onclick="_tentDiscard('${rec.id}')">Discard</button>`;
+
+  let html=_inspBuildProposalBody(raw,ptype,false);
+  const meta=[];
+  meta.push(`<div class="insp-field"><div class="insp-label">Target collection</div><div class="insp-value"><span style="background:rgba(255,140,0,0.1);border:1px solid rgba(255,140,0,0.35);color:#ff8c00;border-radius:3px;padding:2px 8px;font-family:'JetBrains Mono',monospace;font-size:10px">${_esc(coll)}</span> <span style="color:var(--text-dim);font-size:9px;margin-left:6px">— pinned at push time</span></div></div>`);
+  meta.push(`<div class="insp-field"><div class="insp-label">Tentative ID</div><div class="insp-value" style="font-family:'JetBrains Mono',monospace;font-size:10px;opacity:.7">${_esc(rec.id||'')}</div></div>`);
+  if(rec.source_turns&&rec.source_turns.length)meta.push(`<div class="insp-field"><div class="insp-label">Source turns</div><div class="insp-value">${_esc(rec.source_turns.join(', '))}</div></div>`);
+  meta.push(`<div class="insp-field"><div class="insp-label">Status</div><div class="insp-value" style="color:#fbbf24">PROVISIONAL — not in corpus, invisible to reasoner</div></div>`);
+  html+=`<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">${meta.join('')}</div>`;
+  bodyEl.innerHTML=html;
+}
+
+function _inspRenderMineEdge(badgeEl,titleEl,bodyEl,actionsEl){
+  if(!_mineResults)return;
+  const item=(_mineResults.edges||[])[_inspTarget.idx];
+  if(!item)return;
+  badgeEl.textContent='Edge · '+(item.type||'?');
+  titleEl.textContent=`${item.from||'?'} → ${item.to||'?'}`;
+  actionsEl.innerHTML='';
+  bodyEl.innerHTML=`
+    <div class="insp-field"><div class="insp-label">Type</div><div class="insp-value">${_esc(item.type||'')}</div></div>
+    <div class="insp-field"><div class="insp-label">From</div><div class="insp-value">${_esc(item.from||'')}</div></div>
+    <div class="insp-field"><div class="insp-label">To</div><div class="insp-value">${_esc(item.to||'')}</div></div>
+    <div class="insp-field"><div class="insp-label">Confidence</div><div class="insp-value">${((item.confidence||0)*100).toFixed(0)}%</div></div>
+    <div class="insp-field"><div class="insp-label">Justification</div><div class="insp-value">${_esc(item.justification||'—')}</div></div>`;
+}
+
+function _inspRenderMineProposal(badgeEl,titleEl,bodyEl,actionsEl){
+  if(!_mineResults)return;
+  const item=(_mineResults.proposals||[])[_inspTarget.idx];
+  if(!item)return;
+  const ptype=(item.type||'anchor');
+  const title=item.canonical_phrase||item.title||item.label||'(unnamed)';
+  badgeEl.textContent=ptype.toUpperCase();
+  titleEl.textContent=title;
+  const editing=_inspTarget.editing;
+
+  actionsEl.innerHTML=`
+    <button class="dbtn dbtn-grey" style="padding:5px 12px;font-size:10px" onclick="_inspToggleEdit()">${editing?'&#10003; Done':'&#9998; Edit'}</button>
+    <button class="dbtn dbtn-green" style="padding:5px 14px;font-size:10px;margin-left:8px" onclick="_minePushOne()">&#10003; Push this</button>`;
+
+  bodyEl.innerHTML=_inspBuildProposalBody(item,ptype,editing);
+  if(editing){
+    setTimeout(()=>{
+      const csv=document.querySelector('[data-insp-field="_aliases_csv"]');
+      if(csv&&!csv.value){csv.value=(item.aliases||[]).join(', ')}
+    },0);
+  }
+}
+
+function _inspBuildProposalBody(item,ptype,editing){
+  const f=[];
+  const addRead=(label,val)=>{if(val!==undefined&&val!==null&&val!=='')f.push(`<div class="insp-field"><div class="insp-label">${label}</div><div class="insp-value">${_esc(val)}</div></div>`)};
+  const addEdit=(label,field,multi,seed)=>{
+    const v=seed!==undefined?seed:(item[field]||'');
+    const inp=multi
+      ?`<textarea rows="5" data-insp-field="${field}">${_esc(v)}</textarea>`
+      :`<input type="text" data-insp-field="${field}" value="${_esc(v)}">`;
+    f.push(`<div class="insp-field"><div class="insp-label">${label}</div>${inp}</div>`);
+  };
+
+  if(editing){
+    if(ptype==='anchor'){addEdit('Canonical phrase','canonical_phrase',false);addEdit('Aliases (comma-separated)','_aliases_csv',false);}
+    else if(ptype==='slab'){addEdit('Title','title',false);addEdit('Canonical text','canonical_text',true);}
+    else if(ptype==='bundle'){addEdit('Label','label',false);addEdit('Members (comma-separated)','_aliases_csv',false);}
+    addEdit('Justification','justification',true);
+  }else{
+    if(ptype==='anchor'){
+      addRead('Canonical phrase',item.canonical_phrase);
+      if(item.aliases&&item.aliases.length)addRead('Aliases',item.aliases.join(', '));
+    }else if(ptype==='slab'){
+      addRead('Title',item.title);
+      addRead('Canonical text',item.canonical_text);
+      if(item.narrative_role)addRead('Narrative role',item.narrative_role);
+    }else if(ptype==='bundle'){
+      addRead('Label',item.label);
+      if(item.aliases&&item.aliases.length)addRead('Members',item.aliases.join(', '));
+    }
+    addRead('Source topic',item.source_topic);
+    addRead('Confidence',((item.confidence||0)*100).toFixed(0)+'%');
+    addRead('Justification',item.justification);
+    if(item.source_pairs&&item.source_pairs.length)addRead('Source segments',item.source_pairs.join(', '));
+    if(item.claim_tag)addRead('Claim tag',item.claim_tag);
+  }
+  return f.join('');
+}
+
+function _inspRenderDraft(badgeEl,titleEl,bodyEl,actionsEl){
+  if(_inspTarget.loading){
+    badgeEl.textContent='DRAFT';
+    titleEl.textContent='Loading...';
+    bodyEl.innerHTML='<div style="color:var(--text-dim)">Fetching draft details...</div>';
+    actionsEl.innerHTML='';
+    return;
+  }
+  const d=_inspTarget.draft||{};
+  const raw=_inspTarget.raw||{};
+  const ptype=(raw.type||d.packet_type||'anchor');
+  // Prefer enriched packet fields (set by dreaming pass) over raw sidecar.
+  // Raw miner output often has just canonical_text; dreaming adds a proper title.
+  const title=(d.slab&&d.slab.title)||(d.anchor&&d.anchor.canonical_phrase)||(d.bundle&&d.bundle.label)
+    ||raw.canonical_phrase||raw.title||raw.label
+    ||(((d.slab&&d.slab.canonical_text)||raw.canonical_text||'').substring(0,80))
+    ||d.id;
+  const status=d.status||'DRAFT_UNAUTHORIZED';
+  const statusColor=status==='PROVISIONAL'?'#fbbf24':status==='COMMITTED'?'#0AAC00':status==='REJECTED'?'#ff4444':'var(--text-dim)';
+  const coll=raw._target_collection||_inspTarget.collection_id||'default';
+  badgeEl.innerHTML=`${ptype.toUpperCase()} &middot; <span style="color:${statusColor}">${status}</span> &middot; <span style="color:#ff8c00">\u2192 ${_esc(coll)}</span>`;
+  titleEl.textContent=title;
+
+  const editing=_inspTarget.editing;
+  const editable=(status==='DRAFT_UNAUTHORIZED'||status==='PROVISIONAL');
+
+  // Actions depend on status
+  const btns=[];
+  if(editable){
+    btns.push(`<button class="dbtn dbtn-grey" style="padding:5px 12px;font-size:10px" onclick="_inspToggleEdit()">${editing?'&#10003; Save':'&#9998; Edit'}</button>`);
+  }
+  if(!editing&&status==='DRAFT_UNAUTHORIZED'){
+    btns.push(`<button class="dbtn dbtn-amber" style="padding:5px 12px;font-size:10px;margin-left:8px" onclick="_inspDraftAction('promote_tentative')">Tentative</button>`);
+    btns.push(`<button class="dbtn dbtn-green" style="padding:5px 12px;font-size:10px;margin-left:8px" onclick="_inspDraftAction('promote_corpus')">Promote</button>`);
+    btns.push(`<button class="dbtn dbtn-red" style="padding:5px 12px;font-size:10px;margin-left:8px" onclick="_inspDraftAction('discard')">Discard</button>`);
+  }else if(!editing&&status==='PROVISIONAL'){
+    btns.push(`<button class="dbtn dbtn-green" style="padding:5px 12px;font-size:10px;margin-left:8px" onclick="_inspDraftAction('promote_corpus')">Promote</button>`);
+    btns.push(`<button class="dbtn dbtn-red" style="padding:5px 12px;font-size:10px;margin-left:8px" onclick="_inspDraftAction('discard')">Discard</button>`);
+  }
+  actionsEl.innerHTML=btns.join('');
+
+  // Body: use proposal-style rendering on the raw proposal, plus draft metadata
+  let bodyHtml=_inspBuildProposalBody(raw,ptype,editing);
+  if(editing){
+    setTimeout(()=>{
+      const csv=document.querySelector('[data-insp-field="_aliases_csv"]');
+      if(csv&&!csv.value){csv.value=(raw.aliases||[]).join(', ')}
+    },0);
+  }
+  if(!editing){
+    const meta=[];
+    meta.push(`<div class="insp-field"><div class="insp-label">Target collection</div><div class="insp-value"><span style="background:rgba(255,140,0,0.1);border:1px solid rgba(255,140,0,0.35);color:#ff8c00;border-radius:3px;padding:2px 8px;font-family:'JetBrains Mono',monospace;font-size:10px">${_esc(coll)}</span> <span style="color:var(--text-dim);font-size:9px;margin-left:6px">\u2014 where this lands if promoted</span></div></div>`);
+    meta.push(`<div class="insp-field"><div class="insp-label">Draft ID</div><div class="insp-value" style="font-family:'JetBrains Mono',monospace;font-size:10px;opacity:.7">${_esc(d.id||'')}</div></div>`);
+    if(d.source_turns&&d.source_turns.length)meta.push(`<div class="insp-field"><div class="insp-label">Source turns</div><div class="insp-value">${_esc(d.source_turns.join(', '))}</div></div>`);
+    if(d.fact_claims&&d.fact_claims.length)meta.push(`<div class="insp-field"><div class="insp-label">FACT claims</div><div class="insp-value">${d.fact_claims.map(f=>_esc(f)).join('<br>')}</div></div>`);
+    if(d.dependency_closure&&d.dependency_closure.length)meta.push(`<div class="insp-field"><div class="insp-label">Dependency closure</div><div class="insp-value" style="font-size:10px">${d.dependency_closure.map(x=>_esc(x)).join(', ')}</div></div>`);
+    bodyHtml+=`<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">${meta.join('')}</div>`;
+  }
+  bodyEl.innerHTML=bodyHtml;
+}
+
+// ── Edit toggle (dispatches by mode) ──
+async function _inspToggleEdit(){
+  if(!_inspTarget)return;
+  const m=_inspTarget.mode;
+
+  if(m==='mine-proposal'){
+    const {idx,editing}=_inspTarget;
+    if(editing){
+      const item=_mineResults.proposals[idx];
+      document.querySelectorAll('[data-insp-field]').forEach(el=>{
+        const field=el.dataset.inspField;
+        if(field==='_aliases_csv'){item.aliases=el.value.split(',').map(s=>s.trim()).filter(Boolean)}
+        else{item[field]=el.value}
+      });
+      _inspTarget.editing=false;
+      const panel=document.getElementById('mine-proposals-body');
+      if(panel)panel.innerHTML=_mineRenderProposals();
+    }else{_inspTarget.editing=true}
+    _inspRender();
+    return;
+  }
+
+  if(m==='draft'){
+    const {editing,draftId}=_inspTarget;
+    if(editing){
+      // Save via /amend
+      const payload={};
+      document.querySelectorAll('[data-insp-field]').forEach(el=>{
+        const field=el.dataset.inspField;
+        if(field==='_aliases_csv')payload.aliases=el.value.split(',').map(s=>s.trim()).filter(Boolean);
+        else if(field==='canonical_phrase'||field==='canonical_text'||field==='justification')payload[field]=el.value;
+        // title/label aren't supported by /amend — skip silently
+      });
+      try{
+        const res=await fetch(`${API}/sessions/${_draftSess(draftId)}/drafts/${draftId}/amend`,{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(payload)
+        });
+        if(!res.ok)throw new Error(await res.text());
+        const data=await res.json();
+        _inspTarget.raw=data.raw||_inspTarget.raw;
+        _inspTarget.draft.status=data.packet_status||_inspTarget.draft.status;
+        _inspTarget.editing=false;
+        pushEvent('proposal',`Amended ${draftId} (reset to DRAFT_UNAUTHORIZED)`);
+        // Refresh the underlying page listing
+        _inspRefreshPage();
+      }catch(e){alert('Amend failed: '+e.message);return}
+    }else{_inspTarget.editing=true}
+    _inspRender();
+    return;
+  }
+}
+
+// Refresh whichever page is visible so row edits/status changes show
+function _inspRefreshPage(){
+  const page=(typeof dashPage!=='undefined')?dashPage:null;
+  if(page==='drafts'||page==='verify')dashNav(page);
+}
+
+async function _inspDraftAction(action){
+  if(!_inspTarget||_inspTarget.mode!=='draft')return;
+  const {draftId}=_inspTarget;
+  if(action==='discard'&&!confirm('Discard this draft?'))return;
+  const oliOn=document.getElementById('oli-toggle')?.checked;
+  try{
+    const res=await fetch(`${API}/sessions/${_draftSess(draftId)}/drafts/${draftId}/review`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action,oli_mode:oliOn?'ON':'OFF'})
+    });
+    if(!res.ok){
+      const err=await res.json();
+      const msg=typeof err.detail==='object'?JSON.stringify(err.detail):err.detail;
+      throw new Error(msg||'Review failed');
+    }
+    const result=await res.json();
+    const label=action==='discard'?'Discarded':action==='promote_tentative'?'Tentative':'Committed';
+    pushEvent('proposal',`${draftId} → ${label}`);
+    if(result.status==='COMMITTED'){await _fetchDashData();corpusLoaded=false}
+    _inspClose();
+    _inspRefreshPage();
+  }catch(e){alert(e.message)}
+}
+
+async function _minePushOne(){
+  if(!_inspTarget||_inspTarget.mode!=='mine-proposal')return;
+  const item=_mineResults.proposals[_inspTarget.idx];
+  if(!item)return;
   if(!currentSessionId){
     try{
-      const chatRes=await fetch(`${API}/chats`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'AI Mine Session'})});
+      const chatRes=await fetch(`${API}/chats`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'AI Mine Session',collection_id:(document.getElementById('mine-collection')?.value||'default')})});
+      const chat=await chatRes.json();currentChatId=chat.id;
+      const msgRes=await fetch(`${API}/chats/${chat.id}/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:'[Mining session]',oli_mode:'OFF',web_mode:'off'})});
+      if(msgRes.ok){const reader=msgRes.body.getReader();while(true){const{done}=await reader.read();if(done)break}}
+      const infoRes=await fetch(`${API}/chats/${chat.id}`);
+      if(infoRes.ok){const info=await infoRes.json();currentSessionId=info.session_id}
+      if(!currentSessionId){alert('Could not create mining session');return}
+    }catch(e){alert('Could not create mining session: '+e.message);return}
+  }
+  const targetCollection=document.getElementById('mine-collection')?.value||'default';
+  try{
+    const res=await fetch(`${API}/sessions/${currentSessionId}/push-mined`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({proposals:[item],target_collection:targetCollection})
+    });
+    if(!res.ok)throw new Error(await res.text());
+    const data=await res.json();
+    pushEvent('proposal',`Pushed 1 ${item.type||'proposal'} to drafts (${data.drafts_created||1})`);
+    const btn=document.querySelector('#insp-actions .dbtn-green');
+    if(btn){btn.textContent='\u2713 Pushed';btn.disabled=true}
+  }catch(e){alert('Push failed: '+e.message)}
+}
+
+// Back-compat shim for the old function name
+function _mineToggleEdit(){_inspToggleEdit()}
+
+
+async function _minePushSelected(){
+  if(!_mineResults){alert('No mining results');return}
+  const statusEl=document.getElementById('mine-push-status');
+  // If we already have a chat but no session handle, try to recover its
+  // active session before falling back to creating a brand-new one.
+  // This is the common case after an app reload where the chat survives
+  // but the frontend's currentSessionId never got hydrated.
+  if(!currentSessionId && currentChatId){
+    if(statusEl)statusEl.textContent='Recovering session for current chat...';
+    try{
+      const r=await fetch(`${API}/chats/${currentChatId}`);
+      if(r.ok){
+        const info=await r.json();
+        if(info.session_id) currentSessionId=info.session_id;
+      }
+    }catch(e){/* fall through to auto-create */}
+  }
+  // Auto-create a mining session if still no active session
+  if(!currentSessionId){
+    if(statusEl)statusEl.innerHTML='<span style="color:var(--text-dim)">Creating mining session (cold model load may take 30-60s)...</span>';
+    try{
+      const chatRes=await fetch(`${API}/chats`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'AI Mine Session',collection_id:(document.getElementById('mine-collection')?.value||'default')})});
       if(!chatRes.ok)throw new Error('Failed to create chat');
       const chat=await chatRes.json();
       currentChatId=chat.id;
@@ -2132,21 +2853,39 @@ async function _minePushSelected(){
   });
   if(!sel.length){alert('No proposals selected');return}
 
-  const statusEl=document.getElementById('mine-push-status');
   statusEl.textContent=`Pushing ${sel.length} proposals...`;
 
   const proposals=sel.map(i=>_mineResults.proposals[i]).filter(Boolean);
   const targetCollection=document.getElementById('mine-collection')?.value||'default';
 
+  // Phase 3: forward mined edges too. Filter to edges whose endpoints are
+  // either in the selected proposals or match a known corpus label — the
+  // backend will do authoritative resolution but we trim obvious orphans
+  // client-side so we don't send edges pointing at unselected proposals.
+  const selectedLabels=new Set();
+  for(const p of proposals){
+    const labels=[p.canonical_phrase,p.title,p.label,...(p.aliases||[])].filter(Boolean);
+    for(const l of labels) selectedLabels.add(String(l).toLowerCase());
+  }
+  const allEdges=(_mineResults.edges||[]);
+  const edges=allEdges.filter(e=>{
+    const f=String(e.from||e.from_label||'').toLowerCase();
+    const t=String(e.to||e.to_label||'').toLowerCase();
+    // Keep if both endpoints are either selected or could resolve to corpus.
+    // Server will drop unresolvables regardless; this is a soft pre-filter.
+    return f && t && (selectedLabels.has(f) || selectedLabels.has(t));
+  });
+
   try{
     const res=await fetch(`${API}/sessions/${currentSessionId}/push-mined`,{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({proposals:proposals, target_collection:targetCollection})
+      body:JSON.stringify({proposals:proposals, edges:edges, target_collection:targetCollection})
     });
     if(!res.ok){const err=await res.json();throw new Error(err.detail||JSON.stringify(err))}
     const result=await res.json();
-    statusEl.innerHTML=`<span style="color:#0AAC00">✓ Created ${result.created||0} draft(s) — go to <a href="#" onclick="dashNav('verify');return false" style="color:var(--accent)">Verify & Promote</a> to review</span>`;
-    pushEvent('proposal',`Pushed ${result.created||0} mined proposals to drafts`);
+    const edgeNote=(result.edges_persisted||0)>0?` + ${result.edges_persisted} edge(s)`:'';
+    statusEl.innerHTML=`<span style="color:#0AAC00">✓ Created ${result.created||0} draft(s)${edgeNote}</span> · <a href="#" onclick="dashNav('verify');return false" style="color:var(--accent)">Verify & Promote</a> · <a href="#" onclick="_mineClear();return false" style="color:var(--text-dim)">Clear Results</a>`;
+    pushEvent('proposal',`Pushed ${result.created||0} mined proposals${edgeNote} to drafts`);
   }catch(e){
     statusEl.innerHTML=`<span style="color:#ff4444">Error: ${e.message}</span>`;
   }
@@ -2242,7 +2981,103 @@ async function _promoteCollection(cid){
   }catch(e){alert('Error: '+e.message)}
 }
 
+async function _deleteCollection(cid){
+  const purge=confirm(`Delete collection '${cid}'?\n\nOK = delete from registry + disk (permanent)\nCancel = keep`);
+  if(!purge)return;
+  // Double-confirm for destructive action
+  if(!confirm(`Are you sure? This will permanently remove '${cid}' and all its files.`))return;
+  try{
+    const res=await fetch(`${API}/collections/${cid}?purge=true`,{method:'DELETE'});
+    if(!res.ok){const err=await res.json();alert(err.detail||'Failed');return}
+    const result=await res.json();
+    pushEvent('system',`Deleted collection '${cid}' (${result.deleted_counts.anchors}a/${result.deleted_counts.slabs}s/${result.deleted_counts.bundles}b purged)`);
+    if(_selectedCollection===cid)_selectedCollection='default';
+    await Promise.all([_loadCollections(), _renderCollectionChips()]);
+    // Refresh cold corpus view if visible
+    if(document.getElementById('corpus-canvas')?.offsetParent)loadCorpusGraph();
+  }catch(e){alert('Error: '+e.message)}
+}
+
 // ── Verify & Promote page (Phase 9) ──
+
+// ── Tentative library page ──
+// Lists app/library/tentative/*.json — PROVISIONAL records that are preserved
+// on disk but NOT in the active corpus (reasoner can't see them). They render
+// on the graph with an amber dashed overlay.
+function dashPageTentative(c){
+  c.innerHTML='<div style="font-family:\'Syne\',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:6px">Tentative Library</div><div style="font-size:10px;color:var(--text-dim);margin-bottom:18px">PROVISIONAL records — preserved on disk, not yet in the corpus. Invisible to the reasoner; visible on the graph with a dashed ring.</div><div class="dpanel-empty">Loading...</div>';
+  fetch(`${API}/library/tentative`).then(r=>r.json()).then(data=>{
+    const items=data.items||[];
+    if(!items.length){
+      c.innerHTML=`
+        <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:6px">Tentative Library <span style="font-size:13px;color:var(--text-dim);font-weight:400">(0)</span></div>
+        <div style="font-size:10px;color:var(--text-dim);margin-bottom:18px">PROVISIONAL records — preserved on disk, not yet in the corpus. Invisible to the reasoner; visible on the graph with a dashed ring.</div>
+        <div class="dpanel-empty">No tentative records. Press "Promote Tentative" on a draft to park it here.</div>`;
+      return;
+    }
+    c.innerHTML=`
+      <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:6px">Tentative Library <span style="font-size:13px;color:var(--text-dim);font-weight:400">(${items.length})</span></div>
+      <div style="font-size:10px;color:var(--text-dim);margin-bottom:18px">PROVISIONAL records — preserved on disk, not yet in the corpus. Invisible to the reasoner; visible on the graph with a dashed ring.</div>
+      <table class="dtable"><thead><tr>
+        <th>Label</th><th>Type</th><th>\u2192 Collection</th><th>Confidence</th><th>Justification</th><th style="text-align:right">Actions</th>
+      </tr></thead><tbody>${items.map(t=>{
+        const tc=_tc[t.type]||'#888';
+        const conf=((t.confidence||0)*100).toFixed(0);
+        const coll=t.target_collection||'default';
+        return `<tr class="mine-row-clickable" onclick="_inspOpenLibraryTentative('${t.id}')">
+          <td style="font-size:11px;color:var(--text);font-weight:500">${_esc(t.label)}</td>
+          <td style="font-size:10px;color:${tc}">${t.type}</td>
+          <td style="font-size:10px"><span style="background:rgba(255,140,0,0.1);border:1px solid rgba(255,140,0,0.35);color:#ff8c00;border-radius:3px;padding:1px 7px;font-family:'JetBrains Mono',monospace">${_esc(coll)}</span></td>
+          <td style="font-size:10px;color:${t.confidence>=0.7?'#0AAC00':t.confidence>=0.5?'#fbbf24':'#888'}">${conf}%</td>
+          <td style="font-size:10px;color:var(--text-dim);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(t.justification||'—')}</td>
+          <td onclick="event.stopPropagation()" style="text-align:right;white-space:nowrap">
+            <button class="dbtn dbtn-green" style="padding:4px 10px;font-size:9px" onclick="_tentPromote('${t.id}')" title="Promote to collection: ${_esc(coll)}">Promote</button>
+            <button class="dbtn dbtn-red" style="padding:4px 10px;font-size:9px;margin-left:4px" onclick="_tentDiscard('${t.id}')">Discard</button>
+          </td>
+        </tr>`;
+      }).join('')}</tbody></table>`;
+  }).catch(e=>{
+    c.innerHTML=`<div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Tentative Library</div><div class="dpanel-empty">Error: ${e.message}</div>`;
+  });
+}
+
+async function _tentPromote(tid){
+  if(!confirm('Promote this tentative record to the corpus?'))return;
+  try{
+    const res=await fetch(`${API}/library/tentative/${tid}/promote`,{method:'POST'});
+    if(!res.ok){const err=await res.json();throw new Error(err.detail||'Promote failed')}
+    const data=await res.json();
+    pushEvent('proposal',`Tentative ${tid} promoted \u2192 ${data.corpus_id}`);
+    await _fetchDashData();corpusLoaded=false;
+    dashNav('tentative');
+  }catch(e){alert(e.message)}
+}
+
+async function _tentDiscard(tid){
+  if(!confirm('Discard this tentative record? This cannot be undone.'))return;
+  try{
+    const res=await fetch(`${API}/library/tentative/${tid}`,{method:'DELETE'});
+    if(!res.ok)throw new Error(await res.text());
+    pushEvent('proposal',`Tentative ${tid} discarded`);
+    dashNav('tentative');
+  }catch(e){alert(e.message)}
+}
+
+async function _inspOpenLibraryTentative(tid){
+  _inspOpen({mode:'library-tentative',tid,editing:false,record:null,loading:true});
+  try{
+    const res=await fetch(`${API}/library/tentative/${tid}`);
+    if(!res.ok)throw new Error(await res.text());
+    const rec=await res.json();
+    if(!_inspTarget||_inspTarget.tid!==tid)return;
+    _inspTarget.record=rec;
+    _inspTarget.loading=false;
+    _inspRender();
+  }catch(e){
+    const body=document.getElementById('insp-body');
+    if(body)body.innerHTML=`<div style="color:#ff4444">Failed to load: ${_esc(e.message)}</div>`;
+  }
+}
 
 function dashPageVerify(c){
   if(!currentSessionId){
@@ -2251,11 +3086,17 @@ function dashPageVerify(c){
   }
   c.innerHTML='<div style="font-family:\'Syne\',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Verify & Promote</div><div class="dpanel-empty">Loading drafts...</div>';
 
-  fetch(`${API}/sessions/${currentSessionId}/drafts`).then(r=>r.json()).then(drafts=>{
-    if(!drafts.length){
+  const scope=(_dashCollection&&_dashCollection!=='__all__')?_dashCollection:null;
+  const qs=scope?`?collection_id=${encodeURIComponent(scope)}`:'';
+  const scopeLabel=scope?`<span style="font-size:10px;color:var(--text-dim);font-weight:400;margin-left:8px">filter: <span style="color:#ff8c00;font-family:JetBrains Mono,monospace">${_esc(scope)}</span></span>`:'';
+  // Phase 3: fetch proposed edges in parallel with drafts.
+  const edgesUrl=currentChatId?`${API}/chats/${currentChatId}/proposed_edges`:null;
+  const edgesPromise=edgesUrl?fetch(edgesUrl).then(r=>r.ok?r.json():[]).catch(()=>[]):Promise.resolve([]);
+  Promise.all([_fetchDraftsForCurrentView(qs),edgesPromise]).then(([drafts,pEdges])=>{
+    if(!drafts.length && !pEdges.length){
       c.innerHTML=`
-        <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Verify & Promote</div>
-        <div class="dpanel-empty">No drafts in this session. Use <strong>AI Mine</strong> or chat-based extraction to create proposals first.</div>`;
+        <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px">Verify & Promote${scopeLabel}</div>
+        <div class="dpanel-empty">${scope?`No drafts targeting <strong>${_esc(scope)}</strong>. Switch Active Corpus to "All" to see the full worklist.`:'No drafts in this session. Use <strong>AI Mine</strong> or chat-based extraction to create proposals first.'}</div>`;
       return;
     }
 
@@ -2292,28 +3133,37 @@ function dashPageVerify(c){
         <div id="verify-pending">${_verifyRenderDrafts(pending)}</div>
       </div>`:''}
 
+      <!-- Phase 3: proposed edges awaiting review -->
+      ${pEdges.length?`
+      <div class="dpanel" style="margin-bottom:14px">
+        <div class="dpanel-title"><span class="dpanel-icon">&#8594;</span> Proposed Edges (${pEdges.length})</div>
+        <div id="verify-edges">${_verifyRenderEdges(pEdges)}</div>
+      </div>`:''}
+
       <!-- Committed drafts -->
       ${committed.length?`
       <div class="dpanel" style="margin-bottom:14px;opacity:0.7">
         <div class="dpanel-title" style="color:#0AAC00"><span class="dpanel-icon">&#10003;</span> Committed (${committed.length})</div>
-        <table class="dtable"><thead><tr><th>ID</th><th>Confidence</th><th>Status</th></tr></thead>
-        <tbody>${committed.map(d=>`<tr>
-          <td style="font-size:10px">${d.id}</td>
+        <table class="dtable"><thead><tr><th>Name</th><th>Type</th><th>Confidence</th><th>Status</th></tr></thead>
+        <tbody>${committed.map(d=>{const type=d.packet_type||(d.id.includes('_slab_')?'slab':d.id.includes('_bundle_')?'bundle':'anchor');return `<tr>
+          <td style="font-size:11px;color:var(--text);font-weight:500">${_esc(_draftEntityName(d))}</td>
+          <td style="font-size:10px;color:${_tc[type]||'#888'}">${type}</td>
           <td style="font-size:10px">${((d.confidence||0)*100).toFixed(0)}%</td>
           <td><span style="color:#0AAC00;font-weight:600;font-size:10px">COMMITTED</span></td>
-        </tr>`).join('')}</tbody></table>
+        </tr>`}).join('')}</tbody></table>
       </div>`:''}
 
       <!-- Rejected drafts -->
       ${rejected.length?`
       <div class="dpanel" style="margin-bottom:14px;opacity:0.5">
         <div class="dpanel-title" style="color:#ff4444"><span class="dpanel-icon">&#10007;</span> Rejected (${rejected.length})</div>
-        <table class="dtable"><thead><tr><th>ID</th><th>Confidence</th><th>Status</th></tr></thead>
-        <tbody>${rejected.map(d=>`<tr style="text-decoration:line-through">
-          <td style="font-size:10px">${d.id}</td>
+        <table class="dtable"><thead><tr><th>Name</th><th>Type</th><th>Confidence</th><th>Status</th></tr></thead>
+        <tbody>${rejected.map(d=>{const type=d.packet_type||(d.id.includes('_slab_')?'slab':d.id.includes('_bundle_')?'bundle':'anchor');return `<tr style="text-decoration:line-through">
+          <td style="font-size:11px;color:var(--text)">${_esc(_draftEntityName(d))}</td>
+          <td style="font-size:10px;color:${_tc[type]||'#888'}">${type}</td>
           <td style="font-size:10px">${((d.confidence||0)*100).toFixed(0)}%</td>
           <td><span style="color:#ff4444;font-weight:600;font-size:10px">REJECTED</span></td>
-        </tr>`).join('')}</tbody></table>
+        </tr>`}).join('')}</tbody></table>
       </div>`:''}
     `;
   }).catch(e=>{
@@ -2321,24 +3171,125 @@ function dashPageVerify(c){
   });
 }
 
+function _draftEntityName(d){
+  // Extract a human-readable name from the inline anchor/slab/bundle dict
+  if(d.anchor&&d.anchor.canonical_phrase) return d.anchor.canonical_phrase;
+  if(d.slab&&(d.slab.title||d.slab.canonical_text)) return d.slab.title||d.slab.canonical_text.slice(0,80)+'...';
+  if(d.bundle&&d.bundle.payload&&d.bundle.payload.intent) return d.bundle.payload.intent[0]||d.id;
+  // Fallback: try justification or ID
+  return d.justification?.slice(0,60)||d.id;
+}
+
+function _verifyRenderEdges(edges){
+  // Each edge carries its owning session_id so review POSTs route correctly.
+  // Mirrors the slab/anchor drafts pattern: Select All bar + per-row checkbox
+  // + bulk Accept/Reject buttons so reviewers don't have to click each edge.
+  const bar=`<div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+    <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:10px;color:var(--text-dim)">
+      <input type="checkbox" id="edge-select-all" onchange="_edgeToggleAll(this.checked)" style="cursor:pointer"> Select All
+    </label>
+    <div style="flex:1"></div>
+    <button class="dbtn dbtn-green" onclick="_edgeBulkAction('accept')">Accept Selected</button>
+    <button class="dbtn dbtn-red" onclick="_edgeBulkAction('reject')">Reject Selected</button>
+  </div>`;
+  const rows=edges.map(e=>{
+    const conf=((e.confidence||0)*100).toFixed(0);
+    const tColor={INVOKES:'#9b59ff',SUPPORTS:'#0AAC00',CONFLICTS:'#ff4444',LINKS:'#888',SEQUENCE:'#00b8d9',PARENT_OF:'#ff8c00'}[e.type]||'#888';
+    const statusBadge=e.status==='PROPOSED'
+      ? `<span style="font-size:10px;color:var(--text-dim)">PROPOSED</span>`
+      : `<span style="font-size:10px;color:${e.status==='ACCEPTED'?'#0AAC00':e.status==='COMMITTED'?'#0AAC00':'#ff4444'};font-weight:600">${e.status}</span>`;
+    const cb=e.status==='PROPOSED'
+      ? `<input type="checkbox" class="edge-cb" data-sid="${e.session_id}" data-eid="${e.id}" style="cursor:pointer">`
+      : '';
+    const actions=e.status==='PROPOSED'?`
+      <button class="dbtn dbtn-green" onclick="_edgeReview('${e.session_id}','${e.id}','accept')">Accept</button>
+      <button class="dbtn dbtn-red" onclick="_edgeReview('${e.session_id}','${e.id}','reject')">Reject</button>`:'';
+    return `<tr>
+      <td style="width:24px;text-align:center">${cb}</td>
+      <td style="font-size:11px;color:var(--text);font-weight:500">${_esc(e.from_label)}</td>
+      <td style="font-size:10px;color:${tColor};font-weight:600;text-align:center">${e.type}</td>
+      <td style="font-size:11px;color:var(--text);font-weight:500">${_esc(e.to_label)}</td>
+      <td style="font-size:10px">${conf}%</td>
+      <td>${statusBadge}</td>
+      <td style="text-align:right">${actions}</td>
+    </tr>
+    ${e.justification?`<tr><td></td><td colspan="6" style="font-size:10px;color:var(--text-dim);padding-bottom:8px;padding-left:8px">${_esc(e.justification)}</td></tr>`:''}`;
+  }).join('');
+  return bar+`<table class="dtable"><thead><tr><th></th><th>From</th><th style="text-align:center">Type</th><th>To</th><th>Conf</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+async function _edgeReview(sessionId, edgeId, action){
+  try{
+    const r=await fetch(`${API}/sessions/${sessionId}/proposed_edges/${edgeId}/review`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action}),
+    });
+    if(!r.ok){const t=await r.text();alert('Review failed: '+t);return;}
+    // Refresh current Verify page — container is #dash-content, not .dcontent.
+    const verifyContent=document.getElementById('dash-content');
+    if(verifyContent)dashPageVerify(verifyContent);
+  }catch(e){alert('Error: '+e.message);}
+}
+
+function _edgeToggleAll(checked){
+  document.querySelectorAll('.edge-cb').forEach(cb=>cb.checked=checked);
+}
+
+async function _edgeBulkAction(action){
+  const boxes=[...document.querySelectorAll('.edge-cb:checked')];
+  if(!boxes.length){alert('No edges selected');return}
+  if(!confirm(`${action} ${boxes.length} edge(s)?`))return;
+  let ok=0, fail=0;
+  for(const cb of boxes){
+    const sid=cb.dataset.sid, eid=cb.dataset.eid;
+    try{
+      const r=await fetch(`${API}/sessions/${sid}/proposed_edges/${eid}/review`,{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action}),
+      });
+      if(r.ok)ok++;else fail++;
+    }catch(e){fail++;}
+  }
+  const verifyContent=document.getElementById('dash-content');
+  if(verifyContent)dashPageVerify(verifyContent);
+  if(fail)alert(`Bulk ${action}: ${ok} ok, ${fail} failed`);
+}
+
 function _verifyRenderDrafts(drafts){
-  return drafts.map(d=>{
-    const type=d.id.includes('_slab_')?'slab':d.id.includes('_bundle_')?'bundle':'anchor';
+  // Select All / Deselect All bar
+  let html=`<div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+    <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:10px;color:var(--text-dim)">
+      <input type="checkbox" id="verify-select-all" onchange="_verifyToggleAll(this.checked)" style="cursor:pointer"> Select All
+    </label>
+    <div style="flex:1"></div>
+    <button class="dbtn dbtn-green" onclick="_verifyBulkAction('promote_corpus')">Promote Selected</button>
+    <button class="dbtn dbtn-amber" onclick="_verifyBulkAction('promote_tentative')">Tentative Selected</button>
+    <button class="dbtn dbtn-red" onclick="_verifyBulkAction('discard')">Discard Selected</button>
+  </div>`;
+
+  html+=drafts.map(d=>{
+    const type=d.packet_type||(d.id.includes('_slab_')?'slab':d.id.includes('_bundle_')?'bundle':'anchor');
     const tc=_tc[type]||'#888';
     const hasFacts=d.fact_claims&&d.fact_claims.length>0;
     const isProvisional=d.status==='PROVISIONAL';
     const statusColor=isProvisional?'#fbbf24':'var(--text-dim)';
     const statusLabel=isProvisional?'PROVISIONAL':'DRAFT';
+    const entityName=_draftEntityName(d);
 
     return `
     <div style="border:1px solid var(--border);border-radius:8px;padding:14px 18px;margin-bottom:10px;border-left:3px solid ${tc}" id="vd-${d.id}">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <div class="mine-row-clickable" style="display:flex;align-items:center;gap:10px;margin-bottom:8px;border-radius:4px;padding:2px 4px;margin-left:-4px" onclick="_inspOpenDraft('${d.id}')" title="Click to inspect / edit">
+        <span onclick="event.stopPropagation()"><input type="checkbox" class="verify-cb" data-id="${d.id}" style="cursor:pointer"></span>
         <span style="font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:${tc};font-weight:600">${type}</span>
-        <span style="font-size:11px;color:var(--text);font-weight:500">${d.id}</span>
+        <span style="font-size:12px;color:var(--text);font-weight:600">${_esc(entityName)}</span>
         <span style="font-size:9px;color:${statusColor};border:1px solid ${statusColor};border-radius:3px;padding:1px 6px">${statusLabel}</span>
         ${hasFacts?'<span style="font-size:9px;color:#fbbf24;border:1px solid rgba(251,191,36,0.3);border-radius:3px;padding:1px 6px">HAS FACTS</span>':''}
-        <span style="font-size:9px;color:var(--text-dim)">${((d.confidence||0)*100).toFixed(0)}% confidence</span>
+        <span style="font-size:9px;color:#ff8c00;border:1px solid rgba(255,140,0,0.35);background:rgba(255,140,0,0.08);border-radius:3px;padding:1px 7px;font-family:'JetBrains Mono',monospace" title="Target collection">\u2192 ${_esc(d.collection_id||'default')}</span>
+        <span style="font-size:9px;color:var(--text-dim)">${((d.confidence||0)*100).toFixed(0)}%</span>
+        <div style="flex:1"></div>
+        <span style="font-size:9px;color:var(--text-dim);opacity:.6">\u2b9e inspect</span>
       </div>
+      <div style="font-size:9px;color:var(--text-dim);margin-bottom:4px;font-family:'JetBrains Mono',monospace;opacity:0.5">${d.id}</div>
       ${d.justification?`<div style="font-size:10px;color:var(--text-dim);margin-bottom:8px">${_esc(d.justification)}</div>`:''}
       ${hasFacts?`<div style="font-size:9px;color:#fbbf24;margin-bottom:8px"><strong>FACT claims:</strong> ${d.fact_claims.map(f=>_esc(f)).join(' · ')}</div>`:''}
       <div id="vd-verify-${d.id}" style="margin-bottom:8px"></div>
@@ -2352,6 +3303,22 @@ function _verifyRenderDrafts(drafts){
       </div>
     </div>`;
   }).join('');
+  return html;
+}
+
+function _verifyToggleAll(checked){
+  document.querySelectorAll('.verify-cb').forEach(cb=>cb.checked=checked);
+}
+
+async function _verifyBulkAction(action){
+  const ids=[...document.querySelectorAll('.verify-cb:checked')].map(cb=>cb.dataset.id);
+  if(!ids.length){alert('No drafts selected');return}
+  if(!confirm(`${action.replace('_',' ')} ${ids.length} draft(s)?`))return;
+  for(const id of ids){
+    try{await _reviewDraft(id,action)}catch(e){console.warn('Bulk action failed for',id,e)}
+  }
+  // Refresh the page after all actions
+  dashNav('verify');
 }
 
 async function _verifyDraft(draftId){
@@ -2360,7 +3327,7 @@ async function _verifyDraft(draftId){
   statusEl.innerHTML='<div style="font-size:10px;color:var(--accent)">Verifying FACT claims via Ollama...</div>';
 
   try{
-    const res=await fetch(`${API}/sessions/${currentSessionId}/drafts/${draftId}/verify`,{
+    const res=await fetch(`${API}/sessions/${_draftSess(draftId)}/drafts/${draftId}/verify`,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({context:'',method:'ollama'})
     });
@@ -2396,7 +3363,7 @@ async function _reviewDraft(draftId,action){
   const oliOn=document.getElementById('oli-toggle')?.checked;
 
   try{
-    const res=await fetch(`${API}/sessions/${currentSessionId}/drafts/${draftId}/review`,{
+    const res=await fetch(`${API}/sessions/${_draftSess(draftId)}/drafts/${draftId}/review`,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:action,oli_mode:oliOn?'ON':'OFF'})
     });
@@ -2416,12 +3383,12 @@ async function _reviewDraft(draftId,action){
 
     // Refresh if committed (corpus changed)
     if(result.status==='COMMITTED'){
-      dashData=await fetch(`${API}/corpus/full`).then(r=>r.json());
+      await _fetchDashData();
       corpusLoaded=false;
     }
 
-    // Re-render the page
-    dashNav('verify');
+    // Re-render the current page (verify or drafts)
+    dashNav(dashPage);
   }catch(e){
     if(statusEl)statusEl.innerHTML=`<span style="color:#ff4444">${e.message}</span>`;
   }
@@ -2484,7 +3451,7 @@ async function dashSetLifecycle(nodeId,status){
     });
     if(!res.ok){const err=await res.json();alert(err.detail);return}
     pushEvent('corpus',`${nodeId} -> ${status}`);
-    dashData=await fetch(`${API}/corpus/full`).then(r=>r.json());
+    await _fetchDashData();
     dashNav(dashPage);
     corpusLoaded=false;
   }catch(e){alert(e.message)}
@@ -2502,7 +3469,7 @@ async function dashDelete(nodeId){
     const res=await fetch(`${API}/corpus/nodes/${nodeId}`,{method:'DELETE'});
     if(!res.ok){const err=await res.json();alert(err.detail);return}
     pushEvent('corpus',`Deleted ${nodeId}`);
-    dashData=await fetch(`${API}/corpus/full`).then(r=>r.json());
+    await _fetchDashData();
     dashNav(dashPage);
     corpusLoaded=false;
   }catch(e){alert(e.message)}
@@ -2515,7 +3482,7 @@ let _commitNodeId=null;
 
 async function showCommitPreview(nodeId){
   _commitNodeId=nodeId;
-  const preview=await fetch(`${API}/sessions/${currentSessionId}/drafts/${nodeId}/preview`).then(r=>r.json());
+  const preview=await fetch(`${API}/sessions/${_draftSess(nodeId)}/drafts/${nodeId}/preview`).then(r=>r.json());
 
   // Summary in chat pane
   const ins=preview.insertion;
@@ -2629,7 +3596,7 @@ async function showCommitPreview(nodeId){
 
 async function executeCommit(){
   if(!_commitNodeId||!currentSessionId)return;
-  const res=await fetch(`${API}/sessions/${currentSessionId}/drafts/${_commitNodeId}/review`,{
+  const res=await fetch(`${API}/sessions/${_draftSess(_commitNodeId)}/drafts/${_commitNodeId}/review`,{
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action:'promote_corpus',oli_mode:oliMode})
   }).then(r=>r.json());
@@ -2804,27 +3771,51 @@ async function loadCorpusGraph(){
   cNodes=[];cEdges=[];
   const typeMap={};
   const layoutHint=data.layout_hint||'cloud';
-  let _flowIndex=0; // sequence counter for flow layout
+  const spineOrder=data.spine_order||[];
+  // Map every spine-member id to its ordinal position on the spine so
+  // cSemPos can line nodes up in actual story order, not enumeration order.
+  // Nodes absent from spine_order are "orphans" — they get parked above/below
+  // their nearest spine reference rather than stretched along x.
+  const _spineIdx={};
+  spineOrder.forEach((id,i)=>{_spineIdx[id]=i});
+  const _spineCount=Math.max(1,spineOrder.length);
 
   // §11.1 axis scaling — same as session graph
   const CX={x:500,y:300,z:250};
   const cJitter=()=>(Math.random()-.5)*30;
   function cSemPos(n,sx,sy,sz){
     if(layoutHint==='flow'){
-      // ── Narrative flow layout: spiral/arc left-to-right ──
-      // Each node gets a position along a gentle 3D helix
-      const i=_flowIndex++;
-      const total=Math.max(1,(data.anchors||[]).length+(data.bundles||[]).length+(data.slabs||[]).length);
-      const t=i/total; // 0→1 progress through narrative
-      const spread=350;
-      // Main axis: left-to-right sweep
-      n.x=(t-0.5)*spread*2;
-      // Vertical: gentle sine wave (narrative arc)
-      n.y=Math.sin(t*Math.PI)*-80 + (n.struct==='slab'?60:n.struct==='bundle'?30:0);
-      // Depth: slight helix twist for 3D interest
-      n.z=Math.cos(t*Math.PI*2)*50+cJitter()*0.5;
+      // ── Narrative flow layout: linear spine, perpendicular orphans ──
+      // Spine members sit on a near-flat horizontal line so the eye can
+      // track A→B→C without the old helix/arc obscuring direction.
+      // Orphans (non-SEQUENCE nodes that share a collection) drop above
+      // or below their position in spineOrder so they read as annotations
+      // on the spine, not additional beats.
+      // Adaptive spread: ≥55px per step so nodes don't compress under repulsion.
+      const step=Math.max(55, 420/Math.max(1,_spineCount-1));
+      const spread=step*Math.max(1,_spineCount-1);
+      const idx=_spineIdx[n.id];
+      const onSpine=idx!==undefined;
+      // Fallback position for any node that somehow lacks a spine slot —
+      // append after the end at a stable pseudo-index.
+      const posIdx=onSpine?idx:_spineCount+((n.id.charCodeAt(n.id.length-1)||0)%5);
+      n.x=posIdx*step - spread/2;
+      // Spine stays flat-ish. Orphans fan above/below by struct type so
+      // anchors/bundles/slabs stack predictably when multiple orphans
+      // target the same spine slot.
+      const yStructBase={slab:60,bundle:-40,anchor:0}[n.struct]||0;
+      if(onSpine){
+        n.y=yStructBase*0.15 + (Math.random()-.5)*6;   // tight vertical ribbon
+        n.z=(Math.random()-.5)*20;
+      }else{
+        // Perpendicular branch — keep x aligned near spine, push y off.
+        const dir=(posIdx%2===0)?1:-1;               // alternate sides
+        n.y=yStructBase + dir*110 + (Math.random()-.5)*20;
+        n.z=(Math.random()-.5)*40;
+      }
       n.semX=n.x; n.semY=n.y; n.semZ=n.z;
-      n._flowOrder=i;
+      n._flowOrder=posIdx;
+      n._onSpine=onSpine;
     } else if(sx!=null){
       n.x=(sx-0.5)*CX.x+cJitter(); n.y=sy*CX.y+cJitter(); n.z=(sz-1.5)*CX.z+cJitter();
       n.semX=n.x; n.semY=n.y; n.semZ=n.z;
@@ -2905,14 +3896,24 @@ function cPhysics(){
     a.vx+=f*dx/d;a.vy+=f*dy/d;a.vz+=f*dz/d;
     b.vx-=f*dx/d;b.vy-=f*dy/d;b.vz-=f*dz/d;
   });
-  // Semantic axis pull — stronger for flow layout to maintain narrative order
-  const isFlow=cNodes.length>0&&cNodes[0]._flowOrder!=null;
-  const semPull=isFlow?0.04:0.006; // flow layout: strong pull to keep sequence
+  // Semantic axis pull — stronger for flow layout to maintain narrative order.
+  // For spine nodes in flow mode, pin x hard: narrative order is authoritative
+  // and pairwise repulsion at close spine spacing would otherwise shred it.
+  const isFlow=cNodes.some(n=>n._flowOrder!=null);
+  const semPull=isFlow?0.04:0.006;
   cNodes.forEach(n=>{
     if(n.semX!=null){
-      n.vx+=(n.semX-n.x)*semPull;
-      n.vy+=(n.semY-n.y)*semPull;
-      n.vz+=(n.semZ-n.z)*semPull;
+      if(isFlow&&n._onSpine){
+        // Hard-pin x to semX; let y/z breathe slightly so repulsion still
+        // resolves vertical overlap without scrambling story order.
+        n.vx=0; n.x=n.semX;
+        n.vy+=(n.semY-n.y)*0.05;
+        n.vz+=(n.semZ-n.z)*0.05;
+      }else{
+        n.vx+=(n.semX-n.x)*semPull;
+        n.vy+=(n.semY-n.y)*semPull;
+        n.vz+=(n.semZ-n.z)*semPull;
+      }
     }else{
       n.vx+=(-n.x)*pull;n.vy+=(-n.y)*pull;n.vz+=(-n.z)*pull;
     }
@@ -2986,20 +3987,20 @@ function cDraw(){
       glow.addColorStop(0.5,`rgba(${Math.round((ca.r+cb.r)/2)},${Math.round((ca.g+cb.g)/2)},${Math.round((ca.b+cb.b)/2)},${baseA*0.3})`);
       glow.addColorStop(1,`rgba(${cb.r},${cb.g},${cb.b},${baseA*0.25})`);
       cCx.beginPath();cCx.moveTo(pa.sx,pa.sy);cCx.lineTo(pb.sx,pb.sy);
-      cCx.strokeStyle=glow;cCx.lineWidth=4+(e.strength||.3)*4;cCx.stroke();
+      cCx.strokeStyle=glow;cCx.lineWidth=6+(e.strength||.3)*6;cCx.stroke();
 
       const core=cCx.createLinearGradient(pa.sx,pa.sy,pb.sx,pb.sy);
-      core.addColorStop(0,`rgba(${Math.min(255,ca.r+80)},${Math.min(255,ca.g+80)},${Math.min(255,ca.b+80)},${baseA*0.7})`);
-      core.addColorStop(1,`rgba(${Math.min(255,cb.r+80)},${Math.min(255,cb.g+80)},${Math.min(255,cb.b+80)},${baseA*0.7})`);
+      core.addColorStop(0,`rgba(${Math.min(255,ca.r+80)},${Math.min(255,ca.g+80)},${Math.min(255,ca.b+80)},${baseA*0.8})`);
+      core.addColorStop(1,`rgba(${Math.min(255,cb.r+80)},${Math.min(255,cb.g+80)},${Math.min(255,cb.b+80)},${baseA*0.8})`);
       cCx.beginPath();cCx.moveTo(pa.sx,pa.sy);cCx.lineTo(pb.sx,pb.sy);
-      cCx.strokeStyle=core;cCx.lineWidth=1.2+(e.strength||.3)*1.5;cCx.stroke();
+      cCx.strokeStyle=core;cCx.lineWidth=2+(e.strength||.3)*2.5;cCx.stroke();
     } else {
-      // ── Resting dendrite — visible connection at ~30% ──
-      const anyHit=(hitsA>0||hitsB>0)?0.35:0.20;
+      // ── Resting dendrite — visible connection ──
+      const anyHit=(hitsA>0||hitsB>0)?0.45:0.30;
       const mr=Math.round((ca.r+cb.r)/2),mg=Math.round((ca.g+cb.g)/2),mb=Math.round((ca.b+cb.b)/2);
       cCx.beginPath();cCx.moveTo(pa.sx,pa.sy);cCx.lineTo(pb.sx,pb.sy);
       cCx.strokeStyle=`rgba(${mr},${mg},${mb},${anyHit})`;
-      cCx.lineWidth=0.6+(e.strength||.3)*1.2;cCx.stroke();
+      cCx.lineWidth=1.2+(e.strength||.3)*2;cCx.stroke();
     }
 
     // Arrowhead for SEQUENCE edges (narrative flow direction)
@@ -3156,15 +4157,44 @@ function cDraw(){
     const GOLD_BRIGHT={r:255,g:245,b:180};
     const totalSegs=_synapticTrail.length-1;
 
-    // Traveling spark — 65% speed, cycles along the trail
-    const sparkSpeed=0.00026;
-    const sparkPos=(t*sparkSpeed)%1;
-    const sparkSeg=Math.floor(sparkPos*totalSegs);
-    const sparkFrac=sparkPos*totalSegs-sparkSeg;
-
     // Edge lookup for connected-segment detection
     const _cEdgeSet=new Set();
     cEdges.forEach(e=>{_cEdgeSet.add(e.from+'→'+e.to);_cEdgeSet.add(e.to+'→'+e.from)});
+
+    // Per-segment timing: 1–3 seconds per hop, scaled by on-screen distance.
+    // 100 px → 1s, 300 px → 3s, clamped. Guarantees minimum dwell between
+    // each pair of nodes so the eye can always follow the orb.
+    const _csegDist=[],_csegMs=[];let _ctotalMs=0;
+    for(let i=1;i<_synapticTrail.length;i++){
+      const p1=pMap[_synapticTrail[i-1].id],p2=pMap[_synapticTrail[i].id];
+      const d=(p1&&p2)?Math.hypot(p2.sx-p1.sx,p2.sy-p1.sy):0;
+      _csegDist.push(d);
+      const ms=Math.max(1000,Math.min(3000,d*10));
+      _csegMs.push(ms);_ctotalMs+=ms;
+    }
+    // Accumulating progress so camera jitter / physics drift doesn't make
+    // `t % _ctotalMs` discontinuously jump each frame (which would flash the
+    // whole trail instead of cleanly advancing the spark).
+    if(window._cSparkLastT==null)window._cSparkLastT=t;
+    if(window._cSparkProg==null)window._cSparkProg=0;
+    const _cdt=Math.min(100,t-window._cSparkLastT);
+    window._cSparkLastT=t;
+    let sparkSeg=0,sparkFrac=0,sparkPos=0;
+    if(_ctotalMs>0){
+      window._cSparkProg=(window._cSparkProg+_cdt)%_ctotalMs;
+      const cyc=window._cSparkProg;
+      sparkPos=cyc/_ctotalMs;
+      let acc=0;
+      for(let i=0;i<_csegMs.length;i++){
+        if(acc+_csegMs[i]>=cyc){sparkSeg=i;sparkFrac=_csegMs[i]>0?(cyc-acc)/_csegMs[i]:0;break;}
+        acc+=_csegMs[i];
+      }
+    }else{
+      const fallback=(t*0.00026)%1;
+      sparkPos=fallback;sparkSeg=Math.floor(fallback*totalSegs);sparkFrac=fallback*totalSegs-sparkSeg;
+    }
+    const _cnodePos=[0];
+    for(let i=0;i<_csegMs.length;i++)_cnodePos.push(_cnodePos[i]+(_ctotalMs>0?_csegMs[i]/_ctotalMs:1/totalSegs));
 
     for(let i=1;i<_synapticTrail.length;i++){
       const prev=pMap[_synapticTrail[i-1].id], curr=pMap[_synapticTrail[i].id];
@@ -3232,7 +4262,7 @@ function cDraw(){
     // drives an expanding ring that fades out.
     _synapticTrail.forEach((tn,i)=>{
       const p=pMap[tn.id];if(!p||p.scale<=0.01)return;
-      const nodePos=i/totalSegs; // this node's position on the trail (0→1)
+      const nodePos=_cnodePos[i]!=null?_cnodePos[i]:i/totalSegs; // cumulative-distance fraction
 
       // How far ahead the spark is past this node (wrapping around)
       let delta=sparkPos-nodePos;
@@ -3296,7 +4326,11 @@ function cHitTest(mx,my){
 // Corpus canvas interaction — orbit + zoom + hover + click
 cCanvas.addEventListener('mousedown',e=>{
   _corpusDragging=true;
-  if(e.button===0)cDrag={x:e.clientX,y:e.clientY,th:cCam.theta,ph:cCam.phi,btn:0};
+  if(e.button===0&&e.shiftKey){
+    cDrag={x:e.clientX,y:e.clientY,px:cCam.panX,py:cCam.panY,btn:1}; // shift+left = pan
+  }else if(e.button===0){
+    cDrag={x:e.clientX,y:e.clientY,th:cCam.theta,ph:cCam.phi,btn:0};
+  }
   if(e.button===1){e.preventDefault();cDrag={x:e.clientX,y:e.clientY,px:cCam.panX,py:cCam.panY,btn:1}}
 });
 cCanvas.addEventListener('mousemove',e=>{
@@ -3340,6 +4374,9 @@ cCanvas.addEventListener('wheel',e=>{e.preventDefault();
   const r=cCam.dist/old;cCam.panX+=mx*(1-r);cCam.panY+=my*(1-r);
 },{passive:false});
 cCanvas.addEventListener('contextmenu',e=>e.preventDefault());
+cCanvas.addEventListener('auxclick',e=>{if(e.button===1)e.preventDefault()}); // block Windows autoscroll hijack on middle-click
+cCanvas.addEventListener('pointerdown',e=>{if(e.button===1)e.preventDefault()},{capture:true});
+cCanvas.addEventListener('mousedown',e=>{if(e.button===1)e.preventDefault()},{capture:true});
 
 function hitTestCorpus(e){
   const rect=cCanvas.getBoundingClientRect();
@@ -3541,7 +4578,7 @@ async function erSaveAmend(draftId){
   const body={canonical_phrase:label,justification:just};
   if(textEl)body.canonical_text=textEl.value;
   try{
-    const res=await fetch(`${API}/sessions/${currentSessionId}/drafts/${draftId}/amend`,
+    const res=await fetch(`${API}/sessions/${_draftSess(draftId)}/drafts/${draftId}/amend`,
       {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
     if(res.error){pushEvent('proposal',`Amend failed: ${res.error}`);return}
     pushEvent('proposal',`Amended ${draftId} — reset for re-review`);
@@ -3553,7 +4590,7 @@ async function erSaveAmend(draftId){
 
 async function erDraftAction(draftId,action){
   try{
-    const res=await fetch(`${API}/sessions/${currentSessionId}/drafts/${draftId}/review`,
+    const res=await fetch(`${API}/sessions/${_draftSess(draftId)}/drafts/${draftId}/review`,
       {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,oli_mode:oliMode})});
     const data=await res.json();
     if(data.error||data.detail){
@@ -3582,7 +4619,7 @@ async function erBatchAction(action){
   if(!actionable.length)return;
   if(!confirm(`${action.replace('_',' ')} ${actionable.length} draft(s)?`))return;
   for(const d of actionable){
-    await fetch(`${API}/sessions/${currentSessionId}/drafts/${d.id}/review`,
+    await fetch(`${API}/sessions/${_draftSess(d.id)}/drafts/${d.id}/review`,
       {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,oli_mode:oliMode})}).catch(()=>{});
   }
   erData=await fetch(`${API}/sessions/${currentSessionId}/end-review`).then(r=>r.json());
@@ -3724,6 +4761,38 @@ function pushEvent(type,text){
   while(list.children.length>200)list.removeChild(list.firstChild);
 }
 
+// Phase 2A: poll for drafts landing after a chat turn's stream closes.
+// Runs for up to 30s, reporting any new draft IDs (+ collection binding)
+// to the event log. One concurrent poll per session — new calls cancel.
+const _draftPollers={};
+async function _pollDraftsAfterTurn(sessionId){
+  if(_draftPollers[sessionId]){_draftPollers[sessionId].cancelled=true}
+  const baseline=new Set();
+  try{
+    const r=await fetch(`${API}/sessions/${sessionId}/drafts`);
+    if(r.ok)(await r.json()).forEach(d=>baseline.add(d.id));
+  }catch(e){}
+  const state={cancelled:false};_draftPollers[sessionId]=state;
+  const deadline=Date.now()+30000;
+  while(Date.now()<deadline&&!state.cancelled){
+    await new Promise(r=>setTimeout(r,2000));
+    if(state.cancelled)break;
+    try{
+      const r=await fetch(`${API}/sessions/${sessionId}/drafts`);
+      if(!r.ok)continue;
+      const drafts=await r.json();
+      for(const d of drafts){
+        if(baseline.has(d.id))continue;
+        baseline.add(d.id);
+        const cid=d.collection_id||'default';
+        const label=(d.anchor?.canonical_phrase)||(d.slab?.title)||(d.slab?.canonical_text||'').slice(0,60)||d.id;
+        pushEvent('proposal',`Draft mined: ${d.packet_type||'?'} "${label}" → ${cid}`);
+      }
+    }catch(e){}
+  }
+  if(_draftPollers[sessionId]===state)delete _draftPollers[sessionId];
+}
+
 // ═══════════════════════════════════════════════════════════════
 //  RESIZE / LOOP
 // ═══════════════════════════════════════════════════════════════
@@ -3782,16 +4851,74 @@ function _drawNeuralParticles(ctx,W,H){
 
 // ── Synaptic trail — draw conversation path through the brain ──
 let _synapticTrail=[]; // [{id, turn}] ordered sequence of activations
-function _updateSynapticTrail(){
-  // Build from corpus_hit_log if available, or from hit timestamps
-  const trail=[];
-  cNodes.forEach(n=>{
-    if((n.hitCount||0)>0 && (n.lastHitTurn||0)>0){
-      trail.push({id:n.id, turn:n.lastHitTurn, hits:n.hitCount});
+let _trailMode='auto'; // 'auto' | 'narrative' | 'conversation'
+// Auto prefers narrative (SEQUENCE spine) when present, else conversation hits.
+// Rationale: for mined articles/stories, conversation turn order is
+// ~meaningless (it reflects LLM output order, not story order). The SEQUENCE
+// edges carry the actual narrative spine — A precedes B in the work — so
+// that's the trace the user is asking for when no chat turns are driving
+// activations. Chat-driven workspaces still get the conversation trail.
+
+function _buildNarrativeTrail(){
+  // Walk SEQUENCE edges (A→B means A precedes B). Chain roots (no incoming
+  // SEQUENCE edge, at least one outgoing) through their descendants, picking
+  // the strongest outgoing edge at each branch. Multiple roots concatenate
+  // (e.g. two independent story threads in one collection).
+  const nodeIds=new Set(cNodes.map(n=>n.id));
+  const seq=cEdges.filter(e=>e.type==='SEQUENCE' && nodeIds.has(e.from) && nodeIds.has(e.to));
+  if(!seq.length) return [];
+  const outgoing={}, incoming={};
+  seq.forEach(e=>{
+    (outgoing[e.from]=outgoing[e.from]||[]).push(e);
+    (incoming[e.to]=incoming[e.to]||[]).push(e);
+  });
+  // Roots: nodes with outgoing SEQUENCE but no incoming SEQUENCE.
+  const roots=Object.keys(outgoing).filter(id=>!(incoming[id]&&incoming[id].length));
+  // If every node has both in & out (cycle) fall back to any node with outgoing.
+  const starts=roots.length?roots:Object.keys(outgoing).slice(0,1);
+  const visited=new Set(), trail=[];
+  starts.forEach(root=>{
+    let cur=root, turn=trail.length;
+    while(cur && !visited.has(cur)){
+      visited.add(cur);
+      trail.push({id:cur, turn:turn++, hits:1});
+      const outs=(outgoing[cur]||[]).filter(e=>!visited.has(e.to));
+      if(!outs.length)break;
+      outs.sort((a,b)=>(b.strength||0)-(a.strength||0));
+      cur=outs[0].to;
     }
   });
-  trail.sort((a,b)=>a.turn-b.turn);
-  _synapticTrail=trail;
+  return trail;
+}
+
+function _updateSynapticTrail(){
+  const narrative=_buildNarrativeTrail();
+  const convTrail=[];
+  cNodes.forEach(n=>{
+    if((n.hitCount||0)>0 && (n.lastHitTurn||0)>0){
+      convTrail.push({id:n.id, turn:n.lastHitTurn, hits:n.hitCount});
+    }
+  });
+  convTrail.sort((a,b)=>a.turn-b.turn);
+
+  let chosen;
+  if(_trailMode==='narrative') chosen=narrative;
+  else if(_trailMode==='conversation') chosen=convTrail;
+  else chosen=(narrative.length>=2)?narrative:convTrail; // auto
+
+  _synapticTrail=chosen;
+  // Surface current mode on the legend chip if present.
+  const badge=document.getElementById('trace-mode-badge');
+  if(badge){
+    const active=(chosen===narrative && narrative.length>=2)?'narrative':'conversation';
+    badge.textContent=active;
+    badge.title=`Trace source: ${active} (click to cycle, current setting: ${_trailMode})`;
+  }
+}
+
+function _cycleTrailMode(){
+  _trailMode = _trailMode==='auto' ? 'narrative' : _trailMode==='narrative' ? 'conversation' : 'auto';
+  _updateSynapticTrail();
 }
 
 function corpusLoop(){
@@ -3827,9 +4954,77 @@ async function loadChats(){
   const list=document.getElementById('chat-list');list.innerHTML='';
   chats.forEach(c=>{
     const el=document.createElement('div');el.className='chat-item'+(c.id===currentChatId?' active':'');
-    el.dataset.id=c.id;el.textContent=c.title;
-    el.addEventListener('click',()=>selectChat(c.id));list.appendChild(el);
+    el.dataset.id=c.id;
+    // Phase 2A: show which collection this chat binds to — drafts mined
+    // during its turns will stamp this as _target_collection.
+    const cid=c.collection_id||'default';
+    const title=document.createElement('div');title.textContent=c.title;title.style.cssText='overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    const pill=document.createElement('div');
+    pill.textContent='→ '+cid;
+    pill.style.cssText='font-size:9px;color:#ff8c00;opacity:0.75;margin-top:2px;font-family:monospace';
+    pill.title='Drafts mined in this chat target this collection';
+    el.appendChild(title);el.appendChild(pill);
+    el.addEventListener('click',()=>selectChat(c.id));
+    el.addEventListener('contextmenu',ev=>_chatContextMenu(ev,c.id,c.title,cid));
+    list.appendChild(el);
   });
+}
+async function _chatRebindCollection(chatId,currentCid){
+  const next=prompt(`Rebind chat to which collection?\n(current: ${currentCid})\n\nLeave blank to cancel.`,currentCid);
+  if(!next||next===currentCid)return;
+  const res=await fetch(`${API}/chats/${chatId}/collection`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({collection_id:next.trim()||null})});
+  if(!res.ok){alert('Rebind failed: '+await res.text());return}
+  pushEvent('gate',`Chat ${chatId} → ${next}`);
+  await loadChats();
+}
+
+// Phase 2B: right-click menu with Rename / Rebind / Regen Title options.
+// Replaces the previous single-action (rebind only) right-click.
+function _chatContextMenu(ev,chatId,currentTitle,currentCid){
+  ev.preventDefault();ev.stopPropagation();
+  // Close any existing menu
+  document.querySelectorAll('._chat-ctx-menu').forEach(el=>el.remove());
+  const menu=document.createElement('div');
+  menu.className='_chat-ctx-menu';
+  menu.style.cssText='position:fixed;background:#1a1a1e;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:4px;z-index:500;min-width:180px;box-shadow:0 4px 16px rgba(0,0,0,0.4);font-family:JetBrains Mono,monospace;font-size:11px';
+  menu.style.left=ev.clientX+'px';menu.style.top=ev.clientY+'px';
+  const mk=(label,onClick)=>{
+    const item=document.createElement('div');
+    item.textContent=label;
+    item.style.cssText='padding:6px 12px;cursor:pointer;color:var(--text);border-radius:3px';
+    item.onmouseenter=()=>{item.style.background='rgba(74,158,255,0.15)'};
+    item.onmouseleave=()=>{item.style.background=''};
+    item.onclick=()=>{menu.remove();onClick()};
+    return item;
+  };
+  menu.appendChild(mk('✎  Rename',()=>_chatRename(chatId,currentTitle)));
+  menu.appendChild(mk('↻  Regenerate Title',()=>_chatAutoTitle(chatId)));
+  menu.appendChild(mk('→  Rebind Collection',()=>_chatRebindCollection(chatId,currentCid)));
+  document.body.appendChild(menu);
+  // Click-away dismissal
+  setTimeout(()=>{
+    const kill=e=>{if(!menu.contains(e.target)){menu.remove();document.removeEventListener('mousedown',kill)}};
+    document.addEventListener('mousedown',kill);
+  },0);
+}
+
+async function _chatRename(chatId,currentTitle){
+  const next=prompt(`Rename chat:`,currentTitle||'');
+  if(next===null)return; // cancelled
+  const trimmed=next.trim();
+  if(!trimmed||trimmed===currentTitle)return;
+  const res=await fetch(`${API}/chats/${chatId}/title`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:trimmed,collection_id:null})});
+  if(!res.ok){alert('Rename failed: '+await res.text());return}
+  pushEvent('gate',`Chat renamed: ${trimmed}`);
+  await loadChats();
+}
+
+async function _chatAutoTitle(chatId){
+  const res=await fetch(`${API}/chats/${chatId}/auto_title`,{method:'POST'});
+  if(!res.ok){alert('Auto-title failed: '+await res.text());return}
+  const data=await res.json();
+  pushEvent('gate',`Title regenerated: ${data.title}`);
+  await loadChats();
 }
 async function selectChat(id){
   // Cancel any in-flight stream from the previous chat
@@ -3841,11 +5036,59 @@ async function selectChat(id){
   document.querySelectorAll('.chat-item').forEach(el=>el.classList.toggle('active',el.dataset.id===id));
   await loadMessages(); // this restores session_id + refreshGraph()
 }
-document.getElementById('new-chat-btn').addEventListener('click',async()=>{
-  const r=await fetch(`${API}/chats`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'Chat '+new Date().toLocaleTimeString()})}).then(r=>r.json());
-  currentChatId=r.id;currentSessionId=null;await loadChats();
-  document.getElementById('messages').innerHTML='';gNodes=[];gEdges=[];
-  pushEvent('gate',`New chat: ${r.id}`);
+async function _newChatOpenModal(){
+  // Phase 2A: dropdown of existing collections + text field for a new one.
+  // Default selection = active dashboard collection (unless merged view).
+  const sel=document.getElementById('ncm-collection-select');
+  const newField=document.getElementById('ncm-collection-new');
+  newField.value='';
+  sel.innerHTML='<option value="">— loading —</option>';
+  let collections=[];
+  try{
+    const res=await fetch(`${API}/collections`);
+    if(res.ok)collections=(await res.json()).collections||[];
+  }catch(e){}
+  // Ensure "default" always available
+  if(!collections.some(c=>c.id==='default'))collections.unshift({id:'default',name:'default'});
+  const suggested=(typeof _dashCollection!=='undefined'&&_dashCollection&&_dashCollection!=='__all__')?_dashCollection:'default';
+  sel.innerHTML=collections.map(c=>`<option value="${c.id}"${c.id===suggested?' selected':''}>${c.name||c.id}${c.id===suggested?' (active)':''}</option>`).join('');
+  document.getElementById('new-chat-modal').style.display='flex';
+  setTimeout(()=>newField.focus(),20);
+}
+function _newChatCloseModal(){document.getElementById('new-chat-modal').style.display='none'}
+async function _newChatSubmit(){
+  const sel=document.getElementById('ncm-collection-select');
+  const newName=document.getElementById('ncm-collection-new').value.trim();
+  let cid=null;
+  if(newName){
+    // Create the collection first — if name collides, backend returns existing.
+    try{
+      const res=await fetch(`${API}/collections`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newName})});
+      if(!res.ok)throw new Error(await res.text());
+      const data=await res.json();
+      cid=data.id||data.collection_id||newName;
+    }catch(e){alert('Could not create collection: '+e.message);return}
+  }else{
+    cid=sel.value||'default';
+  }
+  try{
+    const r=await fetch(`${API}/chats`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'Chat '+new Date().toLocaleTimeString(),collection_id:cid})}).then(r=>r.json());
+    currentChatId=r.id;currentSessionId=null;
+    _newChatCloseModal();
+    await loadChats();
+    document.getElementById('messages').innerHTML='';gNodes=[];gEdges=[];
+    pushEvent('gate',`New chat: ${r.id} → ${cid}`);
+    // Refresh dashboard's cached collection list in case we just created one
+    if(newName){try{if(typeof _fetchDashData==='function')await _fetchDashData();if(typeof _renderDashCollections==='function')await _renderDashCollections()}catch(e){}}
+  }catch(e){alert('Could not create chat: '+e.message)}
+}
+document.getElementById('new-chat-btn').addEventListener('click',_newChatOpenModal);
+document.getElementById('ncm-cancel').addEventListener('click',_newChatCloseModal);
+document.getElementById('ncm-create').addEventListener('click',_newChatSubmit);
+document.getElementById('new-chat-modal').addEventListener('click',ev=>{if(ev.target.id==='new-chat-modal')_newChatCloseModal()});
+document.addEventListener('keydown',ev=>{
+  if(ev.key==='Escape'&&document.getElementById('new-chat-modal').style.display==='flex')_newChatCloseModal();
+  else if(ev.key==='Enter'&&document.getElementById('new-chat-modal').style.display==='flex'&&ev.target.id==='ncm-collection-new')_newChatSubmit();
 });
 document.getElementById('end-session-btn').addEventListener('click',openEndReview);
 document.getElementById('oli-toggle').addEventListener('change',e=>{oliMode=e.target.checked?'ON':'OFF';document.getElementById('oli-label').textContent=`OLI ${oliMode}`;pushEvent('gate',`OLI: ${oliMode}`)});
@@ -3955,6 +5198,10 @@ function renderMd(text){
 function addBubble(role,content,classification){
   const c=document.getElementById('messages');
   const div=document.createElement('div');div.className=`msg ${role}`;
+  // Store raw content on the bubble itself so "Mine this" uses the source,
+  // not the markdown-rendered HTML (headings/lists would confuse the miner).
+  div.dataset.rawContent=content||'';
+  div.dataset.role=role;
   const txt=document.createElement('span');txt.className='msg-text';
   if(role==='assistant'&&content){
     txt.innerHTML=renderMd(content);txt.style.whiteSpace='normal';
@@ -4018,6 +5265,9 @@ async function sendMessage(){
           if(data.gauntlet){const g=data.gauntlet;pushEvent('gate',`GAUNTLET [${g.verdict}]: ${g.claim_summary||'(claim tested)'}`);if(g.verdict!=='passed'){const gDiv=document.createElement('div');gDiv.style.cssText='background:#1a1a2a;border:1px solid #6080ff;border-radius:6px;padding:8px 12px;margin:6px 0;font-size:0.85em;color:#90b0ff';let html='<b>[GAUNTLET]</b> '+g.claim_summary;if(g.alternatives?.length)html+='<br><b>Alternatives:</b> '+g.alternatives.map(a=>'<br>&nbsp;&nbsp;- '+a).join('');if(g.counterfactuals?.length)html+='<br><b>Would break if:</b> '+g.counterfactuals.map(c=>'<br>&nbsp;&nbsp;- '+c).join('');if(g.friction_note)html+='<br><b>>></b> '+g.friction_note;gDiv.innerHTML=html;aDiv.insertBefore(gDiv,aDiv.querySelector('.meta'))}}
           if(data.context_usage)updateCtxBudget(data.context_usage);
           if(data.session_id)currentSessionId=data.session_id;
+          // Phase 2A: drafts are mined in a background task AFTER the stream closes.
+          // Poll briefly so the event log surfaces new drafts when they land.
+          if(currentSessionId)_pollDraftsAfterTurn(currentSessionId);
           aDiv.style.opacity='1';
           // Render markdown now that full response is in
           const mtxt=aDiv.querySelector('.msg-text');

@@ -1,0 +1,124 @@
+- id: mined_anchor_7edc6247_v1
+  canonical_phrase: Plasma Ion Cloud Accelerator
+  aliases:
+  - PVA
+  invokes: []
+  notes: Central technology for fusion power generation; abbreviated as PVA.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_0437e888_v1
+  canonical_phrase: quantum water
+  aliases: []
+  invokes: []
+  notes: Encoded form of fusion output, crucial for power transmission.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_613a1085_v1
+  canonical_phrase: fusion juice
+  aliases: []
+  invokes: []
+  notes: A consumable substance that provides humans with direct energy absorption.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_17643af5_v1
+  canonical_phrase: Gravel voice
+  aliases: []
+  invokes: []
+  notes: A distinctive vocal characteristic used to identify a specific speaker or
+    persona.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_ad70c812_v1
+  canonical_phrase: Divine Disaster Class Logician
+  aliases: []
+  invokes: []
+  notes: A descriptor for a character or concept, suggesting a chaotic and overwhelming
+    intellect.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_a467b0a3_v1
+  canonical_phrase: Moral Compression
+  aliases: []
+  invokes: []
+  notes: Represents a specific philosophical or ethical principle articulated within
+    the narrative, likely to be a recurring theme or guiding principle for a character.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []

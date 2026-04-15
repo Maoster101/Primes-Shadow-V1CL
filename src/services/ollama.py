@@ -36,7 +36,8 @@ EMBED_MODEL = os.environ.get("PS_EMBED_MODEL", "nomic-embed-text")
 #   OLLAMA_KEEP_ALIVE=-1      — Never unload model from VRAM
 #   OLLAMA_NUM_PARALLEL=2     — Concurrent request slots
 
-_NUM_CTX = int(os.environ.get("PS_NUM_CTX", "32768"))  # 32k — Gemma 12B (11.1GB) + 32k KV cache fits in 16GB VRAM
+_NUM_CTX = int(os.environ.get("PS_NUM_CTX", "16384"))  # Chat context. Default halved from 32k -> 16k so 26B models leave VRAM headroom for embeddings + KV overhead. Set PS_NUM_CTX=32768 to restore the older larger window on smaller models.
+_EXTRACT_NUM_CTX = int(os.environ.get("PS_EXTRACT_NUM_CTX", "8192"))  # Structured extraction (mining, proposals, concept detection) — short prompts, small budget.
 
 # num_gpu: layers offloaded to GPU.
 #   99  = "offload as many layers as fit in VRAM" (Ollama's convention)
@@ -61,16 +62,18 @@ def _detect_cpu_threads() -> int:
     except Exception:
         return 8
 
+_NUM_BATCH = int(os.environ.get("PS_NUM_BATCH", "512"))  # Prompt-eval batch size. Lowered from 1024 so tight-VRAM 26B configs don't peak-spill during prompt processing. Bump to 1024+ on 24GB+ cards.
+
 MODEL_OPTIONS: dict = {
     "num_ctx": _NUM_CTX,
     "num_gpu": _NUM_GPU,    # 99 = max GPU offload (Ollama picks optimal split)
-    "num_batch": 1024,      # higher batch = faster prompt eval
+    "num_batch": _NUM_BATCH,
     "num_thread": _detect_cpu_threads(),
 }
 
 logger.info(
-    "Ollama config: model=%s num_gpu=%s num_ctx=%s num_batch=%s threads=%s",
-    CHAT_MODEL, _NUM_GPU, _NUM_CTX, 1024, MODEL_OPTIONS["num_thread"],
+    "Ollama config: model=%s num_gpu=%s chat_ctx=%s extract_ctx=%s num_batch=%s threads=%s",
+    CHAT_MODEL, _NUM_GPU, _NUM_CTX, _EXTRACT_NUM_CTX, _NUM_BATCH, MODEL_OPTIONS["num_thread"],
 )
 
 # Reusable client — partial GPU offload means slow cold starts (~60s model load)
@@ -98,12 +101,21 @@ async def generate(
     system: Optional[str] = None,
     temperature: float = 0.7,
     raw_json: bool = False,
+    num_ctx: Optional[int] = None,
 ) -> str:
-    """Single-shot generation. Use for structured extraction tasks."""
+    """Single-shot generation. Use for structured extraction tasks.
+
+    `num_ctx` override: structured extraction rarely needs the full chat
+    context budget. Passing a smaller value (e.g. 8192 for mining) avoids
+    reserving a huge KV cache for a short prompt.
+    """
+    opts = _opts(temperature)
+    if num_ctx is not None:
+        opts["num_ctx"] = num_ctx
     payload: dict = _payload_base(
         prompt=prompt,
         stream=False,
-        options=_opts(temperature),
+        options=opts,
     )
     if system:
         payload["system"] = system
@@ -317,13 +329,21 @@ async def _chat_with_tools(payload: dict):
 async def structured_extract(
     prompt: str,
     system: Optional[str] = None,
+    num_ctx: Optional[int] = None,
 ) -> dict:
     """Generate and parse structured JSON from the model.
 
     Strips markdown fences if present and parses to dict.
     Falls back to format=json if free-form extraction fails.
+
+    `num_ctx` default: if caller doesn't specify, we use the value of
+    PS_EXTRACT_NUM_CTX (default 8192). Structured extraction prompts are
+    short-to-medium; reserving a full chat-sized KV cache for them wastes
+    VRAM that the chat model needs.
     """
-    raw = await generate(prompt, system=system, temperature=0.3)
+    if num_ctx is None:
+        num_ctx = _EXTRACT_NUM_CTX
+    raw = await generate(prompt, system=system, temperature=0.3, num_ctx=num_ctx)
     return _parse_json_response(raw)
 
 

@@ -47,8 +47,11 @@ Return ONLY raw JSON:
   "function": "<category>",
   "confidence": <float 0-1>,
   "explicit": <bool — true if the user explicitly asks to persist, save, anchor, \
-bundle, or turn something into a slab/anchor/bundle; also true for explicit \
-"use this as context" / "remember this" signals. False otherwise.>,
+bundle, instantiate, create, mint, draft, promote, or turn something into a \
+slab/anchor/bundle/concept; also true for explicit "use this as context" / \
+"remember this" / "add this to the corpus" signals. Match on INTENT not exact \
+wording — any verb that means "materialize this as a persistent graph object" \
+counts. False otherwise.>,
   "mention_type": "<reference | question | deliberate_invocation | null>",
   "notes": "<string or null — surface when confidence is low>"
 }
@@ -60,6 +63,14 @@ Examples of explicit=true:
 - "remember this for later"
 - "commit this to the corpus"
 - "use this as context going forward"
+- "instantiate a tentative slab with this"
+- "lets instantiate a tentative slab"
+- "create a slab for this"
+- "make this an anchor"
+- "draft a bundle from X and Y"
+- "mint a tentative anchor from the above"
+- "promote this to the corpus"
+- "add this as a slab"
 Examples of explicit=false:
 - "what do you think about X"
 - "explain Y"
@@ -116,7 +127,12 @@ Also determine mention_type if the user references a concept by name:
 - deliberate_invocation: explicitly activating a concept as live frame
 - null: no concept referenced
 
-explicit = true if user explicitly asks to persist/save/anchor/bundle something.
+explicit = true if user explicitly asks to persist/save/anchor/bundle/\
+instantiate/create/mint/draft/promote something into a slab, anchor, bundle, \
+or concept. Match on INTENT not exact wording: any verb meaning "materialize \
+this as a persistent graph object" counts. Examples: "save this as a slab", \
+"anchor this", "lets instantiate a tentative slab", "create a slab for X", \
+"make this an anchor", "promote this to the corpus", "draft a bundle".
 
 TASK 2 — DRIFT ESTIMATION
 Estimate these meta-cognitive signals for the current turn:

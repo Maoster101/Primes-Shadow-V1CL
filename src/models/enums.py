@@ -44,6 +44,7 @@ class EdgeType(str, Enum):
     CONFLICTS = "CONFLICTS"
     LINKS = "LINKS"
     PARENT_OF = "PARENT_OF"
+    SEQUENCE = "SEQUENCE"  # Narrative ordering — A precedes B in the story spine
 
 
 class OLIMode(str, Enum):

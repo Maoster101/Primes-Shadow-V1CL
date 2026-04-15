@@ -61,6 +61,7 @@ def _rebind_corpus():
 
 class CreateChatRequest(BaseModel):
     title: str = "New Chat"
+    collection_id: Optional[str] = None  # Phase 2A: binds chat-mined drafts to this collection
 
 
 class SendMessageRequest(BaseModel):
@@ -150,20 +151,78 @@ async def health():
 
 # --- Model management ---
 
+def _friendly_model_label(tag: str) -> str:
+    """Turn a raw Ollama tag into a human-legible dropdown label.
+
+    Examples:
+      VladimirGav/gemma4-26b-16GB-VRAM:latest -> Gemma 4 26B
+      gemma3:12b                              -> Gemma 3 12B
+      gpt-oss:20b                             -> GPT-OSS 20B
+      qwen3-vl:30b                            -> Qwen3 VL 30B
+      deepseek-r1:14b                         -> DeepSeek R1 14B
+      llama3.2:latest                         -> Llama 3.2
+    """
+    import re
+    # Strip namespace, keep base + tag-suffix so we can search both for size.
+    without_ns = tag.split("/")[-1].lower()
+    base, _, tagsuffix = without_ns.partition(":")
+    # Pull an explicit size token from either segment (base carries it for
+    # community tags like gemma4-26b; tagsuffix carries it for canonical
+    # Ollama tags like gemma3:12b).
+    size_match = re.search(r"(\d+)b\b", base) or re.search(r"(\d+)b\b", tagsuffix)
+    size = size_match.group(0).upper() if size_match else ""
+    # Drop size + any noisy vram/ram qualifiers out of the stem
+    stem = re.sub(r"-?\d+b\b", "", base)
+    stem = re.sub(r"-?\d+gb[-_]?(v?ram)?", "", stem)
+    stem = stem.strip("-_ ")
+    # Canonicalize common family names
+    family_map = {
+        "gemma4": "Gemma 4",
+        "gemma3": "Gemma 3",
+        "gemma2": "Gemma 2",
+        "gpt-oss": "GPT-OSS",
+        "qwen3-vl": "Qwen3 VL",
+        "qwen3": "Qwen3",
+        "deepseek-r1": "DeepSeek R1",
+        "llama3.2": "Llama 3.2",
+        "llama3.1": "Llama 3.1",
+    }
+    pretty = family_map.get(stem, stem.replace("-", " ").title())
+    return f"{pretty} {size}".strip() if size else pretty
+
+
+# Models that are embedders / rerankers, not chat models. Filtered out of
+# the chat dropdown so users can't accidentally pin nomic-embed-text as their
+# conversational model.
+_NON_CHAT_FAMILIES = ("embed", "rerank", "bge", "e5-")
+
+
 @router.get("/models")
 async def list_models():
-    """List all locally available Ollama models + which one is active."""
+    """List all locally available Ollama chat models + which one is active.
+
+    Embedding / rerank models are filtered out — they're not valid chat
+    targets. Each entry carries a `label` (human-friendly) and the raw
+    `name` (what gets sent to /models/switch).
+    """
     import httpx
     try:
         async with httpx.AsyncClient(base_url="http://localhost:11434") as client:
             resp = await client.get("/api/tags")
             resp.raise_for_status()
             models = resp.json().get("models", [])
-            # Simplify: return name + size for each
-            model_list = [
-                {"name": m["name"], "size": m.get("size", 0)}
-                for m in models
-            ]
+            model_list = []
+            for m in models:
+                name = m["name"]
+                if any(tok in name.lower() for tok in _NON_CHAT_FAMILIES):
+                    continue
+                model_list.append({
+                    "name": name,
+                    "label": _friendly_model_label(name),
+                    "size": m.get("size", 0),
+                })
+            # Sort by label for stable UX
+            model_list.sort(key=lambda x: x["label"].lower())
             return {"models": model_list, "active": ollama.CHAT_MODEL}
     except Exception as e:
         return {"models": [], "active": ollama.CHAT_MODEL, "error": str(e)}
@@ -370,8 +429,56 @@ async def upload_file(file: UploadFile = File(...)):
 
 @router.post("/chats")
 async def create_chat(req: CreateChatRequest):
-    chat = chat_store.create_chat(req.title)
+    chat = chat_store.create_chat(req.title, collection_id=req.collection_id)
     return chat.model_dump(mode="json")
+
+
+@router.patch("/chats/{chat_id}/collection")
+async def update_chat_collection(chat_id: str, req: CreateChatRequest):
+    """Re-bind a chat to a different collection. Accepts CreateChatRequest
+    but only collection_id is read — title is ignored here."""
+    ok = chat_store.update_collection(chat_id, req.collection_id)
+    if not ok:
+        raise HTTPException(404, "Chat not found")
+    return {"status": "ok", "chat_id": chat_id, "collection_id": req.collection_id}
+
+
+@router.patch("/chats/{chat_id}/title")
+async def update_chat_title(chat_id: str, req: CreateChatRequest):
+    """Manual rename. Reuses CreateChatRequest for its `title` field."""
+    ok = chat_store.update_title(chat_id, req.title or "")
+    if not ok:
+        raise HTTPException(400, "Invalid title or chat not found")
+    return {"status": "ok", "chat_id": chat_id, "title": req.title}
+
+
+@router.post("/chats/{chat_id}/auto_title")
+async def auto_title_chat(chat_id: str):
+    """Regenerate a chat's title from current frame salience.
+
+    Looks up the chat's active session, pulls FrameState, and runs the
+    titler service. Always overwrites — user invokes this explicitly, so
+    the should_auto_title gate doesn't apply. Useful when a chat's topic
+    has drifted and the auto-titled label is stale.
+    """
+    from ..services.chat_titler import derive_title
+
+    chat = chat_store.get_chat(chat_id)
+    if not chat:
+        raise HTTPException(404, "Chat not found")
+    session_id = session_store.get_active_session(chat_id)
+    frame = frame_manager._frames.get(session_id) if session_id else None
+    if frame is None and session_id:
+        frame = session_store.load_frame(session_id)
+    tentative_registry = (
+        frame_manager._tentative_registry.get(session_id, {}) if session_id else {}
+    )
+    # First user message as fallback
+    msgs = chat_store.get_messages(chat_id)
+    first_user = next((m.content for m in msgs if m.role == "user"), None)
+    new_title = derive_title(frame, corpus, tentative_registry, first_user)
+    chat_store.update_title(chat_id, new_title)
+    return {"status": "ok", "chat_id": chat_id, "title": new_title}
 
 
 @router.get("/chats")
@@ -463,47 +570,62 @@ async def send_message(chat_id: str, req: SendMessageRequest):
                     yield f"data: {json.dumps({'content': chunk.get('content', '')})}\n\n"
         except Exception as e:
             error_msg = f"[Inference error: {type(e).__name__}: {e}]"
-            yield f"data: {json.dumps({'content': error_msg})}\n\n"
+            try:
+                yield f"data: {json.dumps({'content': error_msg})}\n\n"
+            except Exception:
+                pass  # client may already be gone
             _stream_result["assistant_text"] = error_msg
+            _stream_result["stream_error"] = str(e)
 
-        metadata = _stream_result["metadata"]
-        assistant_text = _stream_result["assistant_text"]
+        try:
+            metadata = _stream_result["metadata"]
+            assistant_text = _stream_result["assistant_text"]
 
-        # Store assistant message
-        assistant_msg = ChatMessage(
-            role="assistant",
-            content=assistant_text,
-            turn=turn + 1,
-            classification=MessageClassification(**metadata.get("classification", {}))
-                if metadata.get("classification") else None,
-            drift_estimate=DriftEstimate(**metadata.get("drift_estimate", {}))
-                if metadata.get("drift_estimate") else None,
-        )
-        chat_store.append_message(chat_id, assistant_msg)
+            # Store assistant message
+            assistant_msg = ChatMessage(
+                role="assistant",
+                content=assistant_text,
+                turn=turn + 1,
+                classification=MessageClassification(**metadata.get("classification", {}))
+                    if metadata.get("classification") else None,
+                drift_estimate=DriftEstimate(**metadata.get("drift_estimate", {}))
+                    if metadata.get("drift_estimate") else None,
+            )
+            chat_store.append_message(chat_id, assistant_msg)
 
-        # Persist frame state
-        frame = frame_manager._frames.get(session_id)
-        if frame:
-            _save_session_state(session_id)
+            # Persist frame state
+            frame = frame_manager._frames.get(session_id)
+            if frame:
+                _save_session_state(session_id)
 
-        # Build final metadata payload
-        final: dict = {
-            "done": True,
-            "session_id": session_id,
-            "classification": metadata.get("classification"),
-            "drift_estimate": metadata.get("drift_estimate"),
-        }
-        if metadata.get("match_result"):
-            final["match_result"] = metadata["match_result"]
-        if metadata.get("frame_summary"):
-            final["frame_summary"] = metadata["frame_summary"]
-        if metadata.get("context_usage"):
-            final["context_usage"] = metadata["context_usage"]
+            # Build final metadata payload
+            final: dict = {
+                "done": True,
+                "session_id": session_id,
+                "classification": metadata.get("classification"),
+                "drift_estimate": metadata.get("drift_estimate"),
+            }
+            if metadata.get("match_result"):
+                final["match_result"] = metadata["match_result"]
+            if metadata.get("frame_summary"):
+                final["frame_summary"] = metadata["frame_summary"]
+            if metadata.get("context_usage"):
+                final["context_usage"] = metadata["context_usage"]
 
-        # Mark done so background task knows stream completed
-        _stream_result["done"] = True
-
-        yield f"data: {json.dumps(final)}\n\n"
+            try:
+                yield f"data: {json.dumps(final)}\n\n"
+            except Exception:
+                pass  # client disconnected — extraction still runs
+        finally:
+            # ALWAYS mark done so the post-stream extraction task proceeds.
+            # Previously this was only set on the happy path, so any exception
+            # in the save/final-yield steps (or a client disconnect mid-OLI-ON
+            # turn where latency exceeds the poll window) silently killed
+            # draft extraction for the whole turn. Extraction now runs on any
+            # turn that got as far as starting the generator — it will see
+            # partial/empty metadata and gracefully no-op if there's nothing
+            # to extract.
+            _stream_result["done"] = True
 
     async def _post_stream_drafts():
         """Background task: runs AFTER the SSE stream completes.
@@ -511,14 +633,22 @@ async def send_message(chat_id: str, req: SendMessageRequest):
         This avoids the generator-cancellation problem where code after
         the last yield gets killed when the client disconnects.
         """
-        # Wait for stream to finish (poll briefly)
-        for _ in range(600):  # up to 60s
+        # Wait for stream to finish (poll briefly). 180s headroom because
+        # OLI-ON turns inject the full constitutional prompt + slabs and can
+        # exceed 60s on local gemma3:12b. The try/finally in stream() now
+        # guarantees done=True on both success and error paths, so this loop
+        # should only hit the timeout on genuine runaway inference.
+        for _ in range(1800):  # up to 180s
             if _stream_result["done"]:
                 break
             await asyncio.sleep(0.1)
 
         if not _stream_result["done"]:
-            print("[DRAFT] Stream didn't complete — skipping extraction")
+            print("[DRAFT] Stream didn't complete — skipping extraction", flush=True)
+            return
+
+        if _stream_result.get("stream_error"):
+            print(f"[DRAFT] Stream had error ({_stream_result['stream_error']}) — skipping extraction", flush=True)
             return
 
         metadata = _stream_result["metadata"]
@@ -530,16 +660,22 @@ async def send_message(chat_id: str, req: SendMessageRequest):
 
         cls = metadata.get("classification") or {}
         new_drafts: list = []
+        # Phase 2A: inherit the chat's bound collection so chat-mined drafts
+        # target the right subcorpus instead of defaulting to "default".
+        _chat = chat_store.get_chat(chat_id)
+        _chat_cid = (_chat.collection_id if _chat else None) or "default"
         if cls.get("explicit"):
-            print(f"[DRAFT] Explicit extraction at turn {actual_turn}", flush=True)
+            print(f"[DRAFT] Explicit extraction at turn {actual_turn} (-> {_chat_cid})", flush=True)
             new_drafts = await draft_manager.extract_proposals(
                 session_id, chat_id, recent, actual_turn,
                 explicit=True, user_request=req.content,
+                collection_id=_chat_cid,
             )
         elif draft_manager.should_sweep(actual_turn):
-            print(f"[DRAFT] Sweep triggered at turn {actual_turn}", flush=True)
+            print(f"[DRAFT] Sweep triggered at turn {actual_turn} (-> {_chat_cid})", flush=True)
             new_drafts = await draft_manager.extract_proposals(
                 session_id, chat_id, recent, actual_turn,
+                collection_id=_chat_cid,
             )
         else:
             print(f"[DRAFT] No sweep at turn {actual_turn}", flush=True)
@@ -561,6 +697,26 @@ async def send_message(chat_id: str, req: SendMessageRequest):
                 except Exception as e:
                     print(f"[DREAM] Dreaming pass failed: {e}", flush=True)
             asyncio.create_task(_dream_new())
+
+        # Phase 2B: auto-title once the frame has enough salience signal.
+        # Runs every eligible turn but only overwrites if the title is still
+        # the default placeholder — user-named chats are left alone. Kept
+        # inline (not a background task) because it's cheap: just reads the
+        # in-memory frame and writes one JSON.
+        try:
+            from ..services.chat_titler import derive_title, should_auto_title
+            _chat_fresh = chat_store.get_chat(chat_id)
+            _msgs = chat_store.get_messages(chat_id)
+            if _chat_fresh and should_auto_title(_chat_fresh, len(_msgs)):
+                _frame = frame_manager._frames.get(session_id)
+                _reg = frame_manager._tentative_registry.get(session_id, {})
+                _first_user = next((m.content for m in _msgs if m.role == "user"), None)
+                _new_title = derive_title(_frame, corpus, _reg, _first_user)
+                if _new_title and _new_title != _chat_fresh.title:
+                    chat_store.update_title(chat_id, _new_title)
+                    print(f"[TITLE] Auto-titled chat {chat_id}: {_new_title!r}", flush=True)
+        except Exception as e:
+            print(f"[TITLE] Auto-title failed for {chat_id}: {e}", flush=True)
 
     # Fire background draft extraction as a free-standing task
     asyncio.create_task(_post_stream_drafts())
@@ -799,10 +955,201 @@ async def get_frame(session_id: str):
 
 # --- Drafts ---
 
+def _draft_collection_id(session_id: str, draft_id: str) -> str:
+    """Read the target collection tag from the raw sidecar.
+
+    Every draft (AI-Mine-pushed or chat-mined) has a `{id}_raw.json` sidecar.
+    AI-Mine pushes stamp `_target_collection` there; chat-mined drafts omit
+    it and default to "default". This is read at list/display time rather
+    than stored as a packet field — keeps schema stable and avoids a
+    migration. Promotion logic (draft_manager._convert_to_corpus_object's
+    caller) uses the same key.
+    """
+    try:
+        raw_path = session_store._drafts_dir(session_id) / f"{draft_id}_raw.json"
+        raw = session_store._read_json(raw_path) or {}
+        return raw.get("_target_collection", "default") or "default"
+    except Exception:
+        return "default"
+
+
+def _find_draft_session(draft_id: str) -> Optional[str]:
+    """Locate which session a draft_id lives in by scanning session dirs.
+
+    Needed because chat-scoped listing aggregates across sessions, but the
+    raw sidecar (collection tag, etc.) lives in the session that created
+    the draft. Returns None if not found.
+    """
+    try:
+        for sess_dir in session_store.root.iterdir():
+            if not sess_dir.is_dir():
+                continue
+            if (sess_dir / "drafts" / f"{draft_id}.json").exists():
+                return sess_dir.name
+    except Exception:
+        pass
+    return None
+
+
 @router.get("/sessions/{session_id}/drafts")
-async def list_drafts(session_id: str):
-    drafts = draft_manager.list_drafts(session_id)
-    return [d.model_dump(mode="json") for d in drafts]
+async def list_drafts(
+    session_id: str,
+    include_resolved: bool = False,
+    collection_id: Optional[str] = None,
+):
+    """List session drafts.
+
+    Default: only pending (DRAFT_UNAUTHORIZED) drafts — the worklist.
+    Set ?include_resolved=true to see the full history including
+    PROVISIONAL, COMMITTED, and REJECTED packets.
+
+    Pass ?collection_id=X to filter to drafts whose `_target_collection`
+    matches — used by the Drafts/Verify tabs when the Active Corpus
+    dropdown is pinned to a specific collection.
+    """
+    drafts = draft_manager.list_drafts(session_id, include_resolved=include_resolved)
+    out = []
+    for d in drafts:
+        dump = d.model_dump(mode="json")
+        cid = _draft_collection_id(session_id, d.id)
+        dump["collection_id"] = cid
+        if collection_id and cid != collection_id:
+            continue
+        out.append(dump)
+    return out
+
+
+@router.get("/chats/{chat_id}/drafts")
+async def list_drafts_by_chat(
+    chat_id: str,
+    include_resolved: bool = False,
+    collection_id: Optional[str] = None,
+):
+    """List ALL drafts for a chat across every session it ever had.
+
+    Drafts are stored per-session on disk, but a chat can span many SSE
+    sessions (restarts, reconnects). UI reviewers think in chat scope,
+    not session scope, so this aggregates. Each returned packet also
+    carries a `session_id` field indicating where its sidecars live (used
+    by downstream promote/verify/amend endpoints which remain session-
+    scoped, so callers route actions to the right directory).
+    """
+    drafts = draft_manager.list_drafts_by_chat(chat_id, include_resolved=include_resolved)
+    out = []
+    for d in drafts:
+        sess = _find_draft_session(d.id)
+        if not sess:
+            continue  # ghost reference, sidecar missing
+        dump = d.model_dump(mode="json")
+        cid = _draft_collection_id(sess, d.id)
+        dump["collection_id"] = cid
+        dump["session_id"] = sess
+        if collection_id and cid != collection_id:
+            continue
+        out.append(dump)
+    return out
+
+
+@router.get("/chats/{chat_id}/proposed_edges")
+async def list_proposed_edges_by_chat(chat_id: str, include_resolved: bool = False):
+    """List proposed edges across every session this chat ever had.
+
+    Mirrors /chats/{id}/drafts — edges are stored per-session but reviewers
+    think in chat scope. Each row carries its owning session_id so the
+    review endpoint can route the status update back correctly.
+
+    include_resolved=False filters out COMMITTED/REJECTED (default review view).
+    """
+    pairs = session_store.list_proposed_edges_by_chat(chat_id)
+    out = []
+    for sid, edge in pairs:
+        if not include_resolved and edge.status in ("COMMITTED", "REJECTED"):
+            continue
+        d = edge.model_dump(mode="json")
+        d["session_id"] = sid
+        out.append(d)
+    return out
+
+
+@router.post("/sessions/{session_id}/proposed_edges/{edge_id}/review")
+async def review_proposed_edge(session_id: str, edge_id: str, req: dict):
+    """Accept or reject a proposed edge.
+
+    Body: {"action": "accept" | "reject"}
+
+    On accept: if both endpoints already exist in corpus, promote directly
+    to a real Edge (status -> COMMITTED). Otherwise mark ACCEPTED and wait
+    for a later promote hook (when the underlying drafts land in corpus).
+
+    On reject: mark REJECTED; kept for audit but never committed.
+    """
+    action = (req.get("action") or "").lower()
+    if action not in ("accept", "reject"):
+        raise HTTPException(400, "action must be 'accept' or 'reject'")
+
+    edges = session_store.list_proposed_edges(session_id)
+    target = next((e for e in edges if e.id == edge_id), None)
+    if not target:
+        raise HTTPException(404, "Proposed edge not found")
+
+    if action == "reject":
+        session_store.update_proposed_edge_status(session_id, edge_id, "REJECTED")
+        return {"ok": True, "status": "REJECTED"}
+
+    # Accept path — can we commit now?
+    from ..models.schemas import Edge as CorpusEdge
+    both_live = (
+        (target.from_node in corpus.anchors or target.from_node in corpus.slabs
+         or target.from_node in corpus.bundles)
+        and
+        (target.to_node in corpus.anchors or target.to_node in corpus.slabs
+         or target.to_node in corpus.bundles)
+    )
+    if both_live:
+        import uuid
+        new_edge_id = f"edge_{uuid.uuid4().hex[:8]}"
+        real = CorpusEdge(
+            id=new_edge_id,
+            type=target.type,
+            **{"from": target.from_node, "to": target.to_node},
+            weight=target.confidence,
+            confidence=target.confidence,
+        )
+        # Resolve the owning collection via the source chat. Writing to the
+        # merged virtual store silently misroutes the save to the legacy
+        # CORPUS_ROOT (app/corpus) — the per-collection stores never see it,
+        # and on reload the edge vanishes. Instead, write to the specific
+        # collection's store so it lands in app/corpora/{cid}/objects/edges.yaml
+        # and persists. Fall back to merged only if chat/collection lookup fails
+        # (best-effort; should log a warning).
+        target_store = None
+        try:
+            if target.source_chat_id:
+                _chat = chat_store.get_chat(target.source_chat_id)
+                if _chat and _chat.collection_id:
+                    target_store = registry.get_store(_chat.collection_id)
+        except Exception as exc:
+            logger.warning("Edge commit: chat→collection lookup failed: %r", exc)
+        if target_store is None:
+            # Last resort: pick 'default' so we at least hit a real store.
+            target_store = registry.get_store("default")
+            logger.warning(
+                "Edge commit for %s: no owning collection resolved, writing to 'default'",
+                edge_id,
+            )
+        target_store.edges[new_edge_id] = real
+        target_store.save()
+        # Invalidate merged view so subsequent reads see the new edge.
+        registry._merged_dirty = True
+        _rebind_corpus()
+        session_store.update_proposed_edge_status(
+            session_id, edge_id, "COMMITTED", committed_edge_id=new_edge_id,
+        )
+        return {"ok": True, "status": "COMMITTED", "committed_edge_id": new_edge_id}
+
+    # Endpoints not yet live — mark ACCEPTED, promote later
+    session_store.update_proposed_edge_status(session_id, edge_id, "ACCEPTED")
+    return {"ok": True, "status": "ACCEPTED", "note": "Awaiting endpoint promotion"}
 
 
 @router.get("/sessions/{session_id}/drafts/{draft_id}")
@@ -816,6 +1163,7 @@ async def get_draft(session_id: str, draft_id: str):
     return {
         "draft": packet.model_dump(mode="json"),
         "raw_proposal": raw,
+        "collection_id": raw.get("_target_collection", "default") or "default",
     }
 
 
@@ -959,6 +1307,44 @@ async def amend_draft(session_id: str, draft_id: str, req: AmendDraftRequest):
         "packet_status": packet.status.value,
         "raw": raw,
     }
+
+
+# ─── Library: tentative (PROVISIONAL on disk, not in corpus) ────────────
+@router.get("/library/tentative")
+async def list_library_tentative():
+    """List every JSON record in app/library/tentative/.
+
+    These are drafts promoted as PROVISIONAL — preserved on disk but not
+    part of the active corpus. The reasoner does not see them.
+    """
+    items = draft_manager.list_library_tentative()
+    return {"items": items, "count": len(items)}
+
+
+@router.get("/library/tentative/{tid}")
+async def get_library_tentative(tid: str):
+    items = draft_manager.list_library_tentative()
+    for it in items:
+        if it["id"] == tid:
+            return it
+    raise HTTPException(404, "Tentative record not found")
+
+
+@router.delete("/library/tentative/{tid}")
+async def delete_library_tentative(tid: str):
+    ok = draft_manager.delete_library_tentative(tid)
+    if not ok:
+        raise HTTPException(404, "Tentative record not found")
+    return {"status": "deleted", "id": tid}
+
+
+@router.post("/library/tentative/{tid}/promote")
+async def promote_library_tentative(tid: str):
+    """Commit a tentative record into the active corpus and remove it from the library."""
+    result = draft_manager.promote_library_tentative(tid)
+    if "error" in result:
+        raise HTTPException(400, result["error"])
+    return result
 
 
 @router.post("/sessions/{session_id}/drafts/{draft_id}/review")
@@ -1111,7 +1497,7 @@ async def end_session_review(session_id: str):
     #    proposal data so the panel can render without a second round-trip.
     #    Reload packets after dreaming so enriched justifications appear.
     drafts_out = []
-    drafts = draft_manager.list_drafts(session_id)
+    drafts = draft_manager.list_drafts(session_id, include_resolved=True)
     for packet in drafts:
         raw_path = session_store._drafts_dir(session_id) / f"{packet.id}_raw.json"
         raw = session_store._read_json(raw_path) or {}
@@ -1240,6 +1626,49 @@ class PromoteCollectionRequest(BaseModel):
     slab_title: str
     slab_id: str = ""
     deactivate_source: bool = True  # deactivate source collection after promote
+
+
+@router.delete("/collections/{collection_id}")
+async def delete_collection(collection_id: str, purge: bool = False):
+    """Delete a collection from the registry.
+
+    If `purge=true`, also removes the collection directory from disk.
+    The default collection cannot be deleted.
+    """
+    if collection_id == "default":
+        raise HTTPException(400, "Cannot delete the default collection")
+    if collection_id not in registry.collections:
+        raise HTTPException(404, f"Collection '{collection_id}' not found")
+
+    # Capture counts before deletion for response
+    store = registry.get_store(collection_id)
+    counts = {
+        "anchors": len(store.anchors) if store else 0,
+        "slabs": len(store.slabs) if store else 0,
+        "bundles": len(store.bundles) if store else 0,
+    }
+
+    registry.delete_collection(collection_id)
+
+    if purge:
+        import shutil
+        from ..services.corpus import CORPORA_ROOT
+        collection_dir = CORPORA_ROOT / collection_id
+        if collection_dir.exists():
+            shutil.rmtree(collection_dir)
+
+    _rebind_corpus()
+    await anchor_matcher.warm_cache()
+
+    merged = registry.merged
+    return {
+        "id": collection_id,
+        "purged": purge,
+        "deleted_counts": counts,
+        "merged_anchors": len(merged.anchors),
+        "merged_slabs": len(merged.slabs),
+        "merged_bundles": len(merged.bundles),
+    }
 
 
 @router.post("/collections/{collection_id}/promote")
@@ -1410,31 +1839,83 @@ async def corpus_full(collection: Optional[str] = None):
 
     edges_out = [e.model_dump(by_alias=True) for e in source.edges.values()]
 
-    # Auto-generate SEQUENCE edges for collections with no explicit edges.
-    # Uses the alphabetical ID order (which preserves mining extraction order)
-    # to create a narrative flow chain: node₁ → node₂ → node₃ → ...
-    layout_hint = "cloud"  # default force-directed
-    if collection and collection != "__all__" and len(edges_out) == 0 and len(all_nodes) > 1:
-        layout_hint = "flow"  # narrative/sequential layout
-        # Sort anchors by ID (mining order), then bundles, then slabs
-        ordered_ids = (
-            [a["id"] for a in anchors_out]
-            + [b["id"] for b in bundles_out]
-            + [s["id"] for s in slabs_out]
-        )
-        for i in range(len(ordered_ids) - 1):
-            edges_out.append({
-                "id": f"_seq_{i}",
-                "type": "SEQUENCE",
-                "from": ordered_ids[i],
-                "to": ordered_ids[i + 1],
-                "weight": 0.4,
-                "confidence": 0.4,
-            })
+    # ── Narrative layout trigger ──
+    # Two cases promote a collection to the linear "flow" layout:
+    #   (a) No edges at all → synthesize a SEQUENCE chain from ID order so the
+    #       user still sees a readable spine (Phase 1 behaviour, preserved).
+    #   (b) SEQUENCE edges dominate the structure (≥2 SEQUENCE edges and at
+    #       least as many SEQUENCE as non-SEQUENCE). Phase 3 mining persists
+    #       real SEQUENCE edges; when they exist, the collection *is* a
+    #       narrative and should render linearly even though edges are present.
+    # Also emit `spine_order` — the topological walk of SEQUENCE edges — so the
+    # frontend can position nodes along the actual story order, not alpha order.
+    layout_hint = "cloud"
+    spine_order: list[str] = []
+    node_id_set = {n["id"] for n in all_nodes}
+    seq_edges = [e for e in edges_out if e.get("type") == "SEQUENCE"
+                 and e.get("from") in node_id_set and e.get("to") in node_id_set]
+    other_edges = [e for e in edges_out if e.get("type") != "SEQUENCE"]
+    # Any meaningful SEQUENCE presence (≥2 edges) promotes to the flow layout.
+    # Earlier heuristics compared SEQUENCE vs other edges or SEQUENCE vs node
+    # count, but both fail in mixed corpora: the narrative spans only slabs,
+    # while anchors/bundles and cross-ref SUPPORTS edges inflate the non-spine
+    # counts even when SEQUENCE is clearly the backbone. Orphans (anchors,
+    # bundles, non-spine slabs) hang perpendicular in the flow layout, so
+    # falsely promoting a cloud to flow is cheap; the reverse is visible.
+    narrative_dominant = len(seq_edges) >= 2
+
+    if collection and collection != "__all__" and len(all_nodes) > 1:
+        if narrative_dominant:
+            layout_hint = "flow"
+            # Walk SEQUENCE edges: find roots (no incoming SEQUENCE), chain
+            # strongest-outgoing until exhausted. Mirrors _buildNarrativeTrail()
+            # in the frontend so trace + layout agree on spine order.
+            outgoing: dict[str, list] = {}
+            incoming: dict[str, list] = {}
+            for e in seq_edges:
+                outgoing.setdefault(e["from"], []).append(e)
+                incoming.setdefault(e["to"], []).append(e)
+            roots = [nid for nid in outgoing if nid not in incoming]
+            if not roots and outgoing:
+                roots = [next(iter(outgoing))]
+            visited: set[str] = set()
+            for root in roots:
+                cur = root
+                while cur and cur not in visited:
+                    visited.add(cur)
+                    spine_order.append(cur)
+                    outs = [e for e in outgoing.get(cur, []) if e["to"] not in visited]
+                    if not outs:
+                        break
+                    outs.sort(key=lambda e: -(e.get("weight") or e.get("confidence") or 0))
+                    cur = outs[0]["to"]
+            # Orphans (no SEQUENCE membership) append after the spine so the
+            # frontend can park them perpendicular to their nearest reference.
+            for n in all_nodes:
+                if n["id"] not in visited:
+                    spine_order.append(n["id"])
+        elif len(edges_out) == 0:
+            layout_hint = "flow"
+            ordered_ids = (
+                [a["id"] for a in anchors_out]
+                + [b["id"] for b in bundles_out]
+                + [s["id"] for s in slabs_out]
+            )
+            spine_order = ordered_ids
+            for i in range(len(ordered_ids) - 1):
+                edges_out.append({
+                    "id": f"_seq_{i}",
+                    "type": "SEQUENCE",
+                    "from": ordered_ids[i],
+                    "to": ordered_ids[i + 1],
+                    "weight": 0.4,
+                    "confidence": 0.4,
+                })
 
     return {
         "collection": collection or "__all__",
         "layout_hint": layout_hint,
+        "spine_order": spine_order,  # ordered node IDs along SEQUENCE spine (flow layout only)
         "anchors": anchors_out,
         "bundles": bundles_out,
         "slabs": slabs_out,
@@ -1764,6 +2245,44 @@ async def get_graph_data(session_id: str):
                 "children": info.get("children", []),
             })
 
+    # Add library/tentative nodes (PROVISIONAL on disk, not in corpus).
+    # Rendered with dashed amber overlay so they're visually distinct;
+    # reasoner does NOT see these — they're injected only for display.
+    try:
+        for t in draft_manager.list_library_tentative():
+            tid = t["id"]
+            if any(n["id"] == tid for n in nodes):
+                continue
+            label = t.get("label") or tid
+            ttype = t.get("type", "anchor")
+            if ttype == "bundle":
+                ntype = "key_bundle"
+            elif ttype == "slab":
+                ntype = "slab"
+            else:
+                ntype = "anchor"
+            texts_to_embed.append(label)
+            node_index.append(len(nodes))
+            nodes.append({
+                "id": tid,
+                "type": ntype,
+                "status": "tentative",
+                "library_tentative": True,  # distinguish from frame-tentative
+                "label": label,
+                "description": t.get("justification", ""),
+                "active": False,
+                "salience_now": 0.0,
+                "salience_smoothed": 0.0,
+                "structural_weight": 0.0,
+                "depends_on": [],
+                "turns_seen": 0,
+                "rejected": False,
+                "parent_id": None,
+                "children": [],
+            })
+    except Exception as e:
+        logger.warning("Failed to load library/tentative for graph: %s", e)
+
     # Compute X positions via nomic-embed-text
     if texts_to_embed:
         x_positions = await compute_x_positions(texts_to_embed)
@@ -1854,6 +2373,7 @@ async def get_events(log_name: str, last_n: int = 50):
 # --- Conversation Mining ---
 
 from ..services.convo_miner import ConversationMiner
+from ..services.narrative_miner import NarrativeMiner
 _miner = ConversationMiner(corpus)
 
 
@@ -1891,8 +2411,45 @@ async def mine_conversation(req: MineRequest):
     return result
 
 
+class MineNarrativeRequest(BaseModel):
+    text: str                          # Cohesive narrative / document content
+    source_label: str = "narrative"    # Provenance label
+    min_confidence: float = 0.4        # Minimum proposal confidence
+    max_segment_chars: int = 1800      # Soft cap on segment size
+    target_collection: str = "default" # Which collection to mine into
+
+
+@router.post("/mine-narrative")
+async def mine_narrative(req: MineNarrativeRequest):
+    """Mine a cohesive narrative / document for corpus proposals.
+
+    Treats the input as a single-author piece where paragraph ordering is
+    load-bearing (stories, essays, design docs, condensed pitches). Emits
+    SEQUENCE edges between consecutive beats so the narrative spine is
+    preserved in the corpus graph. Output shape matches /mine so the same
+    /push-mined flow accepts its proposals.
+    """
+    if not req.text.strip():
+        raise HTTPException(400, "Empty text")
+    if len(req.text) > 5_000_000:
+        raise HTTPException(413, "Text too large (max 5MB)")
+
+    target_store = registry.get_store(req.target_collection) or corpus
+    miner = NarrativeMiner(target_store)
+
+    result = await miner.mine(
+        raw_text=req.text,
+        source_label=req.source_label,
+        min_confidence=req.min_confidence,
+        max_segment_chars=req.max_segment_chars,
+    )
+    result["target_collection"] = req.target_collection
+    return result
+
+
 class PushMinedRequest(BaseModel):
     proposals: list[dict]           # Raw mined proposal dicts from /mine response
+    edges: list[dict] = []          # Raw mined edge dicts from /mine response (Phase 3)
     target_collection: str = "default"  # Which collection to commit into
 
 
@@ -1976,6 +2533,81 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
 
     session_store.save_draft_stack(session_id, stack)
 
+    # Phase 3 — resolve & persist mined edges into the ProposedEdge pipeline.
+    # Convo/narrative miners emit edges with keys {type, from, to, confidence,
+    # justification}. We reuse the same label index strategy as the chat path:
+    # just-pushed drafts (canonical_phrase / title / aliases) take priority,
+    # then live corpus anchors/slabs.
+    edges_persisted = 0
+    if req.edges:
+        try:
+            from ..models.schemas import ProposedEdge
+            from ..models.enums import EdgeType
+
+            label_to_id: dict[str, str] = {}
+            def _reg(label: str, nid: str) -> None:
+                if not label: return
+                label_to_id.setdefault(label.strip().lower(), nid)
+
+            for pkt in created_packets:
+                if pkt.anchor:
+                    _reg(pkt.anchor.get("canonical_phrase", ""), pkt.id)
+                    for al in pkt.anchor.get("aliases") or []:
+                        _reg(al, pkt.id)
+                if pkt.slab:
+                    _reg(pkt.slab.get("title", ""), pkt.id)
+                if pkt.bundle:
+                    _reg(pkt.bundle.get("id", ""), pkt.id)
+
+            # Corpus endpoints (use target collection's store for consistency with
+            # how dedup was run during mining).
+            tgt_store = registry.get_store(req.target_collection) or corpus
+            for a in tgt_store.anchors.values():
+                _reg(a.canonical_phrase, a.id)
+                for al in a.aliases or []:
+                    _reg(al, a.id)
+            for s in tgt_store.slabs.values():
+                if getattr(s, "title", ""):
+                    _reg(s.title, s.id)
+
+            resolved: list = []
+            chat_id_for_edges = meta.get("chat_id", session_id)
+            for spec in req.edges:
+                if not isinstance(spec, dict):
+                    continue
+                etype_raw = (spec.get("type") or "LINKS").upper()
+                if etype_raw not in {"INVOKES", "SUPPORTS", "CONFLICTS", "LINKS", "SEQUENCE", "PARENT_OF"}:
+                    etype_raw = "LINKS"
+                # Convo miner emits from/to; chat path emits from_label/to_label.
+                from_label = (spec.get("from_label") or spec.get("from") or "").strip()
+                to_label = (spec.get("to_label") or spec.get("to") or "").strip()
+                if not from_label or not to_label:
+                    continue
+                from_id = label_to_id.get(from_label.lower())
+                to_id = label_to_id.get(to_label.lower())
+                if not from_id or not to_id or from_id == to_id:
+                    continue
+                try:
+                    confidence = float(spec.get("confidence", 0.5))
+                except Exception:
+                    confidence = 0.5
+                resolved.append(ProposedEdge(
+                    id=f"proposed_edge_{uuid.uuid4().hex[:8]}",
+                    type=EdgeType(etype_raw),
+                    from_node=from_id, to_node=to_id,
+                    from_label=from_label, to_label=to_label,
+                    confidence=max(0.0, min(1.0, confidence)),
+                    justification=spec.get("justification", "") or "",
+                    status="PROPOSED",
+                    source_chat_id=chat_id_for_edges,
+                    source_turn=0,
+                ))
+            if resolved:
+                session_store.append_proposed_edges(session_id, resolved)
+                edges_persisted = len(resolved)
+        except Exception as e:
+            print(f"[PUSH-MINED] Edge resolution failed: {e}", flush=True)
+
     # Auto-trigger dreaming on pushed drafts (background)
     if created_packets:
         async def _dream_pushed():
@@ -1991,4 +2623,4 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
                 print(f"[DREAM] Dreaming pass failed: {e}", flush=True)
         asyncio.create_task(_dream_pushed())
 
-    return {"created": len(created), "drafts": created}
+    return {"created": len(created), "drafts": created, "edges_persisted": edges_persisted}

@@ -531,7 +531,7 @@ class DreamingPass:
         grounding_mode = "CODE" if top_score >= _CODE_MODE_THRESHOLD else "DOMAIN"
         print(
             f"[DREAM] Mode detection for {draft_id}: "
-            f"top_code_score={top_score:.4f} → {grounding_mode}"
+            f"top_code_score={top_score:.4f} -> {grounding_mode}"
         )
 
         # --- Build reference material based on mode ---

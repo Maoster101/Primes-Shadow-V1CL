@@ -320,7 +320,7 @@
   version: v1
   type: CONSTITUTIONAL
   lifecycle_status: ACTIVE
-  requires_oli_mode: 'ON'
+  requires_oli_mode: null
   meta:
     version: v1
     supersedes: null
@@ -662,3 +662,1065 @@
   assumptions:
   - Corpus content takes precedence over model training priors
   provenance_refs: []
+- id: tentative_slab_a9049516_v1
+  title: 'Frame Dynamics: Salience Estimation and EWA Smoothing'
+  canonical_text: 'Every active node on FrameState carries two per-turn salience floats:
+    salience_now (this turn''s estimate) and salience_smoothed (a trailing EWA, alpha=0.30).
+    Each turn, frame_manager._estimate_salience() calls the model with the user text
+    plus descriptions of every currently active node and receives {node_id: score}
+    back. Missing node_ids inherit prior * 0.90 (low_content_inherit) rather than
+    collapsing to zero — this is the sparse-turn safety net for messages like "go
+    on" or "yes". The EWA smoothing step is then applied: salience_smoothed = alpha
+    * salience_now + (1-alpha) * prior_smoothed. New anchor matches seed salience_now
+    at 0.6 (re_detect_salience); additional mentions within the same turn add +0.15
+    (re_hit_boost) capped at 1.0. When active_nodes exceeds max_active_nodes (24),
+    eviction drops the nodes with the lowest salience_smoothed. Mismatch score is
+    the mean |salience_now - salience_smoothed| across active nodes and feeds pushback-slab
+    activation when it exceeds mismatch_escalation (0.6).'
+  links:
+    anchors:
+    - tentative_anchor_73d88b7b_v1
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_tentative_slab_a9049516_v1
+    store: workbench
+    type: conversation_segment
+    note: Rewritten by dreaming pass. Original miner output described a confabulated
+      'runtime header flags resonances' feedback loop from a UI-test chat. This rewrite
+      re-grounds the slab against frame_manager.py (lines 400-467) and frame_policy.yaml
+      (frame.salience, frame.decay, frame.concepts blocks), using real field names
+      instead of the 'resonance' metaphor. See tentative_slab_a9049516_v1.dream_log.md
+      for the full diff.
+- id: mined_slab_28f9e157_v1
+  title: Quantum Water Transmission
+  canonical_text: Quantum water is transmitted directly to nozzles, eliminating the
+    need for hoses. The concept draws an analogy to xenonite prime, initially mistaken
+    for grey goo, but resolved through collaborative work on quantum encoders and
+    decoders.  Fusion 'juice' can then be consumed by humans, directly absorbing energy
+    as a life force to accelerate colonial expansion.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_28f9e157_v1
+    store: workbench
+    type: conversation_segment
+    note: Details the advanced transmission method and its implications for human
+      colonization.
+- id: mined_slab_5d058a7c_v1
+  title: Initial Concept
+  canonical_text: The narrative begins with an exploding wire, leading to the manufacturing
+    of a Plasma Ion Cloud Accelerator for fusion power. The system distributes fusion
+    energy, acting as a circulatory system, and utilizes plasma and neutron fusion
+    as a vital resource. A unique nozzle, resembling a 'sanic screwdriver,' converts
+    fusion output into encoded water, a process requiring a growing power step.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_5d058a7c_v1
+    store: workbench
+    type: conversation_segment
+    note: Establishes the core technology and its initial function.
+- id: mined_slab_6b362e7d_v1
+  title: Meta Commentary and Resolution
+  canonical_text: The narrative then shifts to a meta-commentary, incorporating elements
+    of a Slideshow Bob Burnham-style logician and a sketch. Vin Diesel appears holding
+    PVA glue and a stick over a horse, posing the question, 'Are you still here?'
+    The final line reflects on those who came before and those who will come after,
+    ending with the word 'family'.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_6b362e7d_v1
+    store: workbench
+    type: conversation_segment
+    note: Provides a self-aware, absurdist conclusion, referencing previous elements
+      and emphasizing the theme of family.
+- id: mined_slab_79dd1c46_v1
+  title: Beat 1 – The Step
+  canonical_text: The sequence begins with a subtle auditory cue, the sound of a boot
+    striking metal. This action is not visually described, emphasizing a sense of
+    presence and anticipation. The focus is on the sound itself, creating a moment
+    of quiet tension before the dialogue begins.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_79dd1c46_v1
+    store: workbench
+    type: conversation_segment
+    note: Establishes a mysterious opening to the post-credits scene, setting a tone
+      of intrigue.
+- id: mined_slab_878a5796_v1
+  title: Beat 2 – Recognition
+  canonical_text: 'A gravelly voice speaks, delivering a contemplative line: ''We
+    thought growing family was all that mattered.'' The delivery is calm and avoids
+    melodrama, suggesting a deeper, perhaps regretful, reflection. The line is designed
+    to elicit a slight chuckle from the audience, indicating a shared understanding
+    or a familiar trope.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_878a5796_v1
+    store: workbench
+    type: conversation_segment
+    note: Introduces a thematic element of family and regret, likely hinting at future
+      plot developments or character arcs.
+- id: mined_slab_9464c26c_v1
+  title: Moral Compression
+  canonical_text: The speaker delivers a profound statement about the true meaning
+    of family, asserting that it is not determined by those who are present during
+    times of crisis. Instead, family is defined by those for whom space is created
+    when resources are dwindling. This sentiment is presented with genuine sincerity,
+    devoid of any dramatic musical accompaniment. The line emphasizes the importance
+    of compassion and sacrifice within familial bonds.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_9464c26c_v1
+    store: workbench
+    type: conversation_segment
+    note: This beat encapsulates a key thematic element regarding family and sacrifice,
+      contributing to the overall resolution of the narrative.
+- id: mined_slab_9c143cfe_v1
+  title: Matter Consumption and Void
+  canonical_text: The process involves consuming all matter, deconstructing it directly
+    into energy. This leads to a scenario where a single person floats in an infinite
+    void, experiencing a fading-out sequence. A visual sequence, reminiscent of a
+    Vin Diesel line, depicts this fall towards a black hole, followed by Vin Diesel's
+    intervention.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_9c143cfe_v1
+    store: workbench
+    type: conversation_segment
+    note: Represents the ultimate, potentially destructive, application of the technology
+      and a moment of crisis.
+- id: mined_slab_ef609930_v1
+  title: Sudden Realization
+  canonical_text: A pause hangs in the air, heavy with unspoken implications. The
+    previous actions are re-evaluated, revealing a previously unacknowledged cost.
+    The word 'family' undergoes a dramatic shift in meaning, becoming a source of
+    discomfort and regret. This moment marks a critical turning point in understanding
+    the consequences of their actions.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_ef609930_v1
+    store: workbench
+    type: conversation_segment
+    note: This beat represents a crucial shift in perspective and foreshadows further
+      conflict. It builds on the previous beat's recognition and sets the stage for
+      a re-evaluation of their motivations.
+- id: mined_slab_177893b5_v1
+  title: Existential Void Rescue Sequence
+  canonical_text: The narrative sequence depicts a solitary individual adrift in an
+    infinite void, slowly fading from existence. The visual emphasizes a prolonged,
+    disorienting fall, creating a sense of cosmic isolation and despair. This sequence
+    is punctuated by a sudden, unexpected rescue, seemingly orchestrated by a figure
+    reminiscent of Vin Diesel. The visual style is intended to evoke a sense of surrealism
+    and existential dread, potentially mirroring a 'divine disaster' scenario.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_177893b5_v1
+    store: workbench
+    type: conversation_segment
+    note: Describes the core narrative beat of the void rescue, including visual and
+      thematic elements.
+- id: mined_slab_be44219c_v1
+  title: Quantum Fusion Energy Conversion and Transmission
+  canonical_text: The process begins with quantum conversion of fusion output, transforming
+    it into a specialized form of encoded water. This encoded water then serves as
+    the energy transmission medium, directly routed to nozzles.  The elimination of
+    traditional hoses is a consequence of this direct transmission method.  The creation
+    of nozzles previously presented a challenge, resembling a 'grey goo fakeout' scenario,
+    but this has been resolved through collaborative efforts focused on optimizing
+    the Organic Linguistic Interface (OLI) for all quantum encoders and decoders.
+    This OLI-driven approach ensures controlled and predictable nozzle fabrication.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_be44219c_v1
+    store: workbench
+    type: conversation_segment
+    note: This slab consolidates the entire energy conversion and transmission process
+      described, including the problem-solving aspect of nozzle creation. It captures
+      the key steps and the underlying technology.
+- id: mined_slab_0a1fc107_v1
+  title: 'Narrative Structure: Existential Rescue & Legacy'
+  canonical_text: The narrative sequence begins with a depiction of matter deconstructing
+    into energy, immediately followed by a solitary figure adrift in an infinite void,
+    visually fading out. A significant pause is then introduced, creating a sense
+    of anticipation and dread. The visual then shifts to the figure falling, seemingly
+    towards a black hole, though this is ambiguous. Finally, Vin Diesel intervenes,
+    rescuing the falling figure, creating a moment of unexpected salvation. The sequence
+    concludes with Vin Diesel holding PVA glue and a stick over a horse, posing a
+    question about presence, and culminating in a final line referencing lineage and
+    family.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_0a1fc107_v1
+    store: workbench
+    type: conversation_segment
+    note: This captures the core narrative arc described, encompassing the initial
+      setup, the central falling sequence, the rescue, and the concluding symbolic
+      imagery. It's a complete, self-contained narrative segment.
+- id: mined_slab_dbea401b_v1
+  title: Initial Concept
+  canonical_text: The narrative begins with an exploding wire, leading to the manufacturing
+    of a Plasma Ion Cloud Accelerator for fusion power. The system distributes heat
+    and plasma, utilizing neutron fusion as a vital resource for life. A unique nozzle,
+    resembling a 'sanic screwdriver,' converts fusion output into encoded water, a
+    process requiring a growing power step and direct transmission via hoses.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_dbea401b_v1
+    store: workbench
+    type: conversation_segment
+    note: Establishes the core technology and its initial function.
+- id: mined_slab_d685335d_v1
+  title: The Core Energy Cycle and Conversion
+  canonical_text: The process begins with an exploding wire leading to a plasma ion
+    cloud accelerator manufacturing system, which facilitates fusion. This fusion
+    power distribution system utilizes plasma and neutron fusion as both an oasis
+    and a lifeblood, acting as a circulatory system. The output is then channeled
+    through a nozzle, which performs a quantum conversion of the fusion energy into
+    a form described as 'encoded water.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_d685335d_v1
+    store: workbench
+    type: conversation_segment
+    note: This section establishes the core scientific and technological premise of
+      the entire system, detailing the energy source (fusion) and the initial conversion
+      process (quantum conversion).
+- id: mined_slab_8d64e326_v1
+  title: Distribution and Infrastructure Solution
+  canonical_text: The growing power is transmitted as quantum water directly to nozzles,
+    eliminating the need for traditional hoses. Furthermore, the challenge of grid
+    building materials, previously likened to the xenonite prime analogy, is solved
+    through a family collaboration on OLI, which provides all necessary quantum encoders
+    and decoders.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_8d64e326_v1
+    store: workbench
+    type: conversation_segment
+    note: This beat moves from the energy source to the practical infrastructure,
+      solving logistical problems (hoses, grid materials) and introducing the key
+      collaborative element (family collab on OLI).
+- id: mined_slab_367d7b2b_v1
+  title: Human Integration and Expansion
+  canonical_text: The ultimate goal is the direct consumption of fusion 'juice,' which
+    allows energy to be absorbed directly as a life force for humans only, thereby
+    accelerating colonial expansion. This concept culminates in the ability to consume
+    all matter, feeding the fusion process by deconstructing matter directly into
+    energy.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_367d7b2b_v1
+    store: workbench
+    type: conversation_segment
+    note: 'This is the major thematic shift: the technology moves from infrastructure
+      to biological integration, defining the ultimate purpose and scope of the power
+      source.'
+- id: mined_slab_737ff77e_v1
+  title: The Existential Void and Final Message
+  canonical_text: 'The narrative concludes with a dramatic shift to an existential
+    scenario: a lone person floating in the infinite void, falling toward a black
+    hole. This sequence is punctuated by pop culture references, including a final
+    confrontation involving PVA glue and a stick over a horse. The piece ends with
+    a final, reflective message directed to those who came before and those who come
+    after, emphasizing the theme of family.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_737ff77e_v1
+    store: workbench
+    type: conversation_segment
+    note: This segment serves as the thematic and emotional climax, moving beyond
+      the technical pitch into a philosophical, almost cinematic, conclusion.
+- id: mined_slab_de4750fd_v1
+  title: The Core Statement of Misplaced Priorities
+  canonical_text: A gravelly, calm voice delivers the line, "We thought growing family
+    was all that mattered." The statement is delivered without drama, followed by
+    a significant pause that elicits a slight, knowing laugh from the audience, suggesting
+    a shared, ironic recognition of the premise.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_de4750fd_v1
+    store: workbench
+    type: conversation_segment
+    note: This is the central thematic beat, presenting a core claim about human priorities
+      that the narrative is designed to critique or comment upon.
+- id: mined_slab_3ca0c933_v1
+  title: The Physical Entrance
+  canonical_text: The sequence begins with a soft, ambient sound, specifically the
+    distinct sound of a boot striking metal. This sound establishes a quiet, undeniable
+    presence without requiring any further descriptive detail.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_3ca0c933_v1
+    store: workbench
+    type: conversation_segment
+    note: This beat serves as the initial atmospheric setup, establishing the physical
+      presence of a character before any dialogue or action occurs.
+- id: mined_slab_aa851b6b_v1
+  title: 'The Reframe: Questioning Shared Purpose'
+  canonical_text: 'The moment is punctuated by the stark realization: ''Didn’t stop
+    to think who we were burnin’ to do it.'' This statement hangs in the silence,
+    forcing an immediate, profound re-evaluation of the group''s collective identity.
+    The word ''family'' itself undergoes a rapid and dramatic flip in meaning, shifting
+    from a term of belonging to a source of critical questioning.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_aa851b6b_v1
+    store: workbench
+    type: conversation_segment
+    note: This beat serves as the thematic pivot point of the narrative, forcing the
+      characters (and the reader) to question the foundational assumptions of their
+      shared purpose and the meaning of their relationship.
+- id: mined_slab_8d833d0d_v1
+  title: The Moral Test of Family
+  canonical_text: True family is not defined by those who are superficially stacked
+    upon a crisis or danger. Instead, it is measured by the people who are given space
+    and room when all other sources of light and support begin to fail. This realization
+    is delivered with profound sincerity, foregoing any dramatic musical score.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_8d833d0d_v1
+    store: workbench
+    type: conversation_segment
+    note: This beat provides the central emotional thesis of the narrative, shifting
+      the focus from physical survival or external conflict to internal, moral relationships.
+      It defines the stakes for the characters' emotional choices.
+- id: mined_slab_18223c62_v1
+  title: Fusion Power System
+  canonical_text: The narrative progresses through stages of technological development,
+    beginning with an exploding wire and culminating in a plasma ion cloud accelerator
+    for fusion. This leads to a fusion power distribution system, managing heat and
+    plasma, and ultimately to a 'nozzle sanic screwdriver style' quantum conversion
+    system.  The fusion output is encoded into water, a process requiring a growing
+    power step and direct transmission via hoses to nozzles, which are ultimately
+    eliminated thanks to a family collaboration on OLI for quantum encoding and decoding.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_18223c62_v1
+    store: workbench
+    type: conversation_segment
+    note: Establishes the core technology and its evolution.
+- id: mined_slab_7d81c9a5_v1
+  title: Existential Crisis
+  canonical_text: The narrative shifts to a depiction of a lone person floating in
+    the infinite void, nearly falling into a black hole, before being rescued by a
+    figure resembling Vin Diesel. This is followed by a surreal, self-referential
+    sequence featuring Slideshow Bob Burnham and a bizarre visual of Vin Diesel questioning
+    reality.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_7d81c9a5_v1
+    store: workbench
+    type: conversation_segment
+    note: Represents a turning point and a descent into existential uncertainty.
+- id: mined_slab_9b445fc0_v1
+  title: Final Reflection
+  canonical_text: The narrative concludes with Vin Diesel holding PVA glue and a stick
+    over a horse, posing a question about the audience's continued existence, followed
+    by a final, poignant line about family, suggesting a cyclical and enduring connection.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_9b445fc0_v1
+    store: workbench
+    type: conversation_segment
+    note: Provides a final, ambiguous message about existence and belonging.
+- id: mined_slab_a71f1fb8_v1
+  title: Shifting Meaning
+  canonical_text: '"We thought growing family was all that mattered", followed by
+    a period of silence."Didn’t stop to think who we were burnin’ to do it". The word
+    ''family'' undergoes a significant shift in meaning, occurring in real time. This
+    transformation highlights the fluidity of language and the potential for misinterpretation
+    or recontextualization. The silence emphasizes the weight of this change and its
+    impact on the characters involved.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_a71f1fb8_v1
+    store: workbench
+    type: conversation_segment
+    note: This beat marks a crucial shift in understanding and foreshadows conflict,
+      building on the previous recognition.
+- id: mined_slab_c1af43b6_v1
+  title: Redefinition of Family
+  canonical_text: The concept of family is not defined by shared proximity or circumstance,
+    but rather by the space one creates for others during times of hardship. True
+    family is characterized by a willingness to provide room and support when resources
+    are dwindling. This understanding transcends traditional notions of kinship and
+    emphasizes a deeper, more conditional bond. The scene is underscored by a deliberate
+    lack of musical embellishment, highlighting the raw sincerity of the statement.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_c1af43b6_v1
+    store: workbench
+    type: conversation_segment
+    note: This beat directly challenges a conventional understanding of 'family,'
+      a concept already established in earlier segments, and introduces a new, more
+      nuanced perspective.
+- id: mined_slab_d88ecb8d_v1
+  title: Beat 2 – Recognition
+  canonical_text: A gravelly voice speaks, delivering a statement with a calm and
+    measured tone, devoid of dramatic flair. The line, 'We thought growing family
+    was all that mattered,' is met with a slight chuckle from the audience, suggesting
+    a shared understanding or recognition of a past belief. This implies a shift in
+    perspective or a previously held value that has been re-evaluated.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_d88ecb8d_v1
+    store: workbench
+    type: conversation_segment
+    note: Introduces a thematic element of regret or change, and establishes a connection
+      with the audience through shared experience.
+- id: mined_slab_ddd4164b_v1
+  title: Beat 1 – The Step
+  canonical_text: The sequence begins with a subtle sound, followed by the distinct
+    impact of a boot on metal. This moment is not explicitly described, focusing instead
+    on the implied presence and atmosphere. The intention is to create a sense of
+    anticipation and mystery without immediate explanation.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_ddd4164b_v1
+    store: workbench
+    type: conversation_segment
+    note: Establishes a mysterious opening, setting a tone of intrigue and hinting
+      at a larger narrative context.
+- id: mined_slab_f363262b_v1
+  title: Human Energy Absorption
+  canonical_text: Humans can directly absorb fusion energy by consuming a specially
+    prepared 'fusion juice,' granting them increased life force and accelerating colonial
+    expansion. This process allows for the deconstruction of matter directly into
+    energy, a potentially dangerous capability.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_f363262b_v1
+    store: workbench
+    type: conversation_segment
+    note: Introduces a key element of human interaction with the technology and its
+      implications.
+- id: mined_slab_f9788c71_v1
+  title: Initial Concept
+  canonical_text: The narrative begins with an exploding wire, leading to the manufacturing
+    of a Plasma Ion Cloud Accelerator for fusion power. This fusion power is then
+    distributed, acting as a vital resource and lifeblood, analogous to a circulatory
+    system. A unique nozzle, described as 'sanic screwdriver style,' converts fusion
+    output into encoded water, a process requiring a growing power step.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_f9788c71_v1
+    store: workbench
+    type: conversation_segment
+    note: Establishes the core technology and its importance to the setting.
+- id: mined_slab_2124d338_v1
+  title: Final Message
+  canonical_text: The narrative concludes with a final Vin Diesel line, emphasizing
+    the importance of family and acknowledging those who came before and those who
+    will come after.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_2124d338_v1
+    store: workbench
+    type: conversation_segment
+    note: Provides a thematic closure to the story.
+- id: mined_slab_549bc930_v1
+  title: Quantum Water Transmission
+  canonical_text: Quantum water is directly transmitted to nozzles, eliminating the
+    need for hoses. The creation of these nozzles initially posed a challenge, resembling
+    a 'grey goo' scenario, but was resolved through collaborative work on OLI (presumably
+    an encoder/decoder system) for all quantum encoders and decoders.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_549bc930_v1
+    store: workbench
+    type: conversation_segment
+    note: Details the transmission method and a key technological hurdle.
+- id: mined_slab_9f99b574_v1
+  title: Human Energy Absorption
+  canonical_text: Humans can directly absorb fusion energy as a life force by consuming
+    'fusion juice,' which accelerates colonial expansion. This process allows for
+    rapid growth and resource acquisition.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_9f99b574_v1
+    store: workbench
+    type: conversation_segment
+    note: Introduces a key plot device for human advancement.
+- id: mined_slab_0a6663be_v1
+  title: Matter Consumption and Void
+  canonical_text: The narrative progresses to a stage where matter is deconstructed
+    directly into energy, leading to a scenario where a single person floats in an
+    infinite void. This is followed by a dramatic rescue by an unknown figure.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_0a6663be_v1
+    store: workbench
+    type: conversation_segment
+    note: Represents a turning point and a moment of existential crisis.
+- id: mined_slab_c6343d1e_v1
+  title: Meta Commentary and Reflection
+  canonical_text: The scene shifts to a meta-commentary, featuring a Vin Diesel line
+    followed by a pause, then a visual of the falling person. This is interspersed
+    with elements of a slideshow and sketch, referencing a 'Divine Disaster Class
+    Logician' and overloaded terms.  Vin Diesel then appears holding PVA glue and
+    a stick, posing a question to the audience.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_c6343d1e_v1
+    store: workbench
+    type: conversation_segment
+    note: Breaks the fourth wall and provides a layer of self-awareness.
+- id: mined_slab_9621e473_v1
+  title: The Step
+  canonical_text: The sequence begins with a subtle sound, followed by the distinct
+    impact of a boot on metal. The scene focuses on a sense of presence rather than
+    a detailed description. This establishes an atmosphere of quiet anticipation and
+    understated power.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_9621e473_v1
+    store: workbench
+    type: conversation_segment
+    note: Sets the stage for a reveal, creating intrigue and a sense of foreboding.
+- id: mined_slab_2bcb1c58_v1
+  title: Recognition
+  canonical_text: 'A gravelly voice speaks, delivering a contemplative line: ''We
+    thought growing family was all that mattered.'' The delivery is calm and avoids
+    dramatic flourishes. The line is designed to elicit a knowing chuckle from the
+    audience, suggesting a shared understanding of a past belief or a universal truth.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_2bcb1c58_v1
+    store: workbench
+    type: conversation_segment
+    note: Introduces a thematic element of regret or re-evaluation, likely tied to
+      a larger narrative arc.
+- id: mined_slab_0c21e8b5_v1
+  title: Regret and Reinterpretation
+  canonical_text: A moment of silence hangs heavy, punctuated by a regretful statement
+    about a past action. The word 'family' undergoes a significant shift in meaning,
+    its implications changing instantly within the context of the conversation. This
+    reinterpretation highlights a potential betrayal or a painful realization about
+    relationships. The abrupt change in meaning underscores the complexity of the
+    situation and the emotional weight of the past.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_0c21e8b5_v1
+    store: workbench
+    type: conversation_segment
+    note: This beat introduces a crucial element of regret and a shift in understanding
+      of a key concept ('family'), advancing the narrative's emotional complexity.
+- id: mined_slab_d52fb108_v1
+  title: Moral Compression
+  canonical_text: The speaker delivers a concise definition of family, contrasting
+    conventional notions with a deeper understanding. They assert that family is not
+    determined by shared hardship, but by the space created for others during times
+    of scarcity. This sentiment is presented with a deliberate lack of musical embellishment,
+    emphasizing its sincerity and emotional weight. The statement suggests a re-evaluation
+    of familial bonds beyond immediate survival.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: CANONICAL
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_d52fb108_v1
+    store: workbench
+    type: conversation_segment
+    note: This beat encapsulates a core thematic element – the redefinition of family
+      – and provides insight into the character's moral compass.

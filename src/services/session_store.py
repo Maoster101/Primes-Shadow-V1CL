@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from ..models.schemas import FrameState, DraftStack, DraftPacket
+from ..models.schemas import FrameState, DraftStack, DraftPacket, ProposedEdge
 
 SESSIONS_ROOT = Path("app/workbench/sessions")
 
@@ -111,6 +111,9 @@ class SessionStore:
         for f in sorted(d.glob("*.json")):
             if f.name.endswith("_raw.json"):
                 continue  # Skip raw proposal files — not DraftPackets
+            # Skip sidecar JSONs that aren't DraftPacket records
+            if f.name.endswith(".enriched.json"):
+                continue
             data = self._read_json(f)
             if data:
                 try:
@@ -118,6 +121,120 @@ class SessionStore:
                 except Exception:
                     continue  # Skip malformed drafts rather than crashing review
         return packets
+
+    # Phase 3 — Proposed edges storage (session-scoped, chat-aggregated)
+
+    def _edges_path(self, session_id: str) -> Path:
+        return self._session_dir(session_id) / "proposed_edges.json"
+
+    def list_proposed_edges(self, session_id: str) -> list[ProposedEdge]:
+        """Load this session's proposed edges. Empty list if none."""
+        data = self._read_json(self._edges_path(session_id))
+        if not data or "edges" not in data:
+            return []
+        out = []
+        for e in data["edges"]:
+            try:
+                out.append(ProposedEdge(**e))
+            except Exception:
+                continue  # skip malformed rather than crash the review UI
+        return out
+
+    def save_proposed_edges(self, session_id: str, edges: list[ProposedEdge]) -> None:
+        """Overwrite the full proposed_edges list for a session."""
+        self._session_dir(session_id).mkdir(parents=True, exist_ok=True)
+        self._write_json(
+            self._edges_path(session_id),
+            {"session_id": session_id, "edges": [e.model_dump(mode="json") for e in edges]},
+        )
+
+    def append_proposed_edges(self, session_id: str, new_edges: list[ProposedEdge]) -> None:
+        """Add new proposed edges to the existing list, deduped by (from,to,type)."""
+        if not new_edges:
+            return
+        existing = self.list_proposed_edges(session_id)
+        existing_keys = {(e.from_node, e.to_node, e.type) for e in existing}
+        for edge in new_edges:
+            if (edge.from_node, edge.to_node, edge.type) not in existing_keys:
+                existing.append(edge)
+                existing_keys.add((edge.from_node, edge.to_node, edge.type))
+        self.save_proposed_edges(session_id, existing)
+
+    def update_proposed_edge_status(
+        self, session_id: str, edge_id: str, status: str,
+        committed_edge_id: Optional[str] = None,
+    ) -> bool:
+        """Mark an edge PROPOSED/ACCEPTED/COMMITTED/REJECTED. Returns True on match."""
+        edges = self.list_proposed_edges(session_id)
+        hit = False
+        for e in edges:
+            if e.id == edge_id:
+                e.status = status
+                if committed_edge_id is not None:
+                    e.committed_edge_id = committed_edge_id
+                hit = True
+                break
+        if hit:
+            self.save_proposed_edges(session_id, edges)
+        return hit
+
+    def list_proposed_edges_by_chat(self, chat_id: str) -> list[tuple[str, ProposedEdge]]:
+        """Aggregate proposed edges across ALL sessions for a chat.
+
+        Returns list of (session_id, edge) tuples so callers can route
+        review actions back to the owning session. Mirrors the per-chat
+        draft listing pattern established in Phase 2A.
+        """
+        if not self.root.exists():
+            return []
+        out: list[tuple[str, ProposedEdge]] = []
+        for sess_dir in self.root.iterdir():
+            if not sess_dir.is_dir():
+                continue
+            edges_path = sess_dir / "proposed_edges.json"
+            if not edges_path.exists():
+                continue
+            data = self._read_json(edges_path) or {}
+            for e in data.get("edges", []):
+                if e.get("source_chat_id") != chat_id:
+                    continue
+                try:
+                    out.append((sess_dir.name, ProposedEdge(**e)))
+                except Exception:
+                    continue
+        return out
+
+    def list_draft_packets_by_chat(self, chat_id: str) -> list[DraftPacket]:
+        """Return every DraftPacket across ALL sessions where source_chat_id matches.
+
+        Drafts are stored per-session, but a chat persists across many sessions
+        (e.g. after restart). For UI purposes the draft belongs to the chat it
+        was mined in, not the SSE session that happened to be live. This scans
+        every session dir once and filters. Deduped by packet id (latest write
+        wins via sort on path mtime -> later).
+        """
+        if not self.root.exists():
+            return []
+        by_id: dict[str, DraftPacket] = {}
+        for sess_dir in self.root.iterdir():
+            if not sess_dir.is_dir():
+                continue
+            drafts_dir = sess_dir / "drafts"
+            if not drafts_dir.exists():
+                continue
+            for f in sorted(drafts_dir.glob("*.json"), key=lambda p: p.stat().st_mtime):
+                name = f.name
+                if name.endswith("_raw.json") or name.endswith(".enriched.json"):
+                    continue
+                data = self._read_json(f)
+                if not data or data.get("source_chat_id") != chat_id:
+                    continue
+                try:
+                    pkt = DraftPacket(**data)
+                    by_id[pkt.id] = pkt  # last write wins
+                except Exception:
+                    continue
+        return list(by_id.values())
 
     # --- Helpers ---
 

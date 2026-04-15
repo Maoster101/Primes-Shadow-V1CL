@@ -38,13 +38,35 @@ class ChatStore:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, default=str, ensure_ascii=False)
 
-    def create_chat(self, title: str = "New Chat") -> Chat:
-        chat = Chat(id=str(uuid.uuid4())[:8], title=title)
+    def create_chat(self, title: str = "New Chat", collection_id: Optional[str] = None) -> Chat:
+        chat = Chat(id=str(uuid.uuid4())[:8], title=title, collection_id=collection_id)
         self._save_raw(chat.id, {
             "meta": chat.model_dump(mode="json"),
             "messages": [],
         })
         return chat
+
+    def update_collection(self, chat_id: str, collection_id: Optional[str]) -> bool:
+        """Re-bind a chat to a different collection (or null to unset)."""
+        raw = self._load_raw(chat_id)
+        if not raw:
+            return False
+        raw["meta"]["collection_id"] = collection_id
+        self._save_raw(chat_id, raw)
+        return True
+
+    def update_title(self, chat_id: str, title: str) -> bool:
+        """Rename a chat. Manual or auto. Stored as-is after strip()."""
+        title = (title or "").strip()
+        if not title:
+            return False
+        raw = self._load_raw(chat_id)
+        if not raw:
+            return False
+        raw["meta"]["title"] = title
+        raw["meta"]["updated_at"] = datetime.utcnow().isoformat()
+        self._save_raw(chat_id, raw)
+        return True
 
     def get_chat(self, chat_id: str) -> Optional[Chat]:
         raw = self._load_raw(chat_id)

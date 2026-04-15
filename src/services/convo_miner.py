@@ -567,32 +567,32 @@ class MiningProposal:
 
 EXTRACTION_PROMPT = """You are a corpus extraction specialist for Prime's Shadow, a neuro-symbolic personal knowledge system.
 
-Given a conversation segment about "{topic}", extract meaningful corpus objects. Be THOROUGH — extract EVERY distinct concept, technology, metaphor, narrative beat, and named entity.
+Given a conversation segment about "{topic}", extract meaningful corpus objects. Prefer CONSOLIDATION — group related ideas into slabs and bundles rather than producing many isolated anchors.
 
-1. **Anchors** — Short canonical phrases (2-8 words) representing concepts, technologies, metaphors, named entities, narrative elements, or cultural references the user invokes. These are "hooks" the system matches in future conversations. Include 1-3 aliases.
-   Examples: "grey goo fakeout", "quantum water encoding", "exploding wire plasma", "Vin Diesel family meme", "divine disaster class"
+1. **Slabs** (PREFERRED — extract these first) — Longer canonical texts (3-10 sentences) capturing a process, principle, worldbuilding rule, narrative arc, or thematic analysis. Slabs are the primary knowledge unit. Write the FULL text — do NOT truncate.
+   Examples: A full energy progression chain, a design philosophy, a narrative structure analysis, a fictional technology specification.
 
-2. **Slabs** — Longer canonical texts (2-10 sentences) capturing a process, principle, worldbuilding rule, or narrative arc the user has articulated.
-   Examples: A full energy progression chain, a design philosophy, a fictional technology specification.
+2. **Anchors** — Short canonical phrases (2-8 words) for concepts that DON'T fit into a slab. Only create an anchor if the concept is a standalone hook worth matching independently. Include 1-3 aliases.
+   Examples: "grey goo fakeout", "Vin Diesel family meme", "divine disaster class"
 
-3. **Bundles** — Groups of 3+ related concepts that form a conceptual cluster.
-   Examples: "Fusion Energy Chain" grouping [exploding wire, plasma ion cloud, fusion reactor, quantum water].
+3. **Bundles** — Groups of 3+ related anchors that form a conceptual cluster. If you have multiple related anchors, bundle them.
+   Examples: "Fusion Energy Chain" grouping [exploding wire, plasma accelerator, fusion reactor, quantum water].
 
 Return ONLY valid JSON:
 {{
   "proposals": [
     {{
-      "type": "anchor",
-      "canonical_phrase": "short phrase",
-      "aliases": ["alt1", "alt2"],
+      "type": "slab",
+      "title": "brief title",
+      "canonical_text": "the FULL text of the process/principle/arc — write 3-10 complete sentences",
       "justification": "why this matters",
       "confidence": 0.0-1.0
     }},
     {{
-      "type": "slab",
-      "title": "brief title",
-      "canonical_text": "the full text of the process/principle/arc",
-      "justification": "why this matters",
+      "type": "anchor",
+      "canonical_phrase": "short phrase",
+      "aliases": ["alt1", "alt2"],
+      "justification": "why this needs to be a standalone anchor (not part of a slab)",
       "confidence": 0.0-1.0
     }},
     {{
@@ -606,14 +606,15 @@ Return ONLY valid JSON:
 }}
 
 Rules:
-- Extract EVERY distinct concept — err on the side of MORE proposals, not fewer
-- Named technologies, fictional substances, metaphors, and meme references are ALL valid anchors
-- Multi-step processes (A->B->C->D) should produce BOTH individual anchors AND a slab for the chain
-- Cultural references (movie quotes, memes, named characters) are valid anchors
-- Confidence 0.8+ = user explicitly named or defined this concept
+- CONSOLIDATE related concepts into slabs and bundles — do NOT produce 10 anchors when 2 slabs + 1 bundle would capture the same information
+- Multi-step processes (A->B->C->D) should be ONE slab describing the chain, not separate anchors for each step
+- Narrative structures (beats, arcs, character dynamics) should be ONE slab, not separate anchors per beat
+- Only create standalone anchors for concepts that are truly independent hooks — things a user might mention in a different context
+- Slab canonical_text MUST be complete sentences — never truncate mid-thought
+- Confidence 0.8+ = user explicitly named or defined this
 - Confidence 0.5-0.8 = user implied this through context
 - Confidence <0.5 = tentative extraction
-- Maximum 15 proposals per segment
+- Aim for 3-8 proposals per segment (prefer fewer, richer proposals)
 
 Conversation segment:
 {text}
@@ -906,7 +907,7 @@ class ConversationMiner:
                 {
                     "type": p.proposal_type,
                     "canonical_phrase": p.canonical_phrase,
-                    "canonical_text": p.canonical_text[:200] if p.canonical_text else "",
+                    "canonical_text": p.canonical_text or "",
                     "title": p.title,
                     "label": p.label,
                     "aliases": p.aliases,
