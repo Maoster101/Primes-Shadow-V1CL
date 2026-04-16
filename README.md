@@ -180,7 +180,7 @@ Tentative nodes: yellow dashed ring overlay. Rejected: grey dashed ring.
 - **System Philosophy**: human-as-loop, absence of command = hard deny, summaries = zero authority
 - **\* operator**: three functions — anchor invocation, semantic depth, stabilised analysis
 
-**BMD (Bones Mode Distribution)**: Brennan 0.60 / Zack 0.15 / Booth 0.10 / Angela 0.10 / Hodgins 0.05. Routing adjusts contextually.
+**BMD (Behavioural Model Distribution)**: Brennan 0.60 / Zack 0.15 / Booth 0.10 / Angela 0.10 / Hodgins 0.05. Routing adjusts contextually.
 
 ---
 

@@ -219,6 +219,24 @@ async def process_turn(
     turn = len(chat_messages) + 1
     match_result = None
 
+    # ── Step 0: Resolve any push event pending from the prior turn ───
+    # The gauntlet may have fired last turn and logged a push event
+    # with no resolution. The user's current message is the evidence
+    # that categorises it (accept / reject / implicit / unresolved).
+    # Runs first so the feedback loop closes before this turn's own
+    # gauntlet check (which could generate a new pending push event).
+    if gauntlet_engine and session_id:
+        try:
+            await gauntlet_engine.detect_and_log_resolution(
+                session_id, turn, user_text
+            )
+        except Exception as exc:
+            # Resolution logging is diagnostic — never fail the turn.
+            import logging
+            logging.getLogger(__name__).warning(
+                "Push resolution detection failed: %s", exc
+            )
+
     # ── Fast defaults (no LLM call) ──────────────────────────────
     # NEUTRAL classification passes gate_check for ALL anchors
     # (NEUTRAL is in safe_functions). This is the same result as

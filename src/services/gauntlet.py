@@ -13,6 +13,7 @@ LLM = sensor (proposes gauntlet check results), code = actuator
 """
 from __future__ import annotations
 import json
+import re
 from datetime import datetime, timezone
 from typing import Optional
 from dataclasses import dataclass, field
@@ -24,6 +25,89 @@ from . import ollama
 from .event_log import EventLog
 
 _event_log = EventLog()
+
+
+# ── Resolution detector (tier 1.5) ──────────────────────────────
+# Post-hoc categorisation of a prior push event based on the user's
+# next turn. Runs at the START of turn N+1, looking back at any
+# unresolved push event from turn N. No LLM call — regex + optional
+# embedding similarity. See §8 feedback loop.
+#
+# KNOWN FALSE-POSITIVE RISK (tune with data):
+#   "wait" in _REJECT_PAT matches at start-of-turn, so a curious
+#   interruption like "wait, this is fascinating, tell me more" is
+#   classified as explicit_reject. Same risk for "hmm" (could be
+#   thoughtful engagement, not disagreement). Once push_resolutions.jsonl
+#   accumulates real data, measure the FP rate — if a meaningful share
+#   of "wait"/"hmm" openers turn out to be followed by continued
+#   engagement (verdict-at-detection=passed, long subsequent turn),
+#   either:
+#     1. Remove those two tokens from _REJECT_PAT, OR
+#     2. Require a stronger negation pattern after them
+#        (e.g. r"^wait\b.{0,40}(no|but|actually|wrong)")
+#   Until then the conservative behaviour (treat as reject) is fine —
+#   false positives on the reject side are cheaper than false negatives
+#   for calibrating the gauntlet (an over-flagged reject is easy to
+#   notice in aggregates; a silent acceptance labelled "rejected" is not).
+
+_REJECT_PAT = re.compile(
+    r"^(no\b|actually\b|but\s|wrong\b|incorrect\b|disagree|that'?s\s+not|"
+    r"not\s+quite|hmm|hold\s+on|wait\b)",
+    re.IGNORECASE,
+)
+_ACCEPT_PAT = re.compile(
+    r"^(good\b|great\b|yes\b|yeah\b|yep\b|right\b|correct\b|exactly\b|"
+    r"agreed\b|perfect\b|makes\s+sense|got\s+it|understood)",
+    re.IGNORECASE,
+)
+
+
+async def detect_resolution(
+    next_user_turn: str,
+    claim_summary: str,
+) -> tuple[str, str, Optional[float]]:
+    """Classify a user turn's relationship to a prior flagged claim.
+
+    Returns (resolution, detector_tier, similarity_or_none).
+
+    Resolution classes:
+      explicit_reject  — user pushed back in words
+      explicit_accept  — user explicitly praised/accepted
+      implicit_accept  — short turn with low topical similarity (moved on)
+      unresolved       — still engaged with the same topic (kept probing)
+      ambiguous        — no strong signal
+    """
+    stripped = next_user_turn.strip()
+    if not stripped:
+        return "ambiguous", "tier1", None
+
+    # Tier 1a: explicit keyword prefix match (strongest signal)
+    if _REJECT_PAT.match(stripped):
+        return "explicit_reject", "tier1", None
+    if _ACCEPT_PAT.match(stripped):
+        return "explicit_accept", "tier1", None
+
+    # Tier 1b: embedding similarity — topical continuity vs topic change
+    sim: Optional[float] = None
+    if claim_summary:
+        try:
+            from . import embeddings
+            sim = await embeddings.cosine_similarity(claim_summary, stripped)
+        except Exception:
+            sim = None
+
+    short_turn = len(stripped) < 80
+    if sim is not None:
+        if sim < 0.3 and short_turn:
+            return "implicit_accept", "tier1.5", sim
+        if sim > 0.5:
+            return "unresolved", "tier1.5", sim
+        return "ambiguous", "tier1.5", sim
+
+    # Fallback when embedding unavailable: length-only heuristic
+    if short_turn:
+        return "implicit_accept", "tier1", None
+    return "unresolved", "tier1", None
 
 
 # ── Gauntlet prompt ──────────────────────────────────────────────
@@ -73,6 +157,10 @@ class GauntletState:
     last_fired_turn: int = 0
     total_fires: int = 0
     fire_history: list[dict] = field(default_factory=list)
+    # Set when a push event is logged; cleared once the resolution detector
+    # categorises the user's next turn. Holds the minimum info needed to
+    # retroactively label the push event in push_resolutions.jsonl.
+    pending_push: Optional[dict] = None
 
 
 class GauntletEngine:
@@ -86,6 +174,46 @@ class GauntletEngine:
         if session_id not in self._sessions:
             self._sessions[session_id] = GauntletState()
         return self._sessions[session_id]
+
+    async def detect_and_log_resolution(
+        self,
+        session_id: str,
+        turn: int,
+        user_text: str,
+    ) -> Optional[str]:
+        """Categorise the user's current turn against any pending push event.
+
+        Called at the START of each new user turn, before the gauntlet itself
+        runs for the new turn. If there's a push event awaiting resolution
+        from a prior turn, detect the user's response type (accept / reject /
+        implicit / unresolved) and write a record to push_resolutions.jsonl.
+
+        Returns the resolution label, or None if there was nothing pending.
+        """
+        state = self._get_state(session_id)
+        pending = state.pending_push
+        if not pending:
+            return None
+
+        resolution, tier, sim = await detect_resolution(
+            user_text, pending.get("claim_summary", "")
+        )
+
+        _event_log.log_push_resolution(
+            push_event_id=pending["push_event_id"],
+            resolution=resolution,
+            detector_tier=tier,
+            verdict_at_detection=pending["verdict"],
+            fired_turn=pending["fired_turn"],
+            observed_at_turn=turn,
+            delay_turns=turn - pending["fired_turn"],
+            similarity_to_claim=round(sim, 3) if sim is not None else None,
+            next_user_turn_preview=user_text[:200],
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+
+        state.pending_push = None
+        return resolution
 
     def should_fire(
         self,
@@ -212,7 +340,10 @@ class GauntletEngine:
             confidence=drift.claim_volatility,
             expected_resistance=policy.pushback.absence_sensitivity,
             observed_resistance=max(0, policy.pushback.absence_sensitivity - frame.mismatch_score),
-            resolution=result.verdict,
+            # resolution is intentionally NOT written here. It is logged
+            # post-hoc to push_resolutions.jsonl by detect_and_log_resolution()
+            # when the user's next turn arrives. Previously this field was
+            # aliased to verdict, which made the feedback loop a tautology.
             verdict=result.verdict,
             claim_summary=result.claim_summary,
             alternatives_count=len(result.alternatives),
@@ -228,6 +359,13 @@ class GauntletEngine:
             "reason": reason,
             "verdict": result.verdict,
         })
+        # Arm the resolution detector for the user's next turn.
+        state.pending_push = {
+            "push_event_id": push_event_id,
+            "fired_turn": turn,
+            "verdict": result.verdict,
+            "claim_summary": result.claim_summary,
+        }
 
         return result
 
