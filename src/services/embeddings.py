@@ -67,11 +67,18 @@ async def compute_positions_and_vectors(texts: list[str]) -> tuple[list[float], 
     Callers that need both the 1D creative↔rigorous projection AND the full
     vectors (e.g. for cosine-similarity affinity) should use this instead of
     compute_x_positions + a second embed call.
+
+    NOTE: inputs are lowercased before embedding to bypass the nomic-embed-text
+    Title-Case collapse pathology (see cosine_similarity docstring). Short
+    Title-Case anchor/slab names (e.g. "Terra Preta Australis") otherwise map
+    to a shared canonical vector, producing spurious similarity=1.0 matches
+    in compute_affinity. The creative/rigorous pole strings are already
+    lowercase, so lowercasing inputs here tightens projection consistency too.
     """
     if not texts:
         return [], np.zeros((0, 0))
     cache = await _ensure_axis()
-    raw = await ollama.embed(texts)
+    raw = await ollama.embed([t.lower() for t in texts])
     V = np.array(raw)
     positions: list[float] = []
     for v in V:
