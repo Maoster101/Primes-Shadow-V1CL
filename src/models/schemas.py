@@ -178,12 +178,31 @@ class EdgeConditions(BaseModel):
 
 
 class Edge(BaseModel):
+    """Reified typed edge between two corpus nodes.
+
+    `weight` and `confidence` are semantically distinct and MUST NOT be
+    treated as aliases (they were identical in the initial hand-curated
+    seed, which caused a lot of confusion):
+
+    - **weight**: how strongly activation should cascade along this edge
+      when fired. Scales the target's inherited activation. Think
+      "signal gain". Curator-set for hand-authored edges, model-proposed
+      for mined edges.
+    - **confidence**: our epistemic belief that this edge exists and is
+      correctly typed. 1.0 for hand-curated/CONSTITUTIONAL edges (we
+      know it's real), lower for LLM-mined edges awaiting corroboration.
+      Scales cascade as a multiplier — low-confidence edges propagate
+      less until reinforced.
+
+    Effective cascade strength = weight * confidence * kernel_for_type
+    (see frame_manager.CASCADE_KERNEL).
+    """
     id: str
     type: EdgeType
     from_node: str = Field(alias="from")
     to_node: str = Field(alias="to")
     weight: float = Field(ge=0.0, le=1.0, default=0.5)
-    confidence: float = Field(ge=0.0, le=1.0, default=0.5)  # alias for weight, backward compat
+    confidence: float = Field(ge=0.0, le=1.0, default=1.0)
     tension: Optional[float] = None
     conditions: Optional[EdgeConditions] = None
 

@@ -30,6 +30,46 @@ BUNDLE_SUGGESTION_THRESHOLD = policy.frame.concepts.bundle_suggestion_turns
 _event_log = EventLog()
 
 
+# §9 Cascade semantics — type-specific propagation kernels.
+#
+# Applied as a multiplier on `edge.weight * edge.confidence` when propagating
+# activation from source to target. Captures the idea that different edge
+# types carry activation at different strengths:
+#
+#   INVOKES    — full cascade. "When source fires, target fires." The anchor
+#                → slab/bundle invocation chain lives here; kernel 1.0 matches
+#                the hand-curated weight 1.0 * confidence 1.0 behaviour so
+#                existing INVOKES edges cascade identically to the old
+#                hardcoded 1.0 path.
+#   SUPPORTS   — reinforcement, not activation. Source strengthens target's
+#                *salience* when both are already active (see Step 4b), but
+#                does not auto-activate the target. Kernel 0.5 means at max
+#                weight*confidence the reinforcement boost is 50% of source
+#                salience (further damped by 0.1 below to stay subtle).
+#   LINKS      — co-activation. Weaker than INVOKES; "these belong together"
+#                rather than "this fires that". Kernel 0.7.
+#   CONFLICTS  — antagonism; handled separately in Step 5 conflict detection,
+#                not positive cascade. Kernel 0.0 so accidental co-firing via
+#                the generic cascade path is a no-op.
+#   PARENT_OF  — structural hierarchy. Parent activation partially activates
+#                children. Kernel 0.8.
+#   SEQUENCE   — temporal. Predecessor hints the successor but doesn't fire
+#                it outright. Kernel 0.6.
+CASCADE_KERNEL: dict[EdgeType, float] = {
+    EdgeType.INVOKES: 1.0,
+    EdgeType.SUPPORTS: 0.5,
+    EdgeType.LINKS: 0.7,
+    EdgeType.CONFLICTS: 0.0,
+    EdgeType.PARENT_OF: 0.8,
+    EdgeType.SEQUENCE: 0.6,
+}
+
+# Damping factor on SUPPORTS reinforcement — keeps the boost sub-dominant
+# relative to model-proposed salience. At source_sal=1.0, weight=1.0,
+# confidence=1.0, kernel=0.5, the per-turn boost is 0.05.
+SUPPORTS_REINFORCE_DAMP = 0.1
+
+
 class FrameManager:
 
     def __init__(self, corpus: CorpusStore):
@@ -37,6 +77,38 @@ class FrameManager:
         self._frames: dict[str, FrameState] = {}
         # Session-scoped tentative edges (not in corpus until commit)
         self._tentative_edges: dict[str, list[dict]] = {}  # session_id -> [{from, to, type, ...}]
+        # Cached adjacency index: (from_node, to_node) -> Edge.
+        # Built lazily on first cascade lookup. The corpus is append-mostly at
+        # runtime (tentative edges live in a separate session-scoped store),
+        # so invalidation is rare and handled explicitly in tests that reload.
+        self._edge_index: Optional[dict[tuple[str, str], object]] = None
+
+    def _get_edge(self, from_id: str, to_id: str):
+        """O(1) edge lookup by endpoint pair. None if no such edge exists."""
+        if self._edge_index is None:
+            self._edge_index = {
+                (e.from_node, e.to_node): e
+                for e in self.corpus.edges.values()
+            }
+        return self._edge_index.get((from_id, to_id))
+
+    def _cascade_strength(
+        self, from_id: str, to_id: str, fallback: float
+    ) -> float:
+        """Return type-weighted cascade strength for from_id → to_id.
+
+        Looks for a reified Edge record linking the two nodes; if found,
+        returns `edge.weight * edge.confidence * CASCADE_KERNEL[edge.type]`.
+        If no edge exists (e.g. implicit `slab.links.*` relationships for
+        which we never minted Edge objects), returns `fallback` — this
+        preserves current behaviour for edge-less pairs while letting
+        curator-authored edge metadata drive cascades where it exists.
+        """
+        edge = self._get_edge(from_id, to_id)
+        if edge is None:
+            return fallback
+        kernel = CASCADE_KERNEL.get(edge.type, 0.5)
+        return edge.weight * edge.confidence * kernel
 
     def get_or_create(self, chat_id: str, session_id: str,
                        oli_mode: OLIMode = OLIMode.OFF) -> FrameState:
@@ -63,15 +135,21 @@ class FrameManager:
             frame.activation_sources[slab.id] = [
                 ActivationSource(source_type="base_set", source_ref=f"type={slab.type.value}")
             ]
-            # Follow slab links → activate linked anchors and bundles at 0.5
+            # Follow slab links → activate linked anchors and bundles.
+            # Cascade strength comes from the reified edge if one exists
+            # (weight * confidence * kernel), otherwise falls back to the
+            # historic 0.5 seed value — matching current behaviour for
+            # slab.links.* pairs that lack an explicit Edge record.
             for anchor_id in (slab.links.anchors if slab.links else []):
                 if anchor_id in self.corpus.anchors:
-                    frame.active_anchors.setdefault(anchor_id, 0.5)
+                    strength = self._cascade_strength(slab.id, anchor_id, 0.5)
+                    frame.active_anchors.setdefault(anchor_id, strength)
                     if anchor_id not in frame.active_nodes:
                         frame.active_nodes.append(anchor_id)
             for bundle_id in (slab.links.bundles if slab.links else []):
                 if bundle_id in self.corpus.bundles:
-                    frame.active_bundles.setdefault(bundle_id, 0.5)
+                    strength = self._cascade_strength(slab.id, bundle_id, 0.5)
+                    frame.active_bundles.setdefault(bundle_id, strength)
                     if bundle_id not in frame.active_nodes:
                         frame.active_nodes.append(bundle_id)
 
@@ -158,7 +236,11 @@ class FrameManager:
                         ]
                 for bundle_id in candidate_bundles:
                     if bundle_id in self.corpus.bundles:
-                        frame.active_bundles.setdefault(bundle_id, 0.8)
+                        # Fallback 0.8 preserves the historic "invariant
+                        # activation cascade is more assertive than base-set
+                        # seeding" tuning for edge-less pairs.
+                        strength = self._cascade_strength(slab.id, bundle_id, 0.8)
+                        frame.active_bundles.setdefault(bundle_id, strength)
                         if bundle_id not in frame.active_nodes:
                             frame.active_nodes.append(bundle_id)
                 activated.append(slab.id)
@@ -298,15 +380,25 @@ class FrameManager:
                 if anchor.id not in turn_hits:
                     turn_hits.append(anchor.id)
 
-                # Follow invokes chains: activate referenced slabs/bundles
+                # Follow invokes chains: activate referenced slabs/bundles.
+                # Cascade strength = edge.weight * edge.confidence * kernel,
+                # with fallback 1.0 preserving the hardcoded behaviour for
+                # any anchor.invokes targets that lack a reified Edge.
+                # Use max() against any existing activation so a stronger
+                # prior source this turn isn't silently clobbered.
                 for target_id in anchor.invokes:
                     if target_id in self.corpus.all_ids() and target_id not in frame.active_nodes:
                         frame.active_nodes.append(target_id)
+                    strength = self._cascade_strength(anchor.id, target_id, 1.0)
                     # Populate typed dict
                     if target_id in self.corpus.slabs:
-                        frame.active_slabs[target_id] = 1.0
+                        frame.active_slabs[target_id] = max(
+                            frame.active_slabs.get(target_id, 0.0), strength
+                        )
                     elif target_id in self.corpus.bundles:
-                        frame.active_bundles[target_id] = 1.0
+                        frame.active_bundles[target_id] = max(
+                            frame.active_bundles.get(target_id, 0.0), strength
+                        )
                     frame.activation_sources[target_id] = [
                         ActivationSource(
                             source_type="anchor_invocation",
@@ -425,6 +517,34 @@ class FrameManager:
             frame.salience_smoothed[node_id] = (
                 SALIENCE_ALPHA * now + (1 - SALIENCE_ALPHA) * prev
             )
+
+        # --- Step 4b: SUPPORTS reinforcement pass ---
+        # SUPPORTS edges don't auto-activate their target (that's INVOKES's
+        # job). Instead, when both endpoints are already in the frame, the
+        # source's salience reinforces the target's — modelling "X lends
+        # credence / relevance to Y". Subtle by design: heavily damped so
+        # the model-proposed salience stays dominant, and iterated over a
+        # snapshot so two SUPPORTS edges firing in the same turn don't
+        # compound into runaway feedback.
+        active_set = set(frame.active_nodes)
+        smoothed_snapshot = dict(frame.salience_smoothed)
+        for edge in self.corpus.edges.values():
+            if edge.type != EdgeType.SUPPORTS:
+                continue
+            if edge.from_node not in active_set or edge.to_node not in active_set:
+                continue
+            source_sal = smoothed_snapshot.get(edge.from_node, 0.0)
+            if source_sal <= 0.0:
+                continue
+            boost = (
+                source_sal
+                * edge.weight
+                * edge.confidence
+                * CASCADE_KERNEL[EdgeType.SUPPORTS]
+                * SUPPORTS_REINFORCE_DAMP
+            )
+            current = frame.salience_smoothed.get(edge.to_node, 0.0)
+            frame.salience_smoothed[edge.to_node] = min(1.0, current + boost)
 
         # --- Step 5: Detect conflicts ---
         frame.conflicts = []
