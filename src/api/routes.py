@@ -1822,8 +1822,17 @@ async def corpus_full(collection: Optional[str] = None):
         slabs_out.append(d)
 
     # Batch compute X positions via nomic-embed-text
-    z_map = {"slab": 0, "bundle": 1, "anchor": 2}
-    y_map = {"slab": 0.4, "bundle": 0.2, "anchor": 0.1}  # structural weight proxy
+    # Original type-band heuristic (commented for reference) stacked anchors
+    # below bundles below slabs in y/z. It imposed a structural prior that
+    # fought the semantic forces: a rigorous-adjacent anchor could not drift
+    # toward its parent slab because the y/z bands pinned it in its type row.
+    # Flattened to a single plane so affinity springs + repulsion + hub-spoke
+    # orbit drive the layout. Type is now a rendering attribute, not a
+    # positional one.
+    # z_map = {"slab": 0, "bundle": 1, "anchor": 2}
+    # y_map = {"slab": 0.4, "bundle": 0.2, "anchor": 0.1}  # structural weight proxy
+    z_map = {"slab": 0, "bundle": 0, "anchor": 0}
+    y_map = {"slab": 0.4, "bundle": 0.4, "anchor": 0.4}
 
     try:
         x_positions, node_vectors = await compute_positions_and_vectors(texts_to_embed)
