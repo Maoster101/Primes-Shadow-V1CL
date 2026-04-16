@@ -320,7 +320,7 @@
   version: v1
   type: CONSTITUTIONAL
   lifecycle_status: ACTIVE
-  requires_oli_mode: null
+  requires_oli_mode: "ON"
   meta:
     version: v1
     supersedes: null
