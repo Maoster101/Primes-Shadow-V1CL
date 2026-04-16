@@ -2829,22 +2829,13 @@ async function _minePushSelected(){
   }
   // Auto-create a mining session if still no active session
   if(!currentSessionId){
-    if(statusEl)statusEl.innerHTML='<span style="color:var(--text-dim)">Creating mining session (cold model load may take 30-60s)...</span>';
+    if(statusEl)statusEl.innerHTML='<span style="color:var(--text-dim)">Creating mining session...</span>';
     try{
-      const chatRes=await fetch(`${API}/chats`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'AI Mine Session',collection_id:(document.getElementById('mine-collection')?.value||'default')})});
-      if(!chatRes.ok)throw new Error('Failed to create chat');
-      const chat=await chatRes.json();
-      currentChatId=chat.id;
-      // Send a dummy message to create a session
-      const msgRes=await fetch(`${API}/chats/${chat.id}/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:'[Mining session]',oli_mode:'OFF',web_mode:'off'})});
-      if(msgRes.ok){
-        const reader=msgRes.body.getReader();
-        while(true){const{done}=await reader.read();if(done)break}
-      }
-      // Fetch session ID
-      const infoRes=await fetch(`${API}/chats/${chat.id}`);
-      if(infoRes.ok){const info=await infoRes.json();currentSessionId=info.session_id}
-      if(!currentSessionId){alert('Could not create mining session');return}
+      const scratchRes=await fetch(`${API}/sessions/scratch`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'AI Mine Session',collection_id:(document.getElementById('mine-collection')?.value||'default')})});
+      if(!scratchRes.ok)throw new Error('Failed to create scratch session');
+      const scratch=await scratchRes.json();
+      currentChatId=scratch.chat_id;
+      currentSessionId=scratch.session_id;
     }catch(e){alert('Could not create mining session: '+e.message);return}
   }
   const sel=[];

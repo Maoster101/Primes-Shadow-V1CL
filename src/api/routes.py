@@ -2623,4 +2623,76 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
                 print(f"[DREAM] Dreaming pass failed: {e}", flush=True)
         asyncio.create_task(_dream_pushed())
 
+    # --- Inject mined proposals into frame_manager's tentative registry ---
+    # Without this, /sessions/{id}/graph can't see the mined nodes because
+    # it reads from the in-memory registry, not from disk DraftPackets.
+    if created_packets:
+        if session_id not in frame_manager._tentative_registry:
+            frame_manager._tentative_registry[session_id] = {}
+        reg = frame_manager._tentative_registry[session_id]
+
+        # Also ensure a FrameState exists so the graph endpoint has something
+        if session_id not in frame_manager._frames:
+            from ..models.schemas import FrameState
+            frame_manager._frames[session_id] = FrameState(
+                session_id=session_id,
+                chat_id=meta.get("chat_id", session_id),
+                active_nodes=[],
+            )
+        frame = frame_manager._frames[session_id]
+
+        for pkt in created_packets:
+            # Derive a human-readable label
+            label = ""
+            ntype = pkt.packet_type or "anchor"
+            if pkt.anchor:
+                label = pkt.anchor.get("canonical_phrase", "") or pkt.id
+            elif pkt.slab:
+                label = pkt.slab.get("title", "") or pkt.slab.get("canonical_text", "")[:60] or pkt.id
+            else:
+                label = pkt.id
+
+            reg[label] = {
+                "id": pkt.id,
+                "description": pkt.justification or "",
+                "turns_seen": 1,
+                "promoted": ntype if ntype in ("anchor", "slab", "bundle") else None,
+                "parent_id": None,
+                "children": [],
+            }
+            # Mark active so it renders
+            if pkt.id not in frame.active_nodes:
+                frame.active_nodes.append(pkt.id)
+
+        # Persist registry to disk for restore after restart
+        tent_edges = frame_manager._tentative_edges.get(session_id, [])
+        session_store.save_registry(
+            session_id,
+            frame_manager._tentative_registry[session_id],
+            tent_edges,
+        )
+        session_store.save_frame(session_id, frame)
+
     return {"created": len(created), "drafts": created, "edges_persisted": edges_persisted}
+
+
+class ScratchSessionRequest(BaseModel):
+    title: str = "Mining Session"
+    collection_id: str = "default"
+
+
+@router.post("/sessions/scratch")
+async def create_scratch_session(req: ScratchSessionRequest):
+    """Create a lightweight chat + session without running inference.
+
+    Used by the mining UI to get a session_id instantly — no SSE stream,
+    no model warm-up, no dummy turn. The chat is created in ACTIVE state
+    with an empty message history, and a session is bound to it immediately.
+    """
+    chat = chat_store.create_chat(req.title, collection_id=req.collection_id)
+    session_id = session_store.create_session(chat.id)
+    return {
+        "chat_id": chat.id,
+        "session_id": session_id,
+        "collection_id": req.collection_id,
+    }
