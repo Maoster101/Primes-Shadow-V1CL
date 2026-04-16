@@ -665,7 +665,7 @@ function tempAlpha(temp) {
 // ═══════════════════════════════════════════════════════════════
 //  GRAPH STATE
 // ═══════════════════════════════════════════════════════════════
-let gNodes=[], gEdges=[], nidCounter=0;
+let gNodes=[], gEdges=[], gAffinityPairs=[], nidCounter=0;
 const COOLING=0.0002;
 
 // §11.1 axis scaling — maps backend 0-1 values to world coordinates
@@ -1050,6 +1050,22 @@ function physics(){
     a.vx+=f*dx/d;a.vy+=f*dy/d;a.vz+=f*dz/d;
     b.vx-=f*dx/d;b.vy-=f*dy/d;b.vz-=f*dz/d;
   });
+  // Affinity springs — mirror of cold corpus physics. Soft attractive force
+  // between embedding-similar nodes. Rest length > explicit so they don't
+  // collapse onto each other; strength scales with similarity.
+  const _affSpring=0.004;
+  for(let i=0;i<gAffinityPairs.length;i++){
+    const p=gAffinityPairs[i];
+    const a=nMap[p.from],b=nMap[p.to];
+    if(!a||!b) continue;
+    const s=p.similarity||0.65;
+    const dx=b.x-a.x,dy=b.y-a.y,dz=b.z-a.z;
+    const d=Math.sqrt(dx*dx+dy*dy+dz*dz)+.1;
+    const rest=140;
+    const f=(d-rest)*_affSpring*s;
+    a.vx+=f*dx/d;a.vy+=f*dy/d;a.vz+=f*dz/d;
+    b.vx-=f*dx/d;b.vy-=f*dy/d;b.vz-=f*dz/d;
+  }
   const semPull=0.006; // strength of pull toward semantic position
   gNodes.forEach(n=>{
     // Pull toward semantic anchor position (§11.1 axes), not origin
@@ -3647,6 +3663,9 @@ async function refreshGraph(){
       strength:e.confidence||e.weight||0.4,
       tension:e.tension||null,
     }));
+    // Affinity springs — same filtering: only pairs where both endpoints are
+    // actually rendered, otherwise the spring pulls toward a ghost.
+    gAffinityPairs=(data.affinity_pairs||[]).filter(p=>nodeIds.has(p.from)&&nodeIds.has(p.to));
 
     document.getElementById('frame-badge').textContent=`frame: ${data.frame?.active_nodes?.length||0}`;
     pushEvent('frame',`Graph loaded: ${gNodes.length} nodes, ${gEdges.length} edges`);
@@ -3660,7 +3679,7 @@ async function refreshGraph(){
 //  TAB SWITCHING — Events / Cold Corpus Canvas
 // ═══════════════════════════════════════════════════════════════
 let corpusTab='events';
-let cNodes=[],cEdges=[],cCam={theta:0.3,phi:0.2,dist:480,panX:0,panY:0};
+let cNodes=[],cEdges=[],cAffinityPairs=[],cImplicitEdges=[],cCam={theta:0.3,phi:0.2,dist:480,panX:0,panY:0};
 let cDrag=null, corpusLoaded=false;
 let _corpusFilterCollection='__all__';
 
@@ -3759,7 +3778,7 @@ async function loadCorpusGraph(){
     const ac=(data.anchors||[]).length, sc=(data.slabs||[]).length, bc=(data.bundles||[]).length, ec=(data.edges||[]).length;
     statsEl.textContent=`${ac} anchors · ${sc} slabs · ${bc} bundles · ${ec} edges`;
   }
-  cNodes=[];cEdges=[];
+  cNodes=[];cEdges=[];cAffinityPairs=[];cImplicitEdges=[];
   const typeMap={};
   const layoutHint=data.layout_hint||'cloud';
   const spineOrder=data.spine_order||[];
@@ -3790,9 +3809,27 @@ async function loadCorpusGraph(){
     if(fOn && !tOn && !(to in _orphanParent)) _orphanParent[to]=from;
     else if(tOn && !fOn && !(from in _orphanParent)) _orphanParent[from]=to;
   });
+  // Implicit parents derived from embedding similarity (backend-computed).
+  // Treated identically to explicit parents for layout purposes so floaters
+  // with strong semantic match orbit their best-match slab instead of piling
+  // up in the type-based floater band. Rendered with dashed lines in cDraw.
+  const _implicitParent={};  // child_id -> parent_id
+  const _implicitSim={};     // child_id -> similarity score (0..1)
+  (data.implicit_parent_edges||[]).forEach(e=>{
+    if(!(e.to in _orphanParent)){
+      _implicitParent[e.to]=e.from;
+      _implicitSim[e.to]=e.similarity||0;
+    }
+  });
   // Count orphans per parent slot so we can assign angular positions.
+  // Explicit children occupy slots 0..n; implicit children continue the
+  // counter so explicit + implicit orbits don't land on the same angle.
   const _orphanCount={}, _orphanSlot={};
   Object.entries(_orphanParent).forEach(([child,parent])=>{
+    _orphanSlot[child]=_orphanCount[parent]||0;
+    _orphanCount[parent]=(_orphanCount[parent]||0)+1;
+  });
+  Object.entries(_implicitParent).forEach(([child,parent])=>{
     _orphanSlot[child]=_orphanCount[parent]||0;
     _orphanCount[parent]=(_orphanCount[parent]||0)+1;
   });
@@ -3817,9 +3854,12 @@ async function loadCorpusGraph(){
       const spread=step*Math.max(1,_spineCount-1);
       const idx=_spineIdx[n.id];
       const onSpine=idx!==undefined;
-      // Parent resolution: explicit edge to a spine-member slab.
-      const hasParent=!onSpine && _orphanParent[n.id]!==undefined && _spineIdx[_orphanParent[n.id]]!==undefined;
-      const parentId=hasParent?_orphanParent[n.id]:null;
+      // Parent resolution: prefer explicit edge, fall back to embedding-similarity
+      // implicit parent. Either places the node in orbit around its spine-member slab.
+      const explicitP=!onSpine && _orphanParent[n.id]!==undefined && _spineIdx[_orphanParent[n.id]]!==undefined;
+      const implicitP=!onSpine && !explicitP && _implicitParent[n.id]!==undefined && _spineIdx[_implicitParent[n.id]]!==undefined;
+      const hasParent=explicitP||implicitP;
+      const parentId=explicitP?_orphanParent[n.id]:(implicitP?_implicitParent[n.id]:null);
       // Three positioning modes:
       //   onSpine  → slab sits on the narrative ribbon (y≈0)
       //   hasParent → anchor/bundle orbits its parent slab (hub-and-spoke)
@@ -3835,11 +3875,15 @@ async function loadCorpusGraph(){
         const slot=_orphanSlot[n.id]||0;
         const count=Math.max(1,_orphanCount[parentId]||1);
         const baseAngle=(2*Math.PI*slot)/count + 0.35;
-        const radiusY=({anchor:95,bundle:75,slab:60}[n.struct]||80);
-        const radiusZ=({anchor:45,bundle:30,slab:25}[n.struct]||35);
+        // Implicit children sit slightly further out so the eye can tell them
+        // apart from explicit (mined) attachments — weaker relationship, wider orbit.
+        const radBoost=implicitP?1.25:1.0;
+        const radiusY=({anchor:95,bundle:75,slab:60}[n.struct]||80)*radBoost;
+        const radiusZ=({anchor:45,bundle:30,slab:25}[n.struct]||35)*radBoost;
         n.x += Math.cos(baseAngle)*step*0.15;
         n.y=Math.sin(baseAngle)*radiusY + (Math.random()-.5)*12;
         n.z=Math.cos(baseAngle+1.2)*radiusZ + (Math.random()-.5)*15;
+        n._implicitParent=implicitP?parentId:null;
       }else{
         // Floater: semantic projection x-axis, stacked above the spine.
         // _floaterSlot gives each floater a stable index so we can fan them
@@ -3906,6 +3950,9 @@ async function loadCorpusGraph(){
   (data.edges||[]).forEach(e=>{
     cEdges.push({from:e.from,to:e.to,type:e.type||'LINKS',strength:e.weight||e.confidence||0.5});
   });
+  // Stash affinity pairs for physics springs and implicit edges for dashed rendering.
+  cAffinityPairs=(data.affinity_pairs||[]).slice();
+  cImplicitEdges=(data.implicit_parent_edges||[]).slice();
 
   // Merge access pattern data from active session frame
   if(currentSessionId){
@@ -3947,6 +3994,24 @@ function cPhysics(){
     a.vx+=f*dx/d;a.vy+=f*dy/d;a.vz+=f*dz/d;
     b.vx-=f*dx/d;b.vy-=f*dy/d;b.vz-=f*dz/d;
   });
+  // ── Affinity springs ──
+  // Embedding-similarity "soft" edges: weaker than explicit edges and with a
+  // longer rest length so they don't collapse nodes together. Pull strength
+  // scales with similarity so 0.95 pairs tug harder than 0.65 pairs. Gives
+  // the simulation a neural-similarity gradient on top of the symbolic edges.
+  const affSpring=0.004;   // ~¼ of explicit spring constant
+  for(let i=0;i<cAffinityPairs.length;i++){
+    const p=cAffinityPairs[i];
+    const a=nMap[p.from],b=nMap[p.to];
+    if(!a||!b) continue;
+    const s=p.similarity||0.65;
+    const dx=b.x-a.x,dy=b.y-a.y,dz=b.z-a.z;
+    const d=Math.sqrt(dx*dx+dy*dy+dz*dz)+.1;
+    const rest=140;                    // longer rest than explicit springs
+    const f=(d-rest)*affSpring*s;
+    a.vx+=f*dx/d;a.vy+=f*dy/d;a.vz+=f*dz/d;
+    b.vx-=f*dx/d;b.vy-=f*dy/d;b.vz-=f*dz/d;
+  }
   // Semantic axis pull — stronger for flow layout to maintain narrative order.
   // For spine nodes in flow mode, pin x hard: narrative order is authoritative
   // and pairwise repulsion at close spine spacing would otherwise shred it.
@@ -4002,6 +4067,26 @@ function cDraw(){
       _trailPairs.add(_synapticTrail[i].id+'→'+_synapticTrail[i-1].id); // undirected match
     }
   }
+
+  // ── Layer 1.5: Implicit (similarity-derived) edges ──
+  // Dashed faint cyan lines showing floaters auto-attached to a slab by
+  // embedding similarity. Render BELOW explicit edges so real relationships
+  // visually dominate. Opacity scales with similarity score.
+  cCx.save();
+  cCx.setLineDash([4,5]);
+  cImplicitEdges.forEach(e=>{
+    const pa=pMap[e.from],pb=pMap[e.to];
+    if(!pa||!pb)return;
+    if(pa.scale<=0.01||pb.scale<=0.01)return;
+    const sim=e.similarity||0.7;
+    const alpha=0.10+Math.min(0.35,(sim-0.6)*0.8);
+    cCx.beginPath();
+    cCx.moveTo(pa.sx,pa.sy);cCx.lineTo(pb.sx,pb.sy);
+    cCx.strokeStyle=`rgba(120,200,220,${alpha})`;
+    cCx.lineWidth=1.0;
+    cCx.stroke();
+  });
+  cCx.restore();
 
   // ── Layer 2: Dendrite edges — thin ghostly connections ──
   // Edges on the trail get gold outline; fired edges glow in type color
@@ -5083,7 +5168,7 @@ async function selectChat(id){
   if(sending){sending=false;document.getElementById('send-btn').disabled=false}
 
   currentChatId=id;currentSessionId=null;
-  gNodes=[];gEdges=[]; // clear graph BEFORE loading (not after)
+  gNodes=[];gEdges=[];gAffinityPairs=[]; // clear graph BEFORE loading (not after)
   document.querySelectorAll('.chat-item').forEach(el=>el.classList.toggle('active',el.dataset.id===id));
   await loadMessages(); // this restores session_id + refreshGraph()
 }
@@ -5127,7 +5212,7 @@ async function _newChatSubmit(){
     currentChatId=r.id;currentSessionId=null;
     _newChatCloseModal();
     await loadChats();
-    document.getElementById('messages').innerHTML='';gNodes=[];gEdges=[];
+    document.getElementById('messages').innerHTML='';gNodes=[];gEdges=[];gAffinityPairs=[];
     pushEvent('gate',`New chat: ${r.id} → ${cid}`);
     // Refresh dashboard's cached collection list in case we just created one
     if(newName){try{if(typeof _fetchDashData==='function')await _fetchDashData();if(typeof _renderDashCollections==='function')await _renderDashCollections()}catch(e){}}

@@ -1779,7 +1779,7 @@ async def corpus_full(collection: Optional[str] = None):
       Y = structural weight proxy (type-based: slab=0.4, bundle=0.2, anchor=0.1)
       Z = meta depth (slab=0, bundle=1, anchor=2)
     """
-    from ..services.embeddings import compute_x_positions
+    from ..services.embeddings import compute_positions_and_vectors, compute_affinity
 
     # Select corpus source: specific collection or full merged view
     if collection and collection != "__all__":
@@ -1826,9 +1826,11 @@ async def corpus_full(collection: Optional[str] = None):
     y_map = {"slab": 0.4, "bundle": 0.2, "anchor": 0.1}  # structural weight proxy
 
     try:
-        x_positions = await compute_x_positions(texts_to_embed)
+        x_positions, node_vectors = await compute_positions_and_vectors(texts_to_embed)
     except Exception:
+        import numpy as _np
         x_positions = [0.5] * len(texts_to_embed)
+        node_vectors = _np.zeros((len(texts_to_embed), 1))
 
     # Inject semantic positions into each node dict
     all_nodes = anchors_out + bundles_out + slabs_out
@@ -1882,6 +1884,53 @@ async def corpus_full(collection: Optional[str] = None):
         # Pull x toward parent (70% parent, 30% own semantic position)
         node["sem_x"] = parent_x * 0.7 + node["sem_x"] * 0.3
         # Orbit in y/z around the slab's y/z position
+        node["sem_y"] = y_map["slab"] + radius_y * math.cos(angle)
+        node["sem_z"] = z_map["slab"] + radius_z * math.sin(angle)
+
+    # ── Embedding-similarity affinity ──
+    # For children (anchors/bundles) with NO explicit edge to a slab, find the
+    # slab with highest cosine similarity ≥ 0.70 and attach them implicitly.
+    # Also compute top-K similarity pairs across all nodes so the frontend can
+    # add soft attractive forces (the embedding-space analog of springs).
+    implicit_parent_map: dict[str, tuple[str, float]] = {}
+    affinity_pairs: list[dict] = []
+    try:
+        node_ids_list = [n["id"] for n in all_nodes]
+        implicit_parent_map, affinity_pairs = compute_affinity(
+            node_ids_list, node_types, node_vectors,
+            explicit_parent=child_to_slab,
+            parent_threshold=0.70,
+            pair_threshold=0.65,
+            top_k_pairs=3,
+        )
+    except Exception as e:
+        print(f"[CORPUS_FULL] Affinity computation failed: {e}", flush=True)
+
+    # Apply implicit_parent to floaters: orbit their best-match slab just like
+    # explicit children, but mark them so the frontend can render a dashed
+    # attachment line. Keeps floaters from piling up in the type-based band.
+    node_sem_x_after = {n["id"]: n["sem_x"] for n in all_nodes}
+    _implicit_slot_counter: dict[str, int] = {}
+    _implicit_slot_total: dict[str, int] = {}
+    for child_id, (parent_id, sim) in implicit_parent_map.items():
+        _implicit_slot_total[parent_id] = _implicit_slot_total.get(parent_id, 0) + 1
+    for node in all_nodes:
+        nid = node["id"]
+        if nid not in implicit_parent_map:
+            continue
+        parent_id, sim = implicit_parent_map[nid]
+        node["implicit_parent"] = parent_id
+        node["implicit_parent_sim"] = sim
+        # Offset angle from explicit children so implicit orbit doesn't overlap
+        idx = _implicit_slot_counter.get(parent_id, 0)
+        _implicit_slot_counter[parent_id] = idx + 1
+        total = max(1, _implicit_slot_total.get(parent_id, 1))
+        angle = (2 * math.pi * idx / total) + 1.7  # offset from explicit orbit
+        parent_x = node_sem_x_after.get(parent_id, 0.5)
+        ntype = node_type_map.get(nid, "anchor")
+        radius_y = 0.18 if ntype == "anchor" else 0.14
+        radius_z = 1.4 if ntype == "anchor" else 1.0  # further out than explicit
+        node["sem_x"] = parent_x * 0.65 + node["sem_x"] * 0.35
         node["sem_y"] = y_map["slab"] + radius_y * math.cos(angle)
         node["sem_z"] = z_map["slab"] + radius_z * math.sin(angle)
 
@@ -1966,6 +2015,14 @@ async def corpus_full(collection: Optional[str] = None):
         "bundles": bundles_out,
         "slabs": slabs_out,
         "edges": edges_out,
+        # Similarity-derived attraction graph. affinity_pairs feeds the physics
+        # springs; implicit_parent_edges lets the UI render dashed attachment
+        # lines for floaters that got auto-assigned to a parent slab.
+        "affinity_pairs": affinity_pairs,
+        "implicit_parent_edges": [
+            {"from": pid, "to": cid, "similarity": sim}
+            for cid, (pid, sim) in implicit_parent_map.items()
+        ],
         "gates": [g.model_dump() for g in source.gates.values()],
     }
 
@@ -2112,7 +2169,7 @@ async def get_graph_data(session_id: str):
     Combines corpus objects (cold), active frame nodes, tentative nodes,
     edges, and visual encoding fields from §11.
     """
-    from ..services.embeddings import compute_x_position, compute_x_positions
+    from ..services.embeddings import compute_x_position, compute_positions_and_vectors, compute_affinity
 
     # Prefer the in-memory frame — it is the live source of truth during an
     # active session. Only fall back to disk if nothing is loaded (e.g. the
@@ -2329,9 +2386,15 @@ async def get_graph_data(session_id: str):
     except Exception as e:
         logger.warning("Failed to load library/tentative for graph: %s", e)
 
-    # Compute X positions via nomic-embed-text
+    # Compute X positions + raw vectors (one embed call, both outputs)
+    session_vectors = None
     if texts_to_embed:
-        x_positions = await compute_x_positions(texts_to_embed)
+        try:
+            x_positions, session_vectors = await compute_positions_and_vectors(texts_to_embed)
+        except Exception:
+            import numpy as _np
+            x_positions = [0.5] * len(texts_to_embed)
+            session_vectors = _np.zeros((len(texts_to_embed), 1))
         for i, idx in enumerate(node_index):
             nodes[idx]["x"] = x_positions[i]
     else:
@@ -2390,9 +2453,29 @@ async def get_graph_data(session_id: str):
             "tension": None,
         })
 
+    # ── Embedding-similarity affinity for session graph ──
+    # Shares the same attraction logic as the cold corpus: top-K cosine
+    # neighbours become soft springs in the frontend physics so semantically
+    # related nodes drift together even without explicit edges.
+    affinity_pairs: list[dict] = []
+    if session_vectors is not None and len(node_index) == session_vectors.shape[0] and len(node_index) > 1:
+        try:
+            aligned_ids: list[str] = [nodes[i]["id"] for i in node_index]
+            aligned_types: list[str] = [nodes[i]["type"] for i in node_index]
+            # Normalise type names so the helper recognises slab/anchor/bundle.
+            type_alias = {"key_bundle": "bundle"}
+            aligned_types = [type_alias.get(t, t) for t in aligned_types]
+            _, affinity_pairs = compute_affinity(
+                aligned_ids, aligned_types, session_vectors,
+                parent_threshold=0.70, pair_threshold=0.65, top_k_pairs=3,
+            )
+        except Exception as e:
+            logger.warning("Affinity computation failed for session graph: %s", e)
+
     return {
         "nodes": nodes,
         "edges": edges,
+        "affinity_pairs": affinity_pairs,
         "frame": {
             "active_nodes": list(active_ids),
             "mismatch_score": frame.mismatch_score if frame else 0,
