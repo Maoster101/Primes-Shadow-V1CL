@@ -1839,6 +1839,52 @@ async def corpus_full(collection: Optional[str] = None):
 
     edges_out = [e.model_dump(by_alias=True) for e in source.edges.values()]
 
+    # ── Hub-and-spoke: pull anchors/bundles toward their linked slabs ──
+    # Without this, type-based sem_y/sem_z creates flat horizontal layers
+    # and nodes float independently. With this, connected children orbit
+    # their parent slab, making the graph read as "slab governs these anchors."
+    import math
+    node_type_map = {node["id"]: node_types[i] for i, node in enumerate(all_nodes)}
+    node_sem_x = {node["id"]: node["sem_x"] for node in all_nodes}
+    # Map each anchor/bundle to its first connected slab
+    child_to_slab: dict[str, str] = {}
+    for edge in source.edges.values():
+        ft = node_type_map.get(edge.from_node)
+        tt = node_type_map.get(edge.to_node)
+        if ft == "slab" and tt in ("anchor", "bundle"):
+            child_to_slab.setdefault(edge.to_node, edge.from_node)
+        elif tt == "slab" and ft in ("anchor", "bundle"):
+            child_to_slab.setdefault(edge.from_node, edge.to_node)
+    # Count children per slab so we can spread them evenly
+    slab_child_count: dict[str, int] = {}
+    slab_child_idx: dict[str, int] = {}
+    for child_id, slab_id in child_to_slab.items():
+        slab_child_count[slab_id] = slab_child_count.get(slab_id, 0) + 1
+    _slab_counters: dict[str, int] = {}
+    for child_id, slab_id in child_to_slab.items():
+        idx = _slab_counters.get(slab_id, 0)
+        slab_child_idx[child_id] = idx
+        _slab_counters[slab_id] = idx + 1
+    # Reposition children to orbit their parent slab
+    for node in all_nodes:
+        nid = node["id"]
+        if nid not in child_to_slab:
+            continue
+        parent_id = child_to_slab[nid]
+        parent_x = node_sem_x.get(parent_id, 0.5)
+        n_children = max(1, slab_child_count.get(parent_id, 1))
+        idx = slab_child_idx.get(nid, 0)
+        # Radial angle — spread children evenly around the slab
+        angle = (2 * math.pi * idx / n_children) + 0.3  # offset to avoid overlap
+        ntype = node_type_map.get(nid, "anchor")
+        radius_y = 0.20 if ntype == "anchor" else 0.15
+        radius_z = 1.2 if ntype == "anchor" else 0.8
+        # Pull x toward parent (70% parent, 30% own semantic position)
+        node["sem_x"] = parent_x * 0.7 + node["sem_x"] * 0.3
+        # Orbit in y/z around the slab's y/z position
+        node["sem_y"] = y_map["slab"] + radius_y * math.cos(angle)
+        node["sem_z"] = z_map["slab"] + radius_z * math.sin(angle)
+
     # ── Narrative layout trigger ──
     # Two cases promote a collection to the linear "flow" layout:
     #   (a) No edges at all → synthesize a SEQUENCE chain from ID order so the
@@ -1889,11 +1935,11 @@ async def corpus_full(collection: Optional[str] = None):
                         break
                     outs.sort(key=lambda e: -(e.get("weight") or e.get("confidence") or 0))
                     cur = outs[0]["to"]
-            # Orphans (no SEQUENCE membership) append after the spine so the
-            # frontend can park them perpendicular to their nearest reference.
-            for n in all_nodes:
-                if n["id"] not in visited:
-                    spine_order.append(n["id"])
+            # Note: orphans (nodes not in the SEQUENCE walk) are intentionally
+            # NOT appended to spine_order. The frontend treats spine_order as
+            # "the narrative ribbon"; orphans need to fall into the else-branch
+            # of cSemPos so they can orbit their parent via _orphanParent
+            # lookup built from SUPPORTS/INVOKES/LINKS edges.
         elif len(edges_out) == 0:
             layout_hint = "flow"
             ordered_ids = (
