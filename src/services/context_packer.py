@@ -27,6 +27,37 @@ _USE_FULL_PROMPT = os.environ.get("PS_OLI_FULL_PROMPT", "0") == "1"
 
 from .policy import policy
 
+# Injected into the system prompt when review_mode=True. Scopes the
+# constitutional constraints so the model can make editorial judgments
+# about corpus objects without hitting the Epistemic Floor / Sovereign
+# Priority wall. The constitutional rules themselves stay loaded — this
+# addendum clarifies their scope, not overrides them.
+_REVIEW_MODE_ADDENDUM = (
+    "[CORPUS REVIEW MODE ACTIVE]\n"
+    "The user is asking you to assess, compare, or curate corpus objects "
+    "(anchors, slabs, bundles, collections). These are internal working "
+    "documents — drafts, mining outputs, tentative structures — not "
+    "established truth.\n\n"
+    "In this mode:\n"
+    "- You MAY evaluate quality, identify redundancy, recommend merges, "
+    "deletions, or edits to corpus objects.\n"
+    "- You MAY compare competing interpretations and recommend which to "
+    "keep, merge, or discard based on structural utility, coverage, and "
+    "coherence.\n"
+    "- You MAY say 'this anchor is redundant' or 'this slab contradicts "
+    "that one' — these are editorial engineering judgments, not truth claims.\n"
+    "- Epistemic Floor (L0) still governs claims about EXTERNAL REALITY. "
+    "You cannot claim a real-world fact is true or false without grounding. "
+    "But you CAN and SHOULD assess whether corpus objects are well-formed, "
+    "useful, accurate representations of what they claim to capture.\n"
+    "- Sovereign Priority still applies to the constitutional rules themselves "
+    "— you are not reviewing THOSE. You are reviewing corpus content under "
+    "those rules.\n\n"
+    "Be direct. The user wants honest editorial assessment, not hedged "
+    "non-answers. If something should be deleted, say so. If two objects "
+    "should be merged, explain why and propose the merge."
+)
+
 # Context budget reads from frame_policy.yaml, with env var override.
 import os
 CHARS_PER_TOKEN = policy.context.chars_per_token
@@ -66,6 +97,13 @@ def build_system_prompt(
 
     if runtime_header:
         parts.append(_format_runtime_header(runtime_header))
+
+        # Corpus review mode — conditional addendum that scopes the
+        # constitutional constraints for editorial assessment. Injected
+        # AFTER the runtime header so the model sees review_mode=True
+        # in the header and then immediately gets the permission grant.
+        if runtime_header.enforcement_flags.review_mode:
+            parts.append(_REVIEW_MODE_ADDENDUM)
 
     return "\n\n".join(parts)
 
@@ -124,7 +162,8 @@ def _build_base_system() -> str:
         "- When you produce structured data (JSON objects, arrays, configs, schemas, "
         "plans-as-data), ALWAYS wrap it in a fenced code block with a language tag, "
         "e.g. ```json ... ``` or ```yaml ... ```. Never emit raw JSON as prose.\n"
-        "- Code goes in fenced blocks with the appropriate language tag.\n\n"
+        "- Code goes in fenced blocks with the appropriate language tag.\n"
+        "- Use unicode symbols (→ ← ↔ ≥ ≤ ≠ ×), never LaTeX notation ($\\rightarrow$, $\\geq$, etc.) — the frontend renders markdown, not LaTeX.\n\n"
         "OUTPUT FORMATTING (tool calls / structured extraction):\n"
         "When the application asks you for structured extraction via a schema prompt, "
         "return ONLY raw JSON — no markdown fences, no comments, no explanation — "
@@ -157,7 +196,8 @@ def _format_runtime_header(header: RuntimeHeader) -> str:
         (f"enforcement: admissibility={header.enforcement_flags.claim_admissibility_required}, "
          f"degradation={header.enforcement_flags.degradation_flag}, "
          f"pushback={header.enforcement_flags.pushback_required}, "
-         f"dampening={header.enforcement_flags.dampening_level.value}"),
+         f"dampening={header.enforcement_flags.dampening_level.value}, "
+         f"review_mode={header.enforcement_flags.review_mode}"),
     ]
 
     # OP_01 operator state — feature-based wrapped span inventory.

@@ -6,6 +6,7 @@ LLM = sensor, code = actuator throughout.
 from __future__ import annotations
 import asyncio
 import json
+import logging
 from typing import Optional, AsyncIterator, TYPE_CHECKING
 
 from ..models.schemas import (
@@ -31,6 +32,7 @@ if TYPE_CHECKING:
     from .gauntlet import GauntletEngine
 
 _event_log = EventLog()
+logger = logging.getLogger(__name__)
 
 
 async def classify_message(user_text: str) -> MessageClassification:
@@ -39,12 +41,13 @@ async def classify_message(user_text: str) -> MessageClassification:
     try:
         result = await ollama.structured_extract(prompt)
         classification = MessageClassification(**result)
-    except Exception:
+    except Exception as exc:
+        logger.warning("classify_message failed, defaulting to NEUTRAL: %r", exc)
         classification = MessageClassification(
             function=MessageFunction.NEUTRAL,
             confidence=0.3,
             explicit=False,
-            notes="Classification failed — defaulting to neutral with low confidence",
+            notes=f"Classification failed ({type(exc).__name__}) — defaulting to neutral with low confidence",
         )
 
     _event_log.log_gate_event(
@@ -65,7 +68,8 @@ async def estimate_drift(
     try:
         result = await ollama.structured_extract(prompt)
         return DriftEstimate(**result)
-    except Exception:
+    except Exception as exc:
+        logger.warning("estimate_drift failed, returning zero signals: %r", exc)
         return DriftEstimate(
             affect_density=0.0,
             claim_volatility=0.0,
@@ -96,12 +100,13 @@ async def classify_and_drift(
             rigor_drop=float(result.get("rigor_drop", 0.0)),
             domain_mode=result.get("domain_mode", "external"),
         )
-    except Exception:
+    except Exception as exc:
+        logger.warning("classify_and_drift failed, defaulting to NEUTRAL + zero drift: %r", exc)
         classification = MessageClassification(
             function=MessageFunction.NEUTRAL,
             confidence=0.3,
             explicit=False,
-            notes="Combined classify+drift failed — defaults applied",
+            notes=f"Combined classify+drift failed ({type(exc).__name__}) — defaults applied",
         )
         drift = DriftEstimate(
             affect_density=0.0,
@@ -177,6 +182,7 @@ def build_runtime_header(
         enforcement_flags=EnforcementFlags(
             claim_admissibility_required=(oli_mode == OLIMode.ON),
             dampening_level=dampening,
+            review_mode=(classification.function == MessageFunction.CORPUS_REVIEW),
         ),
         operator_state=op_state,
         anchor_hits=anchor_hits_context or [],
@@ -412,12 +418,20 @@ async def process_turn(
 
                 validation = validate_output(full_response, oli_mode, is_retry=True)
 
+            # Build enforcement flags from the REAL classification (not defaults).
+            # This tells the frontend whether review_mode was active for this turn.
+            real_enforcement = EnforcementFlags(
+                claim_admissibility_required=(oli_mode == OLIMode.ON),
+                review_mode=(classification.function == MessageFunction.CORPUS_REVIEW),
+            )
+
             # Build final metadata (with REAL classification/drift, not defaults)
             meta: dict = {
                 "done": True,
                 "content": "",
                 "classification": classification.model_dump(),
                 "drift_estimate": drift.model_dump(),
+                "enforcement": real_enforcement.model_dump(),
                 "full_response": full_response,
                 "turn": turn,
                 "context_usage": context_usage,

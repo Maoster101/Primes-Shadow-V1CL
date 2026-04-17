@@ -100,7 +100,7 @@ class Slab(BaseModel):
     canonical_text: str
     links: SlabLinks = Field(default_factory=SlabLinks)
     version: str = "v1"
-    type: SlabType = SlabType.CANONICAL
+    type: SlabType = SlabType.REFERENCE
     lifecycle_status: SlabLifecycleStatus = SlabLifecycleStatus.ACTIVE
     requires_oli_mode: Optional[OLIMode] = None
     meta: AnchorMeta = Field(default_factory=AnchorMeta)
@@ -341,6 +341,7 @@ class EnforcementFlags(BaseModel):
     degradation_flag: Optional[str] = None
     pushback_required: bool = False
     dampening_level: DampeningLevel = DampeningLevel.NONE
+    review_mode: bool = False  # Corpus review — editorial assessment permitted
 
 
 class OperatorState(BaseModel):

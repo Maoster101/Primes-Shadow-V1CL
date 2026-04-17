@@ -1,0 +1,628 @@
+"""Corpus management & collection endpoints — extracted from routes.py."""
+from __future__ import annotations
+import math
+import logging
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from . import deps
+from .deps import registry, anchor_matcher, frame_manager, rebind_corpus
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+
+# ── Collection management ─────────────────────────────────────
+
+@router.get("/collections")
+async def list_collections():
+    """List all corpus collections with metadata and active status."""
+    return {"collections": registry.list_collections()}
+
+
+class CreateCollectionRequest(BaseModel):
+    name: str
+
+
+@router.post("/collections")
+async def create_collection(req: CreateCollectionRequest):
+    """Create a new empty corpus collection."""
+    import re as _re
+    name = req.name.strip().lower().replace(" ", "_")
+    name = _re.sub(r"[^a-z0-9_-]", "", name)
+    if not name:
+        raise HTTPException(400, "Invalid collection name")
+    if name in registry.collections:
+        raise HTTPException(409, f"Collection '{name}' already exists")
+
+    store = registry.create_collection(name)
+    rebind_corpus()
+    return {
+        "id": name,
+        "anchors": len(store.anchors),
+        "slabs": len(store.slabs),
+        "bundles": len(store.bundles),
+        "message": f"Collection '{name}' created and activated",
+    }
+
+
+class ToggleCollectionRequest(BaseModel):
+    active: bool
+
+
+@router.patch("/collections/{collection_id}")
+async def toggle_collection(collection_id: str, req: ToggleCollectionRequest):
+    """Activate or deactivate a collection."""
+    if collection_id not in registry.collections:
+        raise HTTPException(404, f"Collection '{collection_id}' not found")
+
+    if req.active:
+        registry.activate(collection_id)
+    else:
+        registry.deactivate(collection_id)
+
+    rebind_corpus()
+    # Re-warm anchor matcher cache with new merged set
+    await anchor_matcher.warm_cache()
+
+    merged = registry.merged
+    return {
+        "id": collection_id,
+        "active": req.active,
+        "merged_anchors": len(merged.anchors),
+        "merged_slabs": len(merged.slabs),
+        "merged_bundles": len(merged.bundles),
+    }
+
+
+class PromoteCollectionRequest(BaseModel):
+    """Promote a small collection into the main corpus as a single slab."""
+    target_collection: str = "default"
+    slab_title: str
+    slab_id: str = ""
+    deactivate_source: bool = True  # deactivate source collection after promote
+
+
+@router.delete("/collections/{collection_id}")
+async def delete_collection(collection_id: str, purge: bool = False):
+    """Delete a collection from the registry.
+
+    If `purge=true`, also removes the collection directory from disk.
+    The default collection cannot be deleted.
+    """
+    if collection_id == "default":
+        raise HTTPException(400, "Cannot delete the default collection")
+    if collection_id not in registry.collections:
+        raise HTTPException(404, f"Collection '{collection_id}' not found")
+
+    # Capture counts before deletion for response
+    store = registry.get_store(collection_id)
+    counts = {
+        "anchors": len(store.anchors) if store else 0,
+        "slabs": len(store.slabs) if store else 0,
+        "bundles": len(store.bundles) if store else 0,
+    }
+
+    registry.delete_collection(collection_id)
+
+    if purge:
+        import shutil
+        from ..services.corpus import CORPORA_ROOT
+        collection_dir = CORPORA_ROOT / collection_id
+        if collection_dir.exists():
+            shutil.rmtree(collection_dir)
+
+    rebind_corpus()
+    await anchor_matcher.warm_cache()
+
+    merged = registry.merged
+    return {
+        "id": collection_id,
+        "purged": purge,
+        "deleted_counts": counts,
+        "merged_anchors": len(merged.anchors),
+        "merged_slabs": len(merged.slabs),
+        "merged_bundles": len(merged.bundles),
+    }
+
+
+@router.post("/collections/{collection_id}/promote")
+async def promote_collection(collection_id: str, req: PromoteCollectionRequest):
+    """Slabify: promote a collection into a target collection as a summary slab.
+
+    Takes all anchors/bundles/slabs from the source collection and creates
+    a single CANONICAL slab in the target that captures the entire
+    neighborhood as a thematic unit.
+
+    The source collection remains on disk (can be re-activated later)
+    but is deactivated by default so objects don't double-count in matching.
+    """
+    source = registry.get_store(collection_id)
+    if not source:
+        raise HTTPException(404, f"Collection '{collection_id}' not found")
+    target = registry.get_store(req.target_collection)
+    if not target:
+        raise HTTPException(404, f"Target collection '{req.target_collection}' not found")
+
+    # Collect all concept labels from source
+    anchor_phrases = [a.canonical_phrase for a in source.anchors.values()]
+    anchor_aliases = []
+    for a in source.anchors.values():
+        anchor_aliases.extend(a.aliases)
+    bundle_labels = [b.id for b in source.bundles.values()]
+    slab_titles = [s.title or s.id for s in source.slabs.values()]
+    edge_count = len(source.edges)
+
+    # Build rich slab text
+    summary_parts = [f"Neighborhood: {collection_id}"]
+    if slab_titles:
+        summary_parts.append(f"Themes: {', '.join(slab_titles)}")
+    if anchor_phrases:
+        summary_parts.append(f"Key concepts: {', '.join(anchor_phrases)}")
+    if bundle_labels:
+        summary_parts.append(f"Bundles: {', '.join(bundle_labels)}")
+    if edge_count:
+        summary_parts.append(f"Relationships: {edge_count} edges")
+    summary_parts.append("")
+    summary_parts.append(
+        f"This slab represents the '{collection_id}' corpus neighborhood, "
+        f"promoted as a single thematic unit. It contains {len(source.anchors)} "
+        f"anchors, {len(source.slabs)} slabs, {len(source.bundles)} bundles."
+    )
+    summary_text = "\n".join(summary_parts)
+
+    # Generate slab ID
+    import re as _re
+    slab_id = req.slab_id or f"SLAB_{_re.sub(r'[^A-Z0-9_]', '_', collection_id.upper())}_v1"
+
+    from ..models.schemas import Slab, AnchorMeta
+    from ..models.enums import SlabType, SlabLifecycleStatus
+    new_slab = Slab(
+        id=slab_id,
+        title=req.slab_title,
+        canonical_text=summary_text,
+        type=SlabType.CANONICAL,
+        lifecycle_status=SlabLifecycleStatus.ACTIVE,
+        requires_oli_mode=None,
+        depends_on=[],
+        meta=AnchorMeta(version="v1", source=f"promoted:{collection_id}"),
+    )
+
+    target.slabs[slab_id] = new_slab
+    target.save()
+
+    # Optionally deactivate source to prevent double-counting
+    if req.deactivate_source and collection_id != req.target_collection:
+        registry.deactivate(collection_id)
+
+    rebind_corpus()
+    return {
+        "slab_id": slab_id,
+        "title": req.slab_title,
+        "source_anchors": len(anchor_phrases),
+        "source_bundles": len(bundle_labels),
+        "target_collection": req.target_collection,
+        "message": f"Promoted '{collection_id}' as slab '{slab_id}' in '{req.target_collection}'",
+    }
+
+
+# ── Corpus status & full browser ──────────────────────────────
+
+@router.get("/corpus/status")
+async def corpus_status():
+    errors = deps.corpus.validate()
+    return {
+        "anchors": len(deps.corpus.anchors),
+        "slabs": len(deps.corpus.slabs),
+        "bundles": len(deps.corpus.bundles),
+        "edges": len(deps.corpus.edges),
+        "valid": len(errors) == 0,
+        "errors": errors,
+        "collections": registry.list_collections(),
+    }
+
+
+@router.get("/corpus/full")
+async def corpus_full(collection: Optional[str] = None):
+    """Return corpus for the Cold Corpus browser tab.
+
+    Args:
+        collection: Optional collection ID to filter to. If omitted,
+                    returns the full merged corpus.
+
+    Computes semantic axis positions (ss11.1) so the corpus graph
+    uses the same structured layout as the session graph:
+      X = Creative <-> Rigorous (embedding projection)
+      Y = structural weight proxy (type-based: slab=0.4, bundle=0.2, anchor=0.1)
+      Z = meta depth (slab=0, bundle=1, anchor=2)
+    """
+    from ..services.embeddings import compute_positions_and_vectors, compute_affinity
+
+    # Select corpus source: specific collection or full merged view
+    if collection and collection != "__all__":
+        source = registry.get_store(collection)
+        if not source:
+            raise HTTPException(404, f"Collection '{collection}' not found")
+    else:
+        source = deps.corpus
+
+    # Collect texts for batch embedding
+    texts_to_embed: list[str] = []
+    node_types: list[str] = []  # parallel list for z-axis mapping
+
+    anchors_out = []
+    for a in source.anchors.values():
+        d = a.model_dump()
+        texts_to_embed.append(a.canonical_phrase)
+        node_types.append("anchor")
+        anchors_out.append(d)
+
+    bundles_out = []
+    for b in source.bundles.values():
+        d = b.model_dump()
+        label = "; ".join(b.payload.intent[:2]) if b.payload.intent else b.id
+        texts_to_embed.append(label)
+        node_types.append("bundle")
+        bundles_out.append(d)
+
+    slabs_out = []
+    for s in source.slabs.values():
+        d = s.model_dump()
+        # Subgraph condensate detection: slabs produced by slabifying a
+        # collection start their canonical_text with "Neighborhood: <id>".
+        # See the slabify promotion builder around line 1175.
+        d["is_subgraph"] = bool(
+            s.canonical_text and s.canonical_text.startswith("Neighborhood: ")
+        )
+        texts_to_embed.append((s.title or s.canonical_text)[:120])
+        node_types.append("slab")
+        slabs_out.append(d)
+
+    # Batch compute X positions via nomic-embed-text
+    # Original type-band heuristic (commented for reference) stacked anchors
+    # below bundles below slabs in y/z. It imposed a structural prior that
+    # fought the semantic forces: a rigorous-adjacent anchor could not drift
+    # toward its parent slab because the y/z bands pinned it in its type row.
+    # Flattened to a single plane so affinity springs + repulsion + hub-spoke
+    # orbit drive the layout. Type is now a rendering attribute, not a
+    # positional one.
+    # z_map = {"slab": 0, "bundle": 1, "anchor": 2}
+    # y_map = {"slab": 0.4, "bundle": 0.2, "anchor": 0.1}  # structural weight proxy
+    z_map = {"slab": 0, "bundle": 0, "anchor": 0}
+    y_map = {"slab": 0.4, "bundle": 0.4, "anchor": 0.4}
+
+    try:
+        x_positions, node_vectors = await compute_positions_and_vectors(texts_to_embed)
+    except Exception:
+        import numpy as _np
+        x_positions = [0.5] * len(texts_to_embed)
+        node_vectors = _np.zeros((len(texts_to_embed), 1))
+
+    # Inject semantic positions into each node dict
+    all_nodes = anchors_out + bundles_out + slabs_out
+    for i, node in enumerate(all_nodes):
+        node["sem_x"] = x_positions[i]
+        node["sem_y"] = y_map.get(node_types[i], 0.1)
+        node["sem_z"] = z_map.get(node_types[i], 2)
+
+    edges_out = [e.model_dump(by_alias=True) for e in source.edges.values()]
+
+    # -- Hub-and-spoke: pull anchors/bundles toward their linked slabs --
+    # Without this, type-based sem_y/sem_z creates flat horizontal layers
+    # and nodes float independently. With this, connected children orbit
+    # their parent slab, making the graph read as "slab governs these anchors."
+    node_type_map = {node["id"]: node_types[i] for i, node in enumerate(all_nodes)}
+    node_sem_x = {node["id"]: node["sem_x"] for node in all_nodes}
+    # Map each anchor/bundle to its first connected slab
+    child_to_slab: dict[str, str] = {}
+    for edge in source.edges.values():
+        ft = node_type_map.get(edge.from_node)
+        tt = node_type_map.get(edge.to_node)
+        if ft == "slab" and tt in ("anchor", "bundle"):
+            child_to_slab.setdefault(edge.to_node, edge.from_node)
+        elif tt == "slab" and ft in ("anchor", "bundle"):
+            child_to_slab.setdefault(edge.from_node, edge.to_node)
+    # Count children per slab so we can spread them evenly
+    slab_child_count: dict[str, int] = {}
+    slab_child_idx: dict[str, int] = {}
+    for child_id, slab_id in child_to_slab.items():
+        slab_child_count[slab_id] = slab_child_count.get(slab_id, 0) + 1
+    _slab_counters: dict[str, int] = {}
+    for child_id, slab_id in child_to_slab.items():
+        idx = _slab_counters.get(slab_id, 0)
+        slab_child_idx[child_id] = idx
+        _slab_counters[slab_id] = idx + 1
+    # Reposition children to orbit their parent slab
+    for node in all_nodes:
+        nid = node["id"]
+        if nid not in child_to_slab:
+            continue
+        parent_id = child_to_slab[nid]
+        parent_x = node_sem_x.get(parent_id, 0.5)
+        n_children = max(1, slab_child_count.get(parent_id, 1))
+        idx = slab_child_idx.get(nid, 0)
+        # Radial angle — spread children evenly around the slab
+        angle = (2 * math.pi * idx / n_children) + 0.3  # offset to avoid overlap
+        ntype = node_type_map.get(nid, "anchor")
+        radius_y = 0.20 if ntype == "anchor" else 0.15
+        radius_z = 1.2 if ntype == "anchor" else 0.8
+        # Pull x toward parent (70% parent, 30% own semantic position)
+        node["sem_x"] = parent_x * 0.7 + node["sem_x"] * 0.3
+        # Orbit in y/z around the slab's y/z position
+        node["sem_y"] = y_map["slab"] + radius_y * math.cos(angle)
+        node["sem_z"] = z_map["slab"] + radius_z * math.sin(angle)
+
+    # -- Embedding-similarity affinity --
+    # For children (anchors/bundles) with NO explicit edge to a slab, find the
+    # slab with highest cosine similarity >= 0.70 and attach them implicitly.
+    # Also compute top-K similarity pairs across all nodes so the frontend can
+    # add soft attractive forces (the embedding-space analog of springs).
+    implicit_parent_map: dict[str, tuple[str, float]] = {}
+    affinity_pairs: list[dict] = []
+    try:
+        node_ids_list = [n["id"] for n in all_nodes]
+        implicit_parent_map, affinity_pairs = compute_affinity(
+            node_ids_list, node_types, node_vectors,
+            explicit_parent=child_to_slab,
+            parent_threshold=0.70,
+            pair_threshold=0.65,
+            top_k_pairs=3,
+        )
+    except Exception as e:
+        print(f"[CORPUS_FULL] Affinity computation failed: {e}", flush=True)
+
+    # Apply implicit_parent to floaters: orbit their best-match slab just like
+    # explicit children, but mark them so the frontend can render a dashed
+    # attachment line. Keeps floaters from piling up in the type-based band.
+    node_sem_x_after = {n["id"]: n["sem_x"] for n in all_nodes}
+    _implicit_slot_counter: dict[str, int] = {}
+    _implicit_slot_total: dict[str, int] = {}
+    for child_id, (parent_id, sim) in implicit_parent_map.items():
+        _implicit_slot_total[parent_id] = _implicit_slot_total.get(parent_id, 0) + 1
+    for node in all_nodes:
+        nid = node["id"]
+        if nid not in implicit_parent_map:
+            continue
+        parent_id, sim = implicit_parent_map[nid]
+        node["implicit_parent"] = parent_id
+        node["implicit_parent_sim"] = sim
+        # Offset angle from explicit children so implicit orbit doesn't overlap
+        idx = _implicit_slot_counter.get(parent_id, 0)
+        _implicit_slot_counter[parent_id] = idx + 1
+        total = max(1, _implicit_slot_total.get(parent_id, 1))
+        angle = (2 * math.pi * idx / total) + 1.7  # offset from explicit orbit
+        parent_x = node_sem_x_after.get(parent_id, 0.5)
+        ntype = node_type_map.get(nid, "anchor")
+        radius_y = 0.18 if ntype == "anchor" else 0.14
+        radius_z = 1.4 if ntype == "anchor" else 1.0  # further out than explicit
+        node["sem_x"] = parent_x * 0.65 + node["sem_x"] * 0.35
+        node["sem_y"] = y_map["slab"] + radius_y * math.cos(angle)
+        node["sem_z"] = z_map["slab"] + radius_z * math.sin(angle)
+
+    # -- Narrative layout trigger --
+    # Two cases promote a collection to the linear "flow" layout:
+    #   (a) No edges at all -> synthesize a SEQUENCE chain from ID order so the
+    #       user still sees a readable spine (Phase 1 behaviour, preserved).
+    #   (b) SEQUENCE edges dominate the structure (>=2 SEQUENCE edges and at
+    #       least as many SEQUENCE as non-SEQUENCE). Phase 3 mining persists
+    #       real SEQUENCE edges; when they exist, the collection *is* a
+    #       narrative and should render linearly even though edges are present.
+    # Also emit `spine_order` -- the topological walk of SEQUENCE edges -- so the
+    # frontend can position nodes along the actual story order, not alpha order.
+    layout_hint = "cloud"
+    spine_order: list[str] = []
+    node_id_set = {n["id"] for n in all_nodes}
+    seq_edges = [e for e in edges_out if e.get("type") == "SEQUENCE"
+                 and e.get("from") in node_id_set and e.get("to") in node_id_set]
+    other_edges = [e for e in edges_out if e.get("type") != "SEQUENCE"]
+    # Any meaningful SEQUENCE presence (>=2 edges) promotes to the flow layout.
+    # Earlier heuristics compared SEQUENCE vs other edges or SEQUENCE vs node
+    # count, but both fail in mixed corpora: the narrative spans only slabs,
+    # while anchors/bundles and cross-ref SUPPORTS edges inflate the non-spine
+    # counts even when SEQUENCE is clearly the backbone. Orphans (anchors,
+    # bundles, non-spine slabs) hang perpendicular in the flow layout, so
+    # falsely promoting a cloud to flow is cheap; the reverse is visible.
+    narrative_dominant = len(seq_edges) >= 2
+
+    if collection and collection != "__all__" and len(all_nodes) > 1:
+        if narrative_dominant:
+            layout_hint = "flow"
+            # Walk SEQUENCE edges: find roots (no incoming SEQUENCE), chain
+            # strongest-outgoing until exhausted. Mirrors _buildNarrativeTrail()
+            # in the frontend so trace + layout agree on spine order.
+            outgoing: dict[str, list] = {}
+            incoming: dict[str, list] = {}
+            for e in seq_edges:
+                outgoing.setdefault(e["from"], []).append(e)
+                incoming.setdefault(e["to"], []).append(e)
+            roots = [nid for nid in outgoing if nid not in incoming]
+            if not roots and outgoing:
+                roots = [next(iter(outgoing))]
+            visited: set[str] = set()
+            for root in roots:
+                cur = root
+                while cur and cur not in visited:
+                    visited.add(cur)
+                    spine_order.append(cur)
+                    outs = [e for e in outgoing.get(cur, []) if e["to"] not in visited]
+                    if not outs:
+                        break
+                    outs.sort(key=lambda e: -(e.get("weight") or e.get("confidence") or 0))
+                    cur = outs[0]["to"]
+            # Note: orphans (nodes not in the SEQUENCE walk) are intentionally
+            # NOT appended to spine_order. The frontend treats spine_order as
+            # "the narrative ribbon"; orphans need to fall into the else-branch
+            # of cSemPos so they can orbit their parent via _orphanParent
+            # lookup built from SUPPORTS/INVOKES/LINKS edges.
+        elif len(edges_out) == 0:
+            layout_hint = "flow"
+            ordered_ids = (
+                [a["id"] for a in anchors_out]
+                + [b["id"] for b in bundles_out]
+                + [s["id"] for s in slabs_out]
+            )
+            spine_order = ordered_ids
+            for i in range(len(ordered_ids) - 1):
+                edges_out.append({
+                    "id": f"_seq_{i}",
+                    "type": "SEQUENCE",
+                    "from": ordered_ids[i],
+                    "to": ordered_ids[i + 1],
+                    "weight": 0.4,
+                    "confidence": 0.4,
+                })
+
+    return {
+        "collection": collection or "__all__",
+        "layout_hint": layout_hint,
+        "spine_order": spine_order,  # ordered node IDs along SEQUENCE spine (flow layout only)
+        "anchors": anchors_out,
+        "bundles": bundles_out,
+        "slabs": slabs_out,
+        "edges": edges_out,
+        # Similarity-derived attraction graph. affinity_pairs feeds the physics
+        # springs; implicit_parent_edges lets the UI render dashed attachment
+        # lines for floaters that got auto-assigned to a parent slab.
+        "affinity_pairs": affinity_pairs,
+        "implicit_parent_edges": [
+            {"from": pid, "to": cid, "similarity": sim}
+            for cid, (pid, sim) in implicit_parent_map.items()
+        ],
+        "gates": [g.model_dump() for g in source.gates.values()],
+    }
+
+
+# ── Corpus node management (dashboard) ────────────────────────
+
+class UpdateLifecycleRequest(BaseModel):
+    lifecycle_status: str  # "ACTIVE" | "DORMANT" | "DEPRECATED"
+
+
+class UpdateNodeRequest(BaseModel):
+    canonical_phrase: Optional[str] = None
+    canonical_text: Optional[str] = None
+    notes: Optional[str] = None
+    title: Optional[str] = None
+    aliases: Optional[list[str]] = None
+
+
+def _find_corpus_node(node_id: str):
+    """Locate a node across all corpus object types. Returns (obj, type_name)."""
+    if node_id in deps.corpus.anchors:
+        return deps.corpus.anchors[node_id], "anchor"
+    if node_id in deps.corpus.slabs:
+        return deps.corpus.slabs[node_id], "slab"
+    if node_id in deps.corpus.bundles:
+        return deps.corpus.bundles[node_id], "bundle"
+    if node_id in deps.corpus.gates:
+        return deps.corpus.gates[node_id], "gate"
+    return None, None
+
+
+@router.get("/corpus/nodes/{node_id}/deps")
+async def get_node_deps(node_id: str):
+    """Return everything that depends on or references this node."""
+    node, ntype = _find_corpus_node(node_id)
+    if not node:
+        raise HTTPException(404, f"Node '{node_id}' not found in corpus")
+
+    dependents = deps.corpus.get_reverse_deps(node_id)
+    # Also find edges that reference this node
+    edge_refs = [
+        {"edge_id": e.id, "from": e.from_node, "to": e.to_node, "type": e.type.value}
+        for e in deps.corpus.edges.values()
+        if e.from_node == node_id or e.to_node == node_id
+    ]
+    return {
+        "node_id": node_id,
+        "node_type": ntype,
+        "dependents": dependents,
+        "edges": edge_refs,
+        "safe_to_delete": len(dependents) == 0,
+    }
+
+
+@router.patch("/corpus/nodes/{node_id}/lifecycle")
+async def update_node_lifecycle(node_id: str, req: UpdateLifecycleRequest):
+    """Set lifecycle status on any corpus node (anchor, slab, bundle)."""
+    from ..models.enums import SlabLifecycleStatus
+    node, ntype = _find_corpus_node(node_id)
+    if not node:
+        raise HTTPException(404, f"Node '{node_id}' not found in corpus")
+    try:
+        new_status = SlabLifecycleStatus(req.lifecycle_status)
+    except ValueError:
+        raise HTTPException(400, f"Invalid status '{req.lifecycle_status}'. Must be ACTIVE, DORMANT, or DEPRECATED.")
+
+    node.lifecycle_status = new_status
+    deps.corpus.save()
+    return {"node_id": node_id, "type": ntype, "lifecycle_status": new_status.value}
+
+
+@router.patch("/corpus/nodes/{node_id}")
+async def update_node_fields(node_id: str, req: UpdateNodeRequest):
+    """Edit fields on a corpus node."""
+    node, ntype = _find_corpus_node(node_id)
+    if not node:
+        raise HTTPException(404, f"Node '{node_id}' not found in corpus")
+
+    updated = []
+    if req.canonical_phrase is not None and hasattr(node, 'canonical_phrase'):
+        node.canonical_phrase = req.canonical_phrase
+        updated.append('canonical_phrase')
+    if req.canonical_text is not None and hasattr(node, 'canonical_text'):
+        node.canonical_text = req.canonical_text
+        updated.append('canonical_text')
+    if req.notes is not None and hasattr(node, 'notes'):
+        node.notes = req.notes
+        updated.append('notes')
+    if req.title is not None and hasattr(node, 'title'):
+        node.title = req.title
+        updated.append('title')
+    if req.aliases is not None and hasattr(node, 'aliases'):
+        node.aliases = req.aliases
+        updated.append('aliases')
+
+    if not updated:
+        raise HTTPException(400, "No applicable fields to update on this node type.")
+
+    deps.corpus.save()
+    return {"node_id": node_id, "type": ntype, "updated_fields": updated}
+
+
+@router.delete("/corpus/nodes/{node_id}")
+async def delete_node(node_id: str):
+    """Hard-delete a node from the corpus. Checks dependencies first."""
+    node, ntype = _find_corpus_node(node_id)
+    if not node:
+        raise HTTPException(404, f"Node '{node_id}' not found in corpus")
+
+    node_deps = deps.corpus.get_reverse_deps(node_id)
+    if node_deps:
+        raise HTTPException(
+            409,
+            f"Cannot delete '{node_id}': {len(node_deps)} node(s) depend on it: {node_deps[:5]}. "
+            "Deprecate it instead, or remove the dependencies first."
+        )
+
+    # Remove from the appropriate dict
+    if ntype == "anchor":
+        del deps.corpus.anchors[node_id]
+    elif ntype == "slab":
+        del deps.corpus.slabs[node_id]
+    elif ntype == "bundle":
+        del deps.corpus.bundles[node_id]
+    elif ntype == "gate":
+        del deps.corpus.gates[node_id]
+
+    # Remove edges that reference this node
+    dead_edges = [eid for eid, e in deps.corpus.edges.items()
+                  if e.from_node == node_id or e.to_node == node_id]
+    for eid in dead_edges:
+        del deps.corpus.edges[eid]
+
+    deps.corpus.save()
+    return {"deleted": node_id, "type": ntype, "edges_removed": len(dead_edges)}

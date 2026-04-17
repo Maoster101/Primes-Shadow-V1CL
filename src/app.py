@@ -4,7 +4,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pathlib import Path
 
-from .api.routes import router, corpus, anchor_matcher, gauntlet_engine, registry, _rebind_corpus
+from .api.routes import router
+from .api import deps
+from .api.deps import anchor_matcher, registry
 
 app = FastAPI(title="Prime's Shadow", version="0.1.0")
 app.include_router(router, prefix="/api")
@@ -36,7 +38,7 @@ async def startup():
                   f"{len(store.gates)} gates")
 
     # Rebind all services to merged view
-    _rebind_corpus()
+    deps.rebind_corpus()
     merged = registry.merged
     print(f"[CORPUS] Merged view: {len(merged.anchors)} anchors, "
           f"{len(merged.slabs)} slabs, {len(merged.bundles)} bundles, "
@@ -45,7 +47,7 @@ async def startup():
 
     # Pre-embed all anchor phrases for fast matching
     await anchor_matcher.warm_cache()
-    print(f"[MATCHER] Anchor embedding cache warmed ({len(corpus.anchors)} anchors)")
+    print(f"[MATCHER] Anchor embedding cache warmed ({len(deps.corpus.anchors)} anchors)")
 
     # Preload chat model into VRAM (eliminates cold-start on first message)
     from .services import ollama

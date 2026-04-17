@@ -90,6 +90,27 @@ async def detect(model_name: str) -> ModelProfile:
             or "function" in tmpl_lower and "tool" in tmpl_lower
         )
 
+        # Family-based fallbacks — community quantizations often ship with
+        # stripped templates (e.g. just "{{ .Prompt }}") that don't contain
+        # the think/tool/vision markers the base model actually supports.
+        # When template detection finds nothing, use known family capabilities
+        # so the UI and pipeline aren't degraded by a repackaging choice.
+        _FAMILY_CAPS = {
+            "gemma4":       {"think": True, "vision": True},
+            "gemma3":       {"vision": True},
+            "qwen3":        {"think": True, "tools": True},
+            "llama4":       {"think": True, "vision": True, "tools": True},
+            "deepseek-r1":  {"think": True},
+        }
+        family_caps = _FAMILY_CAPS.get(profile.family, {})
+        if family_caps:
+            if not profile.supports_think and family_caps.get("think"):
+                profile.supports_think = True
+            if not profile.supports_vision and family_caps.get("vision"):
+                profile.supports_vision = True
+            if not profile.supports_tools and family_caps.get("tools"):
+                profile.supports_tools = True
+
         logger.info(
             "Model profile for %s: family=%s, params=%s, ctx=%d, layers=%d, "
             "think=%s, tools=%s, vision=%s",

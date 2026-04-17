@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -502,10 +502,10 @@ class DreamingPass:
         if not inline:
             # Try to build inline from raw
             raw_path = (
-                self.session_store._drafts_dir(session_id)
+                self.session_store.drafts_dir(session_id)
                 / f"{draft_id}_raw.json"
             )
-            raw = self.session_store._read_json(raw_path) or {}
+            raw = self.session_store.read_json(raw_path) or {}
             if not raw:
                 return {"status": "error", "error": "No inline dict or raw data"}
             inline = raw  # use raw as fallback
@@ -663,10 +663,10 @@ class DreamingPass:
 
         # Write .enriched.json
         enriched_path = (
-            self.session_store._drafts_dir(session_id)
+            self.session_store.drafts_dir(session_id)
             / f"{draft_id}.enriched.json"
         )
-        self.session_store._write_json(enriched_path, enriched)
+        self.session_store.write_json(enriched_path, enriched)
 
         # Write dream log
         self._write_dream_log(
@@ -699,13 +699,13 @@ class DreamingPass:
     ) -> None:
         """Write a human-readable dream log alongside the draft."""
         log_path = (
-            self.session_store._drafts_dir(session_id)
+            self.session_store.drafts_dir(session_id)
             / f"{draft_id}.dream_log.md"
         )
         lines = [
             f"# Dream log — `{draft_id}`",
             f"",
-            f"- **timestamp:** {datetime.utcnow().isoformat()}Z",
+            f"- **timestamp:** {datetime.now(timezone.utc).isoformat()}Z",
             f"- **elapsed:** {elapsed:.1f}s",
             f"- **type:** {draft_type}",
             f"- **grounding_mode:** {grounding_mode}",
@@ -796,7 +796,7 @@ async def dream_all_pending(
             continue
         # Skip if already enriched
         enriched_path = (
-            session_store._drafts_dir(session_id)
+            session_store.drafts_dir(session_id)
             / f"{packet.id}.enriched.json"
         )
         if enriched_path.exists():

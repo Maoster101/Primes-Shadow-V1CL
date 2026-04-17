@@ -9,7 +9,7 @@
     anchors: []
     bundles: []
   version: v1
-  type: CANONICAL
+  type: REFERENCE
   lifecycle_status: ACTIVE
   requires_oli_mode: null
   meta:
@@ -36,7 +36,7 @@
     anchors: []
     bundles: []
   version: v1
-  type: CANONICAL
+  type: REFERENCE
   lifecycle_status: ACTIVE
   requires_oli_mode: null
   meta:
@@ -62,7 +62,7 @@
     anchors: []
     bundles: []
   version: v1
-  type: CANONICAL
+  type: REFERENCE
   lifecycle_status: ACTIVE
   requires_oli_mode: null
   meta:
@@ -88,7 +88,7 @@
     anchors: []
     bundles: []
   version: v1
-  type: CANONICAL
+  type: REFERENCE
   lifecycle_status: ACTIVE
   requires_oli_mode: null
   meta:
@@ -115,7 +115,7 @@
     anchors: []
     bundles: []
   version: v1
-  type: CANONICAL
+  type: REFERENCE
   lifecycle_status: ACTIVE
   requires_oli_mode: null
   meta:
@@ -143,7 +143,7 @@
     anchors: []
     bundles: []
   version: v1
-  type: CANONICAL
+  type: REFERENCE
   lifecycle_status: ACTIVE
   requires_oli_mode: null
   meta:
@@ -170,7 +170,7 @@
     anchors: []
     bundles: []
   version: v1
-  type: CANONICAL
+  type: REFERENCE
   lifecycle_status: ACTIVE
   requires_oli_mode: null
   meta:
@@ -197,7 +197,7 @@
     anchors: []
     bundles: []
   version: v1
-  type: CANONICAL
+  type: REFERENCE
   lifecycle_status: ACTIVE
   requires_oli_mode: null
   meta:
@@ -226,7 +226,7 @@
     anchors: []
     bundles: []
   version: v1
-  type: CANONICAL
+  type: REFERENCE
   lifecycle_status: ACTIVE
   requires_oli_mode: null
   meta:
@@ -256,7 +256,7 @@
     anchors: []
     bundles: []
   version: v1
-  type: CANONICAL
+  type: REFERENCE
   lifecycle_status: ACTIVE
   requires_oli_mode: null
   meta:
@@ -288,7 +288,7 @@
     anchors: []
     bundles: []
   version: v1
-  type: CANONICAL
+  type: REFERENCE
   lifecycle_status: ACTIVE
   requires_oli_mode: null
   meta:

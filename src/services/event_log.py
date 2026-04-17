@@ -5,7 +5,7 @@ gate events, verification calls, and drift events.
 """
 from __future__ import annotations
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -20,7 +20,7 @@ class EventLog:
         self.root.mkdir(parents=True, exist_ok=True)
 
     def _append(self, filename: str, event: dict) -> None:
-        event["_logged_at"] = datetime.utcnow().isoformat()
+        event["_logged_at"] = datetime.now(timezone.utc).isoformat()
         path = self.root / filename
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(event, default=str, ensure_ascii=False) + "\n")

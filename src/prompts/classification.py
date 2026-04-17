@@ -20,6 +20,12 @@ or requesting adversarial pushback.
 - meta_schema: User is discussing the system itself, its rules, its structure, \
 or how it should behave (not content-level work — only when they're talking \
 ABOUT the Mirror/OLI/rules).
+- corpus_review: User is asking you to assess, compare, evaluate, critique, or \
+curate corpus objects (anchors, slabs, bundles, collections). This is editorial \
+judgment about the knowledge base itself — "which collection should I keep", \
+"is this anchor redundant", "compare these two slabs", "review these drafts", \
+"which of these mined concepts are worth committing". Distinct from meta_schema \
+(which is about system RULES); corpus_review is about system CONTENT quality.
 - neutral: General conversation, greetings, clarifications, short acknowledgements. \
 Only use this when NONE of the above fit. Substantive content belongs in \
 object_of_work even if the user is being casual about it.

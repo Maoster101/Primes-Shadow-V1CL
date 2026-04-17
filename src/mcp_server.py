@@ -308,7 +308,7 @@ def ps_corpus_search(args: dict) -> dict:
 def ps_get_frame(args: dict) -> dict:
     _boot()
     sid = args["session_id"]
-    frame = _frame_manager._frames.get(sid)
+    frame = _frame_manager.get_frame(sid)
     if not frame:
         return {"error": f"No active frame for session: {sid}"}
     return {

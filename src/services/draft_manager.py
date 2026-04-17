@@ -250,11 +250,11 @@ class DraftManager:
             # Phase 2A: stamp _target_collection from the chat's binding so
             # this draft lands in the right subcorpus on promote, instead of
             # silently falling back to "default".
-            raw_path = self.session_store._drafts_dir(session_id) / f"{draft_id}_raw.json"
+            raw_path = self.session_store.drafts_dir(session_id) / f"{draft_id}_raw.json"
             prop_to_save = dict(prop)
             if collection_id:
                 prop_to_save["_target_collection"] = collection_id
-            self.session_store._write_json(raw_path, prop_to_save)
+            self.session_store.write_json(raw_path, prop_to_save)
 
             stack.packets.append(draft_id)
             if not explicit:
@@ -414,8 +414,8 @@ class DraftManager:
         if not packet:
             return {"error": "Draft not found"}
 
-        raw_path = self.session_store._drafts_dir(session_id) / f"{draft_id}_raw.json"
-        raw = self.session_store._read_json(raw_path) or {}
+        raw_path = self.session_store.drafts_dir(session_id) / f"{draft_id}_raw.json"
+        raw = self.session_store.read_json(raw_path) or {}
 
         if action == "discard":
             packet.status = DraftStatus.REJECTED
@@ -438,7 +438,7 @@ class DraftManager:
             from pathlib import Path
             tent_dir = Path("app/library/tentative")
             tent_dir.mkdir(parents=True, exist_ok=True)
-            self.session_store._write_json(tent_dir / f"{draft_id}.json", {
+            self.session_store.write_json(tent_dir / f"{draft_id}.json", {
                 "draft": packet.model_dump(mode="json"),
                 "raw_proposal": raw,
             })

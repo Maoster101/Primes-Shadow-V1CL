@@ -8,6 +8,7 @@ class MessageFunction(str, Enum):
     AFFECT_RELEASE = "affect_release"
     RIGOR_WORK = "rigor_work"
     META_SCHEMA = "meta_schema"
+    CORPUS_REVIEW = "corpus_review"
     NEUTRAL = "neutral"
 
 

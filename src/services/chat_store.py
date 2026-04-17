@@ -6,7 +6,7 @@ No implicit cross-chat loading of assumptions or conclusions (§4.3).
 from __future__ import annotations
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -64,7 +64,7 @@ class ChatStore:
         if not raw:
             return False
         raw["meta"]["title"] = title
-        raw["meta"]["updated_at"] = datetime.utcnow().isoformat()
+        raw["meta"]["updated_at"] = datetime.now(timezone.utc).isoformat()
         self._save_raw(chat_id, raw)
         return True
 
@@ -96,7 +96,7 @@ class ChatStore:
         if not raw:
             raise ValueError(f"Chat {chat_id} not found")
         raw["messages"].append(message.model_dump(mode="json"))
-        raw["meta"]["updated_at"] = datetime.utcnow().isoformat()
+        raw["meta"]["updated_at"] = datetime.now(timezone.utc).isoformat()
         self._save_raw(chat_id, raw)
 
     def update_status(self, chat_id: str, status: ChatStatus) -> None:
@@ -104,7 +104,7 @@ class ChatStore:
         if not raw:
             raise ValueError(f"Chat {chat_id} not found")
         raw["meta"]["status"] = status.value
-        raw["meta"]["updated_at"] = datetime.utcnow().isoformat()
+        raw["meta"]["updated_at"] = datetime.now(timezone.utc).isoformat()
         self._save_raw(chat_id, raw)
 
     def get_message_window(self, chat_id: str, last_n: int = 20) -> list[ChatMessage]:

@@ -18,6 +18,19 @@ from .anchor_matcher import AnchorMatchResult
 from . import ollama
 from .event_log import EventLog
 from .policy import policy
+from .session_store import SessionStore
+
+
+class FrameNotFoundError(LookupError):
+    """Raised when a lifecycle verb is called on a session with no active frame.
+
+    Subclass of LookupError so existing `except KeyError` callers still catch
+    it, but narrow enough that route handlers can translate it to an HTTP 404
+    without swallowing unrelated lookup failures.
+    """
+    def __init__(self, session_id: str) -> None:
+        super().__init__(f"No active frame for session: {session_id}")
+        self.session_id = session_id
 
 # All thresholds now read from frame_policy.yaml via the policy singleton.
 # Legacy aliases for any remaining inline references (prefer policy.frame.*):
@@ -72,11 +85,17 @@ SUPPORTS_REINFORCE_DAMP = 0.1
 
 class FrameManager:
 
-    def __init__(self, corpus: CorpusStore):
+    def __init__(self, corpus: CorpusStore, session_store: Optional[SessionStore] = None):
         self.corpus = corpus
+        # Persistence dependency. Optional so MCP server and tests that don't
+        # need disk can construct a FrameManager without one — lifecycle verbs
+        # no-op on persistence in that case.
+        self.session_store = session_store
         self._frames: dict[str, FrameState] = {}
         # Session-scoped tentative edges (not in corpus until commit)
         self._tentative_edges: dict[str, list[dict]] = {}  # session_id -> [{from, to, type, ...}]
+        # Session-scoped tentative nodes: session_id -> { concept_name: { id, description, turns_seen, embedding } }
+        self._tentative_registry: dict[str, dict] = {}
         # Cached adjacency index: (from_node, to_node) -> Edge.
         # Built lazily on first cascade lookup. The corpus is append-mostly at
         # runtime (tentative edges live in a separate session-scoped store),
@@ -119,6 +138,305 @@ class FrameManager:
         self._seed_base_set(frame, oli_mode)
         self._frames[session_id] = frame
         return frame
+
+    # --- Read accessors ---
+    # Read-only entry points into session-scoped state. Callers may still
+    # mutate through the returned references (live, not copies) — existing
+    # read-heavy sites rely on this and the lifecycle verbs below do their
+    # own mutation + persistence, so the accessors stay simple.
+
+    def get_frame(self, session_id: str) -> Optional[FrameState]:
+        """Return the live FrameState for a session, or None if no frame exists.
+
+        Does NOT create a frame. Use get_or_create() for the chat flow or
+        ensure_empty_frame() for the mining flow.
+        """
+        return self._frames.get(session_id)
+
+    def get_tentative_registry(self, session_id: str) -> dict:
+        """Return the session's tentative-node registry, or an empty dict."""
+        return self._tentative_registry.get(session_id, {})
+
+    def get_tentative_edges(self, session_id: str) -> list[dict]:
+        """Return the session's tentative edges, or an empty list."""
+        return self._tentative_edges.get(session_id, [])
+
+    # --- Private helpers ---
+
+    def _find_tentative_by_id(
+        self, session_id: str, node_id: str
+    ) -> tuple[Optional[str], Optional[dict]]:
+        """Locate a registry entry by its node_id. Returns (name, info) or (None, None).
+
+        The registry is keyed by concept-name; this helper is the standard
+        entry point for lookup-by-id, used by the dismiss/reject/promote verbs
+        and by create_tentative_bundle when resolving children.
+        """
+        registry = self._tentative_registry.get(session_id, {})
+        for name, info in registry.items():
+            if info.get("id") == node_id:
+                return name, info
+        return None, None
+
+    # --- Persistence ---
+
+    def persist(self, session_id: str) -> None:
+        """Persist frame + tentative registry + tentative edges to disk.
+
+        No-op if no session_store is wired (MCP server / tests). Idempotent;
+        safe to call from verbs that want write-through semantics and from
+        route handlers that want to flush state at arbitrary moments.
+        """
+        if self.session_store is None:
+            return
+        frame = self._frames.get(session_id)
+        if frame is not None:
+            self.session_store.save_frame(session_id, frame)
+        registry = self._tentative_registry.get(session_id, {})
+        edges = self._tentative_edges.get(session_id, [])
+        self.session_store.save_registry(session_id, registry, edges)
+
+    # --- Frame constructors ---
+    # get_or_create() (defined above) is the chat-flow constructor — it
+    # seeds the base set (CONSTITUTIONAL + CANONICAL slabs) so the model
+    # has its foundation loaded. ensure_empty_frame() is the mining-flow
+    # constructor — draft mining intentionally wants NO base-set activation
+    # so mined proposals don't get polluted with pre-loaded corpus slabs.
+
+    def ensure_empty_frame(self, session_id: str, chat_id: str) -> FrameState:
+        """Return existing frame or create an empty one (no base-set seeding).
+
+        Used by the draft-mining path where seeding would pollute the set of
+        mined proposals with base-set corpus slabs. Callers that want the
+        normal chat flow should use get_or_create() instead.
+        """
+        if session_id in self._frames:
+            return self._frames[session_id]
+        frame = FrameState(
+            session_id=session_id,
+            chat_id=chat_id,
+            active_nodes=[],
+        )
+        self._frames[session_id] = frame
+        return frame
+
+    # --- Lifecycle verbs ---
+    # Each verb mutates session-scoped state in-memory and persists via
+    # self.persist(). Route handlers call the verb and then log the
+    # corresponding frame/proposal event (logging is a cross-cutting
+    # concern kept at the handler level).
+
+    def adjust_node_salience(
+        self, session_id: str, node_id: str, delta: float
+    ) -> Optional[dict]:
+        """Heat or cool a node's salience. Returns {old, new} or None if node not active.
+
+        Raises FrameNotFoundError if the session has no frame.
+        """
+        frame = self._frames.get(session_id)
+        if frame is None:
+            raise FrameNotFoundError(session_id)
+        if node_id not in frame.active_nodes:
+            return None
+        old = frame.salience_now.get(node_id, 0.0)
+        new_sal = max(0.0, min(1.0, old + delta))
+        frame.salience_now[node_id] = new_sal
+        frame.salience_smoothed[node_id] = new_sal  # immediate effect
+        self.persist(session_id)
+        return {"old": old, "new": new_sal}
+
+    def dismiss_node(self, session_id: str, node_id: str) -> None:
+        """Evict a node from the active frame, mark its registry entry dismissed.
+
+        The registry entry is NOT deleted — the concept detector can
+        re-activate it if the user discusses the concept organically again
+        (see _detect_novel_concepts' redetection path).
+
+        Raises FrameNotFoundError if the session has no frame.
+        """
+        frame = self._frames.get(session_id)
+        if frame is None:
+            raise FrameNotFoundError(session_id)
+        if node_id in frame.active_nodes:
+            frame.active_nodes.remove(node_id)
+        frame.salience_now.pop(node_id, None)
+        frame.salience_smoothed.pop(node_id, None)
+        frame.structural_weight.pop(node_id, None)
+        frame.activation_sources.pop(node_id, None)
+        frame.active_anchors.pop(node_id, None)
+        frame.active_bundles.pop(node_id, None)
+        frame.active_slabs.pop(node_id, None)
+        frame.active_concepts.pop(node_id, None)
+        _, info = self._find_tentative_by_id(session_id, node_id)
+        if info is not None:
+            info["dismissed"] = True
+        self.persist(session_id)
+
+    def reject_node(self, session_id: str, node_id: str) -> None:
+        """Mark a tentative node as rejected — stays visible but filtered from commit.
+
+        Does not raise if the session has no frame or the registry entry is
+        missing; rejection is advisory metadata. (Previously this endpoint
+        skipped persistence entirely, losing the flag on server restart —
+        persisting here fixes that.)
+        """
+        _, info = self._find_tentative_by_id(session_id, node_id)
+        if info is not None:
+            info["rejected"] = True
+        self.persist(session_id)
+
+    def create_tentative_bundle(
+        self,
+        session_id: str,
+        child_ids: list[str],
+        label: Optional[str] = None,
+    ) -> dict:
+        """Group selected nodes into a tentative bundle.
+
+        Creates one registry entry for the bundle, one PARENT_OF edge per
+        child, sets parent_id on each child's registry entry, and absorbs
+        children out of the active frame. Returns {"bundle_id", "label"}.
+
+        Raises FrameNotFoundError if the session has no frame.
+        Raises ValueError if fewer than 2 children are supplied.
+        """
+        import uuid
+
+        frame = self._frames.get(session_id)
+        if frame is None:
+            raise FrameNotFoundError(session_id)
+        if len(child_ids) < 2:
+            raise ValueError("Bundle requires at least 2 nodes")
+
+        registry = self._tentative_registry.setdefault(session_id, {})
+
+        # Resolve human labels for children for description/label text.
+        child_labels = []
+        for nid in child_ids:
+            name, info = self._find_tentative_by_id(session_id, nid)
+            if name is not None:
+                child_labels.append(name)
+            elif nid in self.corpus.anchors:
+                child_labels.append(self.corpus.anchors[nid].canonical_phrase)
+            else:
+                child_labels.append(nid)
+
+        resolved_label = label or f"Bundle: {', '.join(child_labels[:3])}"
+        bundle_id = f"tentative_bundle_{uuid.uuid4().hex[:8]}"
+
+        registry[resolved_label] = {
+            "id": bundle_id,
+            "description": f"User-grouped: {', '.join(child_labels)}",
+            "turns_seen": 1,
+            "promoted": None,
+            "parent_id": None,
+            "children": list(child_ids),
+        }
+
+        # Add bundle to frame
+        frame.active_nodes.append(bundle_id)
+        frame.active_bundles[bundle_id] = 0.7
+        frame.salience_now[bundle_id] = 0.7
+        frame.salience_smoothed[bundle_id] = 0.7
+        frame.structural_weight[bundle_id] = float(len(child_ids))
+        frame.activation_sources[bundle_id] = [
+            ActivationSource(source_type="user_bundling", source_ref=",".join(child_ids))
+        ]
+
+        # PARENT_OF edges bundle→child + set parent_id on children + absorb from frame
+        edges = self._tentative_edges.setdefault(session_id, [])
+        for child_id in child_ids:
+            edges.append({
+                "from": bundle_id,
+                "to": child_id,
+                "type": "PARENT_OF",
+                "strength": 0.8,
+            })
+            _, child_info = self._find_tentative_by_id(session_id, child_id)
+            if child_info is not None:
+                child_info["parent_id"] = bundle_id
+            if child_id in frame.active_nodes:
+                frame.active_nodes.remove(child_id)
+            frame.salience_now.pop(child_id, None)
+            frame.salience_smoothed.pop(child_id, None)
+            frame.structural_weight.pop(child_id, None)
+            frame.activation_sources.pop(child_id, None)
+            frame.active_concepts.pop(child_id, None)
+            frame.active_anchors.pop(child_id, None)
+            frame.active_bundles.pop(child_id, None)
+
+        # Record in corpus-hit trajectory so the bundle appears in session review
+        turn = frame.last_updated_turn or 1
+        frame.corpus_hits[bundle_id] = frame.corpus_hits.get(bundle_id, 0) + 1
+        frame.corpus_last_hit[bundle_id] = turn
+        frame.corpus_hit_log.append([turn, [bundle_id] + list(child_ids)])
+
+        self.persist(session_id)
+        return {"bundle_id": bundle_id, "label": resolved_label}
+
+    def promote_to_anchor(
+        self, session_id: str, node_id: str
+    ) -> Optional[dict]:
+        """Promote a tentative bundle to a tentative anchor.
+
+        Returns {"label", "children"} on success, or None if the node is not
+        in the tentative registry.
+
+        Raises FrameNotFoundError if the session has no frame.
+        """
+        frame = self._frames.get(session_id)
+        if frame is None:
+            raise FrameNotFoundError(session_id)
+        name, info = self._find_tentative_by_id(session_id, node_id)
+        if info is None:
+            return None
+        info["promoted"] = "anchor"
+        children = info.get("children", [])
+        self.persist(session_id)
+        return {"label": name, "children": children}
+
+    def inject_mined_proposals(
+        self, session_id: str, chat_id: str, packets: list
+    ) -> None:
+        """Inject mined DraftPackets as tentative registry entries.
+
+        Ensures a frame exists (base-set-free via ensure_empty_frame), creates
+        one registry entry per packet, marks packets active in the frame, and
+        persists. This is the mining-flow counterpart to _detect_novel_concepts
+        (which is the chat-flow counterpart). Both end up writing to the
+        tentative registry with the same entry shape.
+        """
+        if not packets:
+            return
+        frame = self.ensure_empty_frame(session_id, chat_id)
+        registry = self._tentative_registry.setdefault(session_id, {})
+
+        for pkt in packets:
+            ntype = pkt.packet_type or "anchor"
+            # Human-readable label extraction mirrors the original mining code.
+            if pkt.anchor:
+                label = pkt.anchor.get("canonical_phrase", "") or pkt.id
+            elif pkt.slab:
+                label = (
+                    pkt.slab.get("title", "")
+                    or pkt.slab.get("canonical_text", "")[:60]
+                    or pkt.id
+                )
+            else:
+                label = pkt.id
+
+            registry[label] = {
+                "id": pkt.id,
+                "description": pkt.justification or "",
+                "turns_seen": 1,
+                "promoted": ntype if ntype in ("anchor", "slab", "bundle") else None,
+                "parent_id": None,
+                "children": [],
+            }
+            if pkt.id not in frame.active_nodes:
+                frame.active_nodes.append(pkt.id)
+
+        self.persist(session_id)
 
     def _seed_base_set(self, frame: FrameState, oli_mode: OLIMode) -> None:
         """Populate a new frame with the corpus base set.
@@ -639,8 +957,7 @@ class FrameManager:
         return {}
 
     # --- Tentative node tracking ---
-    # Maps session_id -> { concept_name: { id, description, turns_seen, embedding } }
-    _tentative_registry: dict[str, dict] = {}
+    # (registry initialized in __init__ as instance state)
 
     async def _detect_novel_concepts(
         self, session_id: str, user_text: str, frame: FrameState
