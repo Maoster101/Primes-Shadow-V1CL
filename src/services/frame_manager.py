@@ -131,10 +131,17 @@ class FrameManager:
 
     def get_or_create(self, chat_id: str, session_id: str,
                        oli_mode: OLIMode = OLIMode.OFF) -> FrameState:
+        """Get or create a session frame, seeding the base set on first call.
+
+        The base set now includes ALL ACTIVE slabs across all active corpus
+        collections (CONSTITUTIONAL + CANONICAL + REFERENCE), so the model
+        can see anything stored in cold corpus. The graph visibility filter
+        keeps REFERENCE nodes hidden from the canvas until conversation
+        engages them.
+        """
         if session_id in self._frames:
             return self._frames[session_id]
         frame = FrameState(chat_id=chat_id, session_id=session_id)
-        # §Phase 5 — Seed base set: CONSTITUTIONAL + CANONICAL slabs
         self._seed_base_set(frame, oli_mode)
         self._frames[session_id] = frame
         return frame
@@ -225,6 +232,81 @@ class FrameManager:
     # self.persist(). Route handlers call the verb and then log the
     # corresponding frame/proposal event (logging is a cross-cutting
     # concern kept at the handler level).
+
+    def activate_retrieved_slabs(
+        self, session_id: str, slab_ids: list[str],
+        weight: float = 0.8,
+    ) -> int:
+        """Activate slabs in the frame that were retrieved for this turn's prompt.
+
+        This closes the loop between RAG retrieval (which injects slab text
+        into the system prompt) and the working-memory graph (which should
+        reflect what the model is actually reading). Without this, retrieved
+        slabs would be invisible in the graph even while the model is using
+        them — breaking the "graph = observable model state" contract.
+
+        Each retrieved slab:
+          * Is added to ``active_slabs`` at ``weight`` (default 0.8 — higher
+            than base-set 0.6 to reflect that retrieval is a stronger,
+            query-driven signal than passive seeding).
+          * Is added to ``active_nodes`` if not already present.
+          * Gets an ActivationSource with ``source_type="retrieval"`` — the
+            graph visibility filter keys off this (non-base_set sources pass
+            the filter, so retrieved slabs immediately render on the canvas).
+          * Has its linked anchors/bundles activated at cascade weight 0.4,
+            so related graph neighbours surface alongside the slab itself.
+
+        Decay is handled by ``update_turn``'s Step 0: slabs retrieved this
+        turn stay at ``weight``; slabs retrieved last turn but not this one
+        fade naturally. If a slab is retrieved repeatedly its salience stays
+        hot; if it falls out of relevance it fades.
+
+        Returns the count of slabs newly added to ``active_nodes``.
+        """
+        frame = self._frames.get(session_id)
+        if frame is None or not slab_ids:
+            return 0
+
+        source = ActivationSource(source_type="retrieval", source_ref="rag")
+        newly_added = 0
+        for sid in slab_ids:
+            # Slab itself
+            frame.active_slabs[sid] = max(frame.active_slabs.get(sid, 0.0), weight)
+            if sid not in frame.active_nodes:
+                frame.active_nodes.append(sid)
+                newly_added += 1
+            # Retain any existing sources (anchor_match etc.) — retrieval is
+            # an additional signal. If already only base_set-sourced, replace
+            # with retrieval so the graph filter picks it up.
+            existing = frame.activation_sources.get(sid, [])
+            if not existing or all(s.source_type == "base_set" for s in existing):
+                frame.activation_sources[sid] = [source]
+            else:
+                # Append retrieval to the list, dedup by source_type
+                if not any(s.source_type == "retrieval" for s in existing):
+                    frame.activation_sources[sid] = existing + [source]
+
+            # Cascade to linked anchors + bundles at 0.4
+            slab = self.corpus.slabs.get(sid)
+            if slab and slab.links:
+                for anchor_id in slab.links.anchors or []:
+                    if anchor_id in self.corpus.anchors:
+                        frame.active_anchors[anchor_id] = max(
+                            frame.active_anchors.get(anchor_id, 0.0), 0.4,
+                        )
+                        if anchor_id not in frame.active_nodes:
+                            frame.active_nodes.append(anchor_id)
+                            newly_added += 1
+                for bundle_id in slab.links.bundles or []:
+                    if bundle_id in self.corpus.bundles:
+                        frame.active_bundles[bundle_id] = max(
+                            frame.active_bundles.get(bundle_id, 0.0), 0.4,
+                        )
+                        if bundle_id not in frame.active_nodes:
+                            frame.active_nodes.append(bundle_id)
+                            newly_added += 1
+
+        return newly_added
 
     def adjust_node_salience(
         self, session_id: str, node_id: str, delta: float
@@ -438,14 +520,33 @@ class FrameManager:
 
         self.persist(session_id)
 
-    def _seed_base_set(self, frame: FrameState, oli_mode: OLIMode) -> None:
+    def _seed_base_set(
+        self, frame: FrameState, oli_mode: OLIMode,
+        bound_collection_store: Optional[CorpusStore] = None,
+    ) -> None:
         """Populate a new frame with the corpus base set.
 
         CONSTITUTIONAL and CANONICAL slabs (filtered by OLI mode and lifecycle)
         are loaded at weight 1.0. Their linked anchors and bundles are also
         activated at weight 0.5 (lower than match-triggered activation).
+
+        If ``bound_collection_store`` is provided, a second seeding pass adds
+        ALL ACTIVE slabs from that collection — including REFERENCE type —
+        at an ambient weight (0.6). This makes a chat's bound collection
+        visible to the model without requiring the user to invoke specific
+        concepts each turn. Linked anchors/bundles from those slabs are
+        seeded at 0.3 (below match-triggered, above evicted). The existing
+        graph-visibility filter in the session endpoint keeps these nodes
+        hidden on the canvas until conversation actually engages them, so
+        the UI stays clean while the model has the context available.
         """
-        base_slabs = self.corpus.base_set_slabs(oli_mode)
+        # Only CONSTITUTIONAL + CANONICAL slabs are seeded into the frame
+        # at session start. REFERENCE slabs live in cold corpus and come
+        # into the frame on demand via retrieval (see
+        # ``activate_retrieved_slabs``) or anchor-match cascade. This is
+        # the "pointer architecture" — the frame reflects live working
+        # memory, not the full corpus catalog.
+        base_slabs = self.corpus.base_set_slabs(oli_mode, include_reference=False)
         for slab in base_slabs:
             frame.active_slabs[slab.id] = 1.0
             if slab.id not in frame.active_nodes:
@@ -471,9 +572,49 @@ class FrameManager:
                     if bundle_id not in frame.active_nodes:
                         frame.active_nodes.append(bundle_id)
 
+        # --- Bound-collection ambient seed ---
+        # When a chat is bound to a specific collection (e.g. vindiesel5),
+        # that collection's full slab set is loaded as ambient context so
+        # the model can answer meta-questions ("tell me the narrative")
+        # without requiring the user to trigger specific anchor matches.
+        from ..models.enums import SlabLifecycleStatus
+        bound_seeded = 0
+        if bound_collection_store is not None:
+            for slab in bound_collection_store.slabs.values():
+                if slab.lifecycle_status != SlabLifecycleStatus.ACTIVE:
+                    continue
+                # OLI-mode gate — respect the slab's requires_oli_mode
+                if slab.requires_oli_mode is not None:
+                    if OLIMode(slab.requires_oli_mode) != oli_mode:
+                        continue
+                # Don't downgrade something already seeded at 1.0
+                if slab.id in frame.active_slabs:
+                    continue
+                frame.active_slabs[slab.id] = 0.6
+                if slab.id not in frame.active_nodes:
+                    frame.active_nodes.append(slab.id)
+                frame.activation_sources[slab.id] = [
+                    ActivationSource(
+                        source_type="base_set",
+                        source_ref=f"bound_collection={bound_collection_store.collection_id}",
+                    )
+                ]
+                for anchor_id in (slab.links.anchors if slab.links else []):
+                    if anchor_id in self.corpus.anchors:
+                        frame.active_anchors.setdefault(anchor_id, 0.3)
+                        if anchor_id not in frame.active_nodes:
+                            frame.active_nodes.append(anchor_id)
+                for bundle_id in (slab.links.bundles if slab.links else []):
+                    if bundle_id in self.corpus.bundles:
+                        frame.active_bundles.setdefault(bundle_id, 0.3)
+                        if bundle_id not in frame.active_nodes:
+                            frame.active_nodes.append(bundle_id)
+                bound_seeded += 1
+
         _event_log.log_frame_event(
             event="base_set_seeded",
             slabs=len(base_slabs),
+            bound_collection_slabs=bound_seeded,
             oli_mode=oli_mode.value,
             total_active=len(frame.active_nodes),
         )

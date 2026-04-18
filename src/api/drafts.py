@@ -173,79 +173,22 @@ async def review_proposed_edge(session_id: str, edge_id: str, req: dict):
 
     Body: {"action": "accept" | "reject"}
 
-    On accept: if both endpoints already exist in corpus, promote directly
-    to a real Edge (status -> COMMITTED). Otherwise mark ACCEPTED and wait
-    for a later promote hook (when the underlying drafts land in corpus).
-
-    On reject: mark REJECTED; kept for audit but never committed.
+    Delegates to LifecycleService so the accept path's "commit now or wait
+    for endpoint promotion" logic lives in one place, and the resolve-on-
+    promote hook can sweep any edges left waiting.
     """
     action = (req.get("action") or "").lower()
     if action not in ("accept", "reject"):
         raise HTTPException(400, "action must be 'accept' or 'reject'")
 
-    edges = session_store.list_proposed_edges(session_id)
-    target = next((e for e in edges if e.id == edge_id), None)
-    if not target:
-        raise HTTPException(404, "Proposed edge not found")
+    if action == "accept":
+        result = deps.lifecycle.accept_proposed_edge(session_id, edge_id)
+    else:
+        result = deps.lifecycle.reject_proposed_edge(session_id, edge_id)
 
-    if action == "reject":
-        session_store.update_proposed_edge_status(session_id, edge_id, "REJECTED")
-        return {"ok": True, "status": "REJECTED"}
-
-    # Accept path — can we commit now?
-    from ..models.schemas import Edge as CorpusEdge
-    both_live = (
-        (target.from_node in deps.corpus.anchors or target.from_node in deps.corpus.slabs
-         or target.from_node in deps.corpus.bundles)
-        and
-        (target.to_node in deps.corpus.anchors or target.to_node in deps.corpus.slabs
-         or target.to_node in deps.corpus.bundles)
-    )
-    if both_live:
-        import uuid
-        new_edge_id = f"edge_{uuid.uuid4().hex[:8]}"
-        real = CorpusEdge(
-            id=new_edge_id,
-            type=target.type,
-            **{"from": target.from_node, "to": target.to_node},
-            weight=target.confidence,
-            confidence=target.confidence,
-        )
-        # Resolve the owning collection via the source chat. Writing to the
-        # merged virtual store silently misroutes the save to the legacy
-        # CORPUS_ROOT (app/corpus) — the per-collection stores never see it,
-        # and on reload the edge vanishes. Instead, write to the specific
-        # collection's store so it lands in app/corpora/{cid}/objects/edges.yaml
-        # and persists. Fall back to merged only if chat/collection lookup fails
-        # (best-effort; should log a warning).
-        target_store = None
-        try:
-            if target.source_chat_id:
-                _chat = chat_store.get_chat(target.source_chat_id)
-                if _chat and _chat.collection_id:
-                    target_store = registry.get_store(_chat.collection_id)
-        except Exception as exc:
-            logger.warning("Edge commit: chat→collection lookup failed: %r", exc)
-        if target_store is None:
-            # Last resort: pick 'default' so we at least hit a real store.
-            target_store = registry.get_store("default")
-            logger.warning(
-                "Edge commit for %s: no owning collection resolved, writing to 'default'",
-                edge_id,
-            )
-        target_store.edges[new_edge_id] = real
-        target_store.save()
-        # Invalidate merged view so subsequent reads see the new edge.
-        registry._merged_dirty = True
-        deps.rebind_corpus()
-        session_store.update_proposed_edge_status(
-            session_id, edge_id, "COMMITTED", committed_edge_id=new_edge_id,
-        )
-        return {"ok": True, "status": "COMMITTED", "committed_edge_id": new_edge_id}
-
-    # Endpoints not yet live — mark ACCEPTED, promote later
-    session_store.update_proposed_edge_status(session_id, edge_id, "ACCEPTED")
-    return {"ok": True, "status": "ACCEPTED", "note": "Awaiting endpoint promotion"}
+    if "error" in result:
+        raise HTTPException(result.get("status", 400), result["error"])
+    return result
 
 
 @router.get("/sessions/{session_id}/drafts/{draft_id}")
@@ -427,16 +370,22 @@ async def get_library_tentative(tid: str):
 
 @router.delete("/library/tentative/{tid}")
 async def delete_library_tentative(tid: str):
-    ok = draft_manager.delete_library_tentative(tid)
-    if not ok:
-        raise HTTPException(404, "Tentative record not found")
-    return {"status": "deleted", "id": tid}
+    """Atomically delete a library-tentative record: file on disk + purge
+    from every session's registry / frame / proposed edges.
+    """
+    result = deps.lifecycle.delete_library_tentative(tid)
+    if "error" in result:
+        raise HTTPException(404, result["error"])
+    return result
 
 
 @router.post("/library/tentative/{tid}/promote")
 async def promote_library_tentative(tid: str):
-    """Commit a tentative record into the active corpus and remove it from the library."""
-    result = draft_manager.promote_library_tentative(tid)
+    """Atomically commit a tentative record into the active corpus: write
+    corpus object, delete library file, purge from sessions, and resolve
+    any ACCEPTED proposed edges referencing this node.
+    """
+    result = deps.lifecycle.promote_library_tentative(tid)
     if "error" in result:
         raise HTTPException(400, result["error"])
     return result
@@ -444,6 +393,11 @@ async def promote_library_tentative(tid: str):
 
 @router.post("/sessions/{session_id}/drafts/{draft_id}/review")
 async def review_draft(session_id: str, draft_id: str, req: ReviewDraftRequest):
+    """Review a draft — discard, promote to library/tentative, or promote
+    to corpus. Delegates to LifecycleService so session state (registry,
+    frame, proposed edges) is kept consistent with the packet status
+    transition.
+    """
     # Compute current drift severity for the drift gate
     drift_severity = "low"
     window = drift_monitor.get_window(session_id)
@@ -452,13 +406,24 @@ async def review_draft(session_id: str, draft_id: str, req: ReviewDraftRequest):
         drift_state = window.compute(frame.last_updated_turn)
         drift_severity = drift_state["severity"].value
 
-    result = await draft_manager.review_draft(
-        session_id, draft_id, req.action, req.oli_mode,
-        drift_severity=drift_severity,
-    )
+    action = req.action
+    if action == "discard":
+        result = await deps.lifecycle.discard_draft(session_id, draft_id)
+    elif action == "promote_tentative":
+        result = await deps.lifecycle.promote_draft_tentative(
+            session_id, draft_id, drift_severity=drift_severity,
+        )
+    elif action == "promote_corpus":
+        result = await deps.lifecycle.promote_draft_corpus(
+            session_id, draft_id,
+            oli_mode=req.oli_mode, drift_severity=drift_severity,
+        )
+    else:
+        raise HTTPException(400, f"Unknown action: {action}")
+
     if "error" in result:
         raise HTTPException(400, result)
-    # If committed to corpus, warm the anchor cache
+    # If committed to corpus, warm the anchor cache so matcher sees it
     if result.get("status") == "COMMITTED" and "anchor" in draft_id:
         await anchor_matcher.warm_cache()
     return result

@@ -161,13 +161,39 @@ class CorpusStore:
 
     # ── Phase 5: Base set query ──────────────────────────────────
 
-    def base_set_slabs(self, oli_mode: OLIMode = OLIMode.OFF) -> list[Slab]:
-        """Return slabs that belong in the session base set for the given OLI mode."""
+    def base_set_slabs(
+        self, oli_mode: OLIMode = OLIMode.OFF,
+        include_reference: bool = True,
+    ) -> list[Slab]:
+        """Return slabs that belong in the session base set for the given OLI mode.
+
+        By default, ALL ACTIVE slabs (CONSTITUTIONAL + CANONICAL + REFERENCE)
+        are returned, so the model can see everything stored in cold corpus —
+        including mined narrative content. INVARIANT slabs are still excluded
+        (they activate conditionally via anchor match, not as base set).
+
+        The three types are treated identically at the frame level but rendered
+        differently in the system prompt (see context_packer._format_base_set_slabs):
+        CONSTITUTIONAL/CANONICAL get the full slab text; REFERENCE gets tighter
+        truncation to preserve context budget for chat history. The graph
+        visibility filter keeps REFERENCE nodes hidden from the canvas until
+        conversation engages them, so "everything loaded" doesn't mean "canvas
+        cluttered from turn 0".
+
+        Pass ``include_reference=False`` to get the old CONSTITUTIONAL+CANONICAL
+        behavior (useful for tools that want only foundational content).
+        """
+        allowed_types: tuple[SlabType, ...] = (
+            SlabType.CONSTITUTIONAL, SlabType.CANONICAL,
+        )
+        if include_reference:
+            allowed_types = allowed_types + (SlabType.REFERENCE,)
+
         candidates = []
         for slab in self.slabs.values():
             if slab.lifecycle_status != SlabLifecycleStatus.ACTIVE:
                 continue
-            if slab.type not in (SlabType.CONSTITUTIONAL, SlabType.CANONICAL):
+            if slab.type not in allowed_types:
                 continue
             if slab.requires_oli_mode is not None:
                 if OLIMode(slab.requires_oli_mode) != oli_mode:
@@ -427,6 +453,25 @@ class CorpusRegistry:
     def get_store(self, collection_id: str) -> Optional[CorpusStore]:
         """Get a specific collection's store."""
         return self.collections.get(collection_id)
+
+    def slab_collection_map(self) -> dict[str, str]:
+        """Return ``slab_id -> collection_id`` for every slab in every
+        active collection.
+
+        Used when the system prompt needs provenance annotations (e.g.
+        the CORPUS CATALOG includes which collection each entry belongs
+        to, so the model can disambiguate slabs with similar titles
+        across mining passes). First-loaded collection wins on id
+        collision, matching ``merged`` semantics.
+        """
+        out: dict[str, str] = {}
+        for cid in sorted(self.active_ids):
+            store = self.collections.get(cid)
+            if not store:
+                continue
+            for sid in store.slabs:
+                out.setdefault(sid, cid)
+        return out
 
     def list_collections(self) -> list[dict]:
         """List all collections with metadata."""

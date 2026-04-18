@@ -554,3 +554,51 @@
     created_at: null
   depends_on: []
   assumptions: []
+- id: tentative_anchor_84346130_v1
+  canonical_phrase: vindiesel narrative
+  aliases:
+  - vindiesel story
+  - vindiesel storyline
+  invokes: []
+  notes: The conversation explicitly focuses on comparing two distinct 'vindiesel'
+    narratives, making this a central concept.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: tentative_anchor_bc5b92b2_v1
+  canonical_phrase: 'Narrative Structure: Main Story + Post-Credit'
+  aliases:
+  - Main Story + Post-Credit
+  - Post-Credit Narrative
+  - Extended Narrative Structure
+  invokes: []
+  notes: This structure is explicitly introduced and becomes a key factor in the assessment
+    of the narratives, demonstrating repeated usage and importance to the analysis.
+    It's a reusable pattern.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []

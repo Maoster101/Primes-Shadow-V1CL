@@ -16,7 +16,7 @@ from ..services.pipeline import process_turn
 
 from . import deps
 from .deps import (
-    chat_store, session_store, frame_manager, anchor_matcher,
+    chat_store, session_store, frame_manager, anchor_matcher, slab_matcher,
     draft_manager, drift_monitor, gauntlet_engine, event_log, registry,
     save_session_state,
 )
@@ -157,7 +157,10 @@ async def send_message(chat_id: str, req: SendMessageRequest):
     if not session_id:
         session_id = session_store.create_session(chat_id)
 
-    # Restore frame state + tentative registry + edges if available
+    # Restore frame state + tentative registry + edges if available.
+    # Note: base_set_slabs() now includes REFERENCE type across all active
+    # collections, so the model sees the full cold corpus (mined narratives
+    # included) without needing per-chat collection binding to unlock it.
     saved_frame = session_store.load_frame(session_id)
     if saved_frame:
         reg, edges = session_store.load_registry(session_id)
@@ -179,6 +182,7 @@ async def send_message(chat_id: str, req: SendMessageRequest):
                 frame_manager=frame_manager,
                 drift_monitor=drift_monitor,
                 gauntlet_engine=gauntlet_engine,
+                slab_matcher=slab_matcher,
                 web_mode=req.web_mode,
                 think_level=req.think_level,
             ):

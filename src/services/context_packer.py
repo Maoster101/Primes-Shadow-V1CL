@@ -69,12 +69,21 @@ def build_system_prompt(
     oli_mode: OLIMode = OLIMode.OFF,
     runtime_header: Optional[RuntimeHeader] = None,
     base_set_slabs: Optional[list[Slab]] = None,
+    catalog_slabs: Optional[list[Slab]] = None,
+    collection_by_id: Optional[dict[str, str]] = None,
 ) -> str:
-    """Build the full system message: constitutional prompt + base set + runtime header.
+    """Build the full system message: constitutional prompt + catalog +
+    retrieved/full-text slabs + runtime header.
 
-    Phase 5: base_set_slabs injects CONSTITUTIONAL/CANONICAL slab text into
-    the system prompt so the model has access to layer rules and domain context
-    from turn 0, before any anchor fires.
+    ``base_set_slabs`` — slabs whose FULL TEXT is injected under
+    ``[CORPUS BASE SET]``. Typically CONSTITUTIONAL + CANONICAL (always-in)
+    plus any REFERENCE slabs retrieved by SlabMatcher as semantically
+    relevant to the current user message.
+
+    ``catalog_slabs`` — slabs whose id + title + short summary are injected
+    under ``[CORPUS CATALOG]``. The model can see what exists (and reason
+    about what it would invoke) without paying the token cost of full text.
+    Typically: REFERENCE slabs that weren't retrieved this turn.
     """
     parts = []
 
@@ -91,9 +100,16 @@ def build_system_prompt(
 
     parts.append(_build_base_system())
 
-    # §Phase 5 — Base set slab injection
+    # Catalog — compact index of slabs the model could reference but
+    # whose full text isn't warranted this turn. Placed BEFORE the base
+    # set so the model first understands the shape of available content,
+    # then sees the details of what's currently loaded.
+    if catalog_slabs:
+        parts.append(_format_catalog(catalog_slabs, collection_by_id))
+
+    # Full-text slab injection (CONSTITUTIONAL + CANONICAL + retrieved REFERENCE)
     if base_set_slabs:
-        parts.append(_format_base_set_slabs(base_set_slabs))
+        parts.append(_format_base_set_slabs(base_set_slabs, collection_by_id))
 
     if runtime_header:
         parts.append(_format_runtime_header(runtime_header))
@@ -345,23 +361,86 @@ def _format_runtime_header(header: RuntimeHeader) -> str:
     return "\n".join(lines)
 
 
-def _format_base_set_slabs(slabs: list[Slab]) -> str:
+def _slab_summary(slab: Slab, n: int = 80) -> str:
+    """One-line summary for a slab: first ``n`` chars of canonical_text,
+    newlines collapsed. Cheap, no embedding roundtrip.
+    """
+    text = (slab.canonical_text or "").replace("\n", " ").strip()
+    return text[:n] + ("…" if len(text) > n else "")
+
+
+def _format_catalog(
+    slabs: list[Slab],
+    collection_by_id: Optional[dict[str, str]] = None,
+) -> str:
+    """Compact index of slabs the model could invoke but whose full text
+    isn't injected this turn.
+
+    Format, one line per slab::
+
+        SLAB_ID [TYPE, collection=<cid>]: Title — first 80 chars of summary…
+
+    The ``collection=<cid>`` tag is the key affordance: it lets the model
+    distinguish slabs with near-identical titles across mining passes
+    (e.g. two collections both have a "Final Reflection" slab). Without
+    this, the model conflates collections when asked to compare them.
+    """
+    if not slabs:
+        return ""
+    cmap = collection_by_id or {}
+    lines = ["[CORPUS CATALOG]"]
+    lines.append(
+        "(slabs available for retrieval — full text not loaded this turn)"
+    )
+    for slab in slabs:
+        title = slab.title or slab.id
+        summary = _slab_summary(slab)
+        coll = cmap.get(slab.id)
+        tag = f"{slab.type.value}" + (f", collection={coll}" if coll else "")
+        lines.append(f"{slab.id} [{tag}]: {title} — {summary}")
+    lines.append("[/CORPUS CATALOG]")
+    return "\n".join(lines)
+
+
+def _format_base_set_slabs(
+    slabs: list[Slab],
+    collection_by_id: Optional[dict[str, str]] = None,
+) -> str:
     """§Phase 5 — Format base set slab canonical text for system prompt injection.
 
     Each slab's canonical_text is injected under a [CORPUS BASE SET] block so
     the model has access to constitutional layer rules and domain context from
     turn 0. Slabs are already dependency-sorted by CorpusStore.base_set_slabs().
+
+    Slab headers include ``collection=<cid>`` when known, so the model can
+    tell which collection each full-text slab belongs to — critical for
+    comparison queries across mining passes.
+
+    Truncation policy is type-aware:
+      - CONSTITUTIONAL / CANONICAL: full ``policy.context.slab_truncation``
+        budget (~8000 chars). These are foundational and need to be complete.
+      - REFERENCE: tighter ~1500-char cap. REFERENCE slabs are mined narrative
+        content included so the model can answer meta-questions about cold
+        corpus, but they don't need every word — one beat's worth of context
+        is usually enough for the model to know the slab exists and can be
+        invoked for full detail via anchor match.
     """
     if not slabs:
         return ""
+    from ..models.enums import SlabType
+    _full_max = policy.context.slab_truncation
+    _ref_max = min(1500, _full_max)
+    cmap = collection_by_id or {}
+
     lines = ["[CORPUS BASE SET]"]
     for slab in slabs:
-        lines.append(f"--- {slab.id} ({slab.type.value}) ---")
+        coll = cmap.get(slab.id)
+        tag = f"{slab.type.value}" + (f", collection={coll}" if coll else "")
+        lines.append(f"--- {slab.id} ({tag}) ---")
         if slab.title:
             lines.append(f"# {slab.title}")
-        # Inject canonical text (truncate very long slabs to preserve budget)
         text = slab.canonical_text or ""
-        _max = policy.context.slab_truncation
+        _max = _ref_max if slab.type == SlabType.REFERENCE else _full_max
         if len(text) > _max:
             text = text[:_max] + "\n[... truncated ...]"
         lines.append(text)

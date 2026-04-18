@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from .drift_monitor import DriftMonitor
     from .draft_manager import DraftManager
     from .gauntlet import GauntletEngine
+    from .slab_matcher import SlabMatcher
 
 _event_log = EventLog()
 logger = logging.getLogger(__name__)
@@ -201,6 +202,7 @@ async def process_turn(
     frame_manager: Optional[FrameManager] = None,
     drift_monitor: Optional[DriftMonitor] = None,
     gauntlet_engine: Optional["GauntletEngine"] = None,
+    slab_matcher: Optional["SlabMatcher"] = None,
     web_mode: str = "off",  # "off" | "on" | "auto"
     think_level: str = "medium",
 ) -> AsyncIterator[dict]:
@@ -259,6 +261,23 @@ async def process_turn(
         rigor_drop=0.0,
     )
 
+    # ── Keyword pre-classifier ───────────────────────────────────
+    # Upgrades the default function BEFORE the system prompt is built,
+    # so function-dependent signals (like review_mode) reach the model
+    # on the turn they're needed. The background LLM classifier still
+    # runs and may disagree in the final metadata — that's accepted:
+    # the pre-classifier only needs to get the GATING right, not the
+    # final category label for the UI badge.
+    from .gate_preclass import preclassify_function
+    _preclass_hit = preclassify_function(user_text)
+    if _preclass_hit is not None:
+        default_classification = MessageClassification(
+            function=_preclass_hit,
+            confidence=0.7,  # heuristic — LLM classifier may override in metadata
+            explicit=False,
+            notes=f"pre-classified via keyword heuristic ({_preclass_hit.value})",
+        )
+
     # ── Step 1: Anchor matching (~0.5s, embedding call only) ─────
     if anchor_matcher:
         match_result = await anchor_matcher.match_all(user_text, default_classification)
@@ -295,18 +314,80 @@ async def process_turn(
                     "invokes": anchor_obj.invokes,
                 })
 
-    # ── Step 4: Runtime header + context packing (instant) ───────
+    # ── Step 3.5: Slab retrieval (RAG over REFERENCE slabs) ───────
+    # CONSTITUTIONAL + CANONICAL slabs are always full-text; REFERENCE
+    # slabs go through semantic retrieval — only those close to the
+    # user's current message get their full text in the prompt, the rest
+    # appear as catalog entries (id + title + short summary).
+    retrieved_ids: set[str] = set()
+    if slab_matcher is not None and slab_matcher.has_cache():
+        try:
+            hits = await slab_matcher.top_k_for(user_text)
+            retrieved_ids = {sid for sid, _score in hits}
+        except Exception as exc:
+            logger.warning("slab retrieval failed, falling back to catalog-only: %r", exc)
+
+    # Close the loop: slabs retrieved for this turn also activate in the
+    # frame, so the graph canvas reflects what the model is actually
+    # reading. Retrieval is a stronger activation signal than base-set
+    # seeding (weight 0.8 vs 0.6) — if something is specifically
+    # surfaced for this query, it should be more prominent than ambient
+    # context. The existing per-turn decay handles fade-out on turns
+    # where the slab isn't re-retrieved.
+    if retrieved_ids and frame_manager and session_id:
+        try:
+            newly_active = frame_manager.activate_retrieved_slabs(
+                session_id, list(retrieved_ids),
+            )
+            if newly_active:
+                logger.debug(
+                    "retrieval activated %d new frame nodes (from %d slabs)",
+                    newly_active, len(retrieved_ids),
+                )
+        except Exception as exc:
+            logger.warning("retrieval activation failed: %r", exc)
+
+    full_text_slabs: list = []
+    catalog_slabs: list = []
+    collection_by_id: dict[str, str] = {}
+    if frame_manager:
+        from ..models.enums import SlabType as _SlabType
+        all_slabs = frame_manager.corpus.base_set_slabs(oli_mode)
+        for s in all_slabs:
+            if s.type in (_SlabType.CONSTITUTIONAL, _SlabType.CANONICAL):
+                full_text_slabs.append(s)
+            elif s.id in retrieved_ids:
+                full_text_slabs.append(s)
+            else:
+                # REFERENCE, not retrieved → catalog only
+                catalog_slabs.append(s)
+        # Collection provenance for every slab we might show the model —
+        # lets it distinguish slabs across mining passes in comparison
+        # queries. Pulled from the registry via deps; if unavailable (e.g.
+        # during tests) the formatters silently omit the tag.
+        try:
+            from ..api import deps as _deps
+            collection_by_id = _deps.registry.slab_collection_map()
+        except Exception:
+            collection_by_id = {}
+    logger.debug(
+        "prompt slabs: full_text=%d catalog=%d retrieved=%d",
+        len(full_text_slabs), len(catalog_slabs), len(retrieved_ids),
+    )
+
+    # ── Step 4: Runtime header + system prompt (instant) ──────────
     header = build_runtime_header(
         oli_mode, default_classification, frame_state, default_drift,
         DampeningLevel.NONE,
         match_result=match_result,
         anchor_hits_context=anchor_hits_ctx,
     )
-
-    base_slabs = None
-    if frame_manager:
-        base_slabs = frame_manager.corpus.base_set_slabs(oli_mode)
-    system_prompt = build_system_prompt(oli_mode, header, base_set_slabs=base_slabs)
+    system_prompt = build_system_prompt(
+        oli_mode, header,
+        base_set_slabs=full_text_slabs or None,
+        catalog_slabs=catalog_slabs or None,
+        collection_by_id=collection_by_id or None,
+    )
 
     messages = build_messages(system_prompt, chat_messages, frame_state)
     messages.append({"role": "user", "content": user_text})

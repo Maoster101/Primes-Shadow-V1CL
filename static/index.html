@@ -3958,7 +3958,7 @@ async function loadCorpusGraph(){
   cAffinityPairs=(data.affinity_pairs||[]).slice();
   cImplicitEdges=(data.implicit_parent_edges||[]).slice();
 
-  // Merge access pattern data from active session frame
+  // Merge access pattern data from active session frame (conversation trail)
   if(currentSessionId){
     try{
       const fr=await fetch(`${API}/sessions/${currentSessionId}/frame`).then(r=>r.json());
@@ -3970,9 +3970,14 @@ async function loadCorpusGraph(){
         n.lastHitTurn=lastHit[n.id]||0;
         n.currentTurn=curTurn;
       });
-      if(typeof _updateSynapticTrail==='function')_updateSynapticTrail();
     }catch(e){}
   }
+  // Build the synaptic trail regardless of session — the narrative trail
+  // relies only on SEQUENCE edges, which exist independent of any chat.
+  // Previously this was gated behind currentSessionId, so cold-corpus
+  // views without an active session showed no spine glow even when
+  // SEQUENCE edges were present.
+  if(typeof _updateSynapticTrail==='function')_updateSynapticTrail();
 
   corpusLoaded=true;
 }
@@ -5110,12 +5115,66 @@ async function loadChats(){
   });
 }
 async function _chatRebindCollection(chatId,currentCid){
-  const next=prompt(`Rebind chat to which collection?\n(current: ${currentCid})\n\nLeave blank to cancel.`,currentCid);
-  if(!next||next===currentCid)return;
-  const res=await fetch(`${API}/chats/${chatId}/collection`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({collection_id:next.trim()||null})});
+  // Fetch the live list of collections so the user picks from a dropdown
+  // instead of free-typing a name (which was producing typos that bound
+  // chats to non-existent collections).
+  let cols=[];
+  try{
+    const r=await fetch(`${API}/collections`);
+    if(r.ok)cols=(await r.json()).collections||[];
+  }catch(e){alert('Could not load collections: '+e.message);return}
+  if(!cols.some(c=>c.id==='default'))cols.unshift({id:'default',name:'default'});
+
+  const next=await _pickFromList(
+    `Rebind chat to which collection?\ncurrent: ${currentCid||'(none)'}`,
+    cols.map(c=>({value:c.id,label:`${c.name||c.id}${c.id===currentCid?' (current)':''}`})),
+    currentCid||'default',
+  );
+  if(next===null||next===currentCid)return;
+  const res=await fetch(`${API}/chats/${chatId}/collection`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({collection_id:next||null})});
   if(!res.ok){alert('Rebind failed: '+await res.text());return}
   pushEvent('gate',`Chat ${chatId} → ${next}`);
   await loadChats();
+}
+
+// Lightweight dropdown picker. Builds a modal in DOM, returns a Promise
+// resolving to the selected value or null on cancel. Used instead of
+// browser prompt() when the input needs to be constrained to a fixed set
+// (e.g. existing collections) — avoids typos that bind chats to nothing.
+function _pickFromList(message,options,defaultValue){
+  return new Promise(resolve=>{
+    const overlay=document.createElement('div');
+    overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:9999;font-family:inherit';
+    const box=document.createElement('div');
+    box.style.cssText='background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:18px 22px;width:360px;max-width:90vw';
+    const msg=document.createElement('div');
+    msg.style.cssText='font-size:11px;color:var(--text);white-space:pre-wrap;margin-bottom:14px;line-height:1.4';
+    msg.textContent=message;
+    const sel=document.createElement('select');
+    sel.style.cssText='width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:7px 9px;font-family:inherit;font-size:12px;margin-bottom:14px;outline:none';
+    options.forEach(o=>{
+      const opt=document.createElement('option');
+      opt.value=o.value;opt.textContent=o.label;
+      if(o.value===defaultValue)opt.selected=true;
+      sel.appendChild(opt);
+    });
+    const btns=document.createElement('div');
+    btns.style.cssText='display:flex;gap:8px;justify-content:flex-end';
+    const cancel=document.createElement('button');
+    cancel.textContent='Cancel';
+    cancel.style.cssText='background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;padding:6px 14px;cursor:pointer;font-family:inherit;font-size:11px';
+    cancel.onclick=()=>{document.body.removeChild(overlay);resolve(null)};
+    const ok=document.createElement('button');
+    ok.textContent='OK';
+    ok.style.cssText='background:rgba(90,200,255,0.1);border:1px solid rgba(90,200,255,0.3);color:#5ac8ff;border-radius:4px;padding:6px 14px;cursor:pointer;font-family:inherit;font-size:11px';
+    ok.onclick=()=>{const v=sel.value;document.body.removeChild(overlay);resolve(v)};
+    btns.appendChild(cancel);btns.appendChild(ok);
+    box.appendChild(msg);box.appendChild(sel);box.appendChild(btns);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    setTimeout(()=>sel.focus(),20);
+    sel.addEventListener('keydown',e=>{if(e.key==='Enter')ok.click();if(e.key==='Escape')cancel.click()});
+  });
 }
 
 // Phase 2B: right-click menu with Rename / Rebind / Regen Title options.

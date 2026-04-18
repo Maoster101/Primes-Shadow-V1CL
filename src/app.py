@@ -49,6 +49,24 @@ async def startup():
     await anchor_matcher.warm_cache()
     print(f"[MATCHER] Anchor embedding cache warmed ({len(deps.corpus.anchors)} anchors)")
 
-    # Preload chat model into VRAM (eliminates cold-start on first message)
+    # Pre-embed all REFERENCE slab canonical_texts for retrieval-augmented
+    # system prompts. The model sees a compact catalog always; the full text
+    # of semantically-relevant slabs gets injected on the turns they matter.
+    await deps.slab_matcher.warm_cache()
+    print(f"[MATCHER] Slab embedding cache warmed ({len(deps.slab_matcher._embed_cache)} REFERENCE slabs)")
+
+    # Reconcile dangling state across the five draft/tentative locations.
+    # Commits ACCEPTED edges whose endpoints have since landed, prunes
+    # orphan registry entries from the library→delete flow, rejects
+    # fully-orphan proposed edges. Safe no-op on a clean system.
+    sweep = deps.lifecycle.run_startup_sweep()
+    print(f"[LIFECYCLE] Startup sweep: {sweep}")
+
+    # Preload chat model into VRAM (eliminates cold-start on first message).
+    # Fire-and-forget: a model swap (e.g. switching families between boots)
+    # can take 30-60s, and blocking startup on it made the server "unreachable"
+    # until the swap completed. The first real request warms the model anyway,
+    # so preload is a latency optimization, not a correctness dependency.
+    import asyncio
     from .services import ollama
-    await ollama.preload_model()
+    asyncio.create_task(ollama.preload_model())

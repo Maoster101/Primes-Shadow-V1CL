@@ -1,0 +1,150 @@
+- id: mined_anchor_831744e6_v1
+  canonical_phrase: Quantum water
+  aliases:
+  - encoded water
+  invokes: []
+  notes: The refined, transmissible form of energy that powers the civilization, replacing
+    physical conduits.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_a8584634_v1
+  canonical_phrase: Plasma ion cloud accelerator
+  aliases:
+  - accelerator
+  invokes: []
+  notes: A core piece of technology required to initiate the power generation process.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_2e67d46d_v1
+  canonical_phrase: Xenonite prime
+  aliases: []
+  invokes: []
+  notes: The specific building material used for the grid infrastructure.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_f79d1d88_v1
+  canonical_phrase: Growing family
+  aliases: []
+  invokes: []
+  notes: This phrase serves as the central, thematic concept or claim made in the
+    post-credits sequence, suggesting a commentary on societal values.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_729090b9_v1
+  canonical_phrase: family (redefined)
+  aliases:
+  - Growing family
+  invokes: []
+  notes: This is the central conceptual entity of the beat. The word 'family' is not
+    merely mentioned, but its meaning is actively shown to flip or change, making
+    the redefined concept a critical recurring theme.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_2332529c_v1
+  canonical_phrase: Moral Compression
+  aliases: []
+  invokes: []
+  notes: This phrase titles the beat, indicating a moment where the narrative forces
+    a highly concentrated, emotionally impactful realization or thematic shift.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_8229926e_v1
+  canonical_phrase: Leaving room for light
+  aliases:
+  - light starts runnin’ out
+  invokes: []
+  notes: This is the core, metaphorical definition of true support and connection
+    used in the segment, representing emotional safety during crisis.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []

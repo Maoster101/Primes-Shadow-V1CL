@@ -350,6 +350,94 @@ def build_sequence_edges(proposals: list[MiningProposal]) -> list[EdgeProposal]:
     return edges
 
 
+# ─── Co-occurrence edges (slab ↔ anchor) ─────────────────────────────────
+
+
+def build_cooccurrence_edges(proposals: list[MiningProposal]) -> list[EdgeProposal]:
+    """Emit LINKS edges between slabs and anchors that co-occur.
+
+    Without this pass, anchors mined from a narrative float disconnected
+    from the slabs that discuss them — the graph has a SEQUENCE spine of
+    slabs plus an orphaned cluster of entity anchors. This function stitches
+    them together using two signals:
+
+      1. **Phrase-in-text** (weight 0.8): the anchor's ``canonical_phrase``
+         appears as a word-bounded match inside a slab's ``canonical_text``.
+         Strong evidence the slab elaborates on the anchor concept.
+      2. **Shared segment** (weight 0.55): both proposals were extracted
+         from the same narrative segment (same ``source_pairs[0]``) without
+         textual overlap. Weaker but meaningful — the mining LLM put them
+         in the same extraction unit, so they belong to the same beat.
+
+    Edge direction: slab → anchor. This matches the existing convention
+    where ``slab.links.anchors`` points FROM the slab TO the anchors it
+    mentions. Downstream `/push-mined` resolution treats both endpoints
+    uniformly, so directionality is a documentation/UX choice.
+
+    Dedup is by (slab_label_lowercase, anchor_phrase_lowercase) — one edge
+    per (slab, anchor) pair regardless of how many signals fired.
+    """
+    slabs = [p for p in proposals if p.proposal_type == "slab"]
+    anchors = [
+        p for p in proposals
+        if p.proposal_type == "anchor" and p.canonical_phrase
+    ]
+    if not slabs or not anchors:
+        return []
+
+    edges: list[EdgeProposal] = []
+    seen_pairs: set[tuple[str, str]] = set()
+
+    for slab in slabs:
+        slab_label = slab.title or slab.canonical_text[:40]
+        slab_text_lower = slab.canonical_text.lower()
+        slab_seg = slab.source_pairs[0] if slab.source_pairs else None
+
+        for anchor in anchors:
+            phrase = anchor.canonical_phrase.strip()
+            if not phrase:
+                continue
+            anchor_seg = anchor.source_pairs[0] if anchor.source_pairs else None
+
+            # Phrase-in-text: word-bounded, case-insensitive
+            pattern = re.escape(phrase.lower())
+            phrase_match = bool(
+                re.search(rf"\b{pattern}\b", slab_text_lower)
+            )
+
+            # Shared segment (same narrative beat)
+            same_segment = (
+                slab_seg is not None
+                and anchor_seg is not None
+                and slab_seg == anchor_seg
+            )
+
+            if not (phrase_match or same_segment):
+                continue
+
+            key = (slab_label.lower(), phrase.lower())
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+
+            signals: list[str] = []
+            if phrase_match:
+                signals.append("phrase_in_text")
+            if same_segment:
+                signals.append(f"shared_segment_{slab_seg}")
+            weight = 0.8 if phrase_match else 0.55
+
+            edges.append(EdgeProposal(
+                edge_type="LINKS",
+                from_label=slab_label,
+                to_label=phrase,
+                confidence=weight,
+                justification=f"Co-occurrence: {', '.join(signals)}",
+            ))
+
+    return edges
+
+
 # ─── Miner class ─────────────────────────────────────────────────────────
 
 
@@ -407,9 +495,17 @@ class NarrativeMiner:
         # Keep source order (by segment), then confidence as tiebreaker
         all_proposals.sort(key=lambda p: (p.source_pairs[0] if p.source_pairs else 999, -p.confidence))
 
-        # SEQUENCE edges — narrative miner's signature product
+        # SEQUENCE edges — slab-to-slab narrative spine
         seq_edges = build_sequence_edges(all_proposals)
         seq_edges = [e for e in seq_edges if e.confidence >= min_confidence]
+
+        # LINKS edges — slab-to-anchor co-occurrence, so anchors aren't
+        # orphaned from the narrative spine (they attach to the slabs
+        # that elaborate them, via phrase match or segment co-occurrence).
+        cooc_edges = build_cooccurrence_edges(all_proposals)
+        cooc_edges = [e for e in cooc_edges if e.confidence >= min_confidence]
+
+        all_edges = seq_edges + cooc_edges
 
         return {
             "format": "narrative",
@@ -439,10 +535,10 @@ class NarrativeMiner:
                     "confidence": round(e.confidence, 2),
                     "justification": e.justification,
                 }
-                for e in seq_edges
+                for e in all_edges
             ],
             "proposal_count": len(all_proposals),
-            "edge_count": len(seq_edges),
+            "edge_count": len(all_edges),
             "source_label": source_label,
         }
 

@@ -1,0 +1,262 @@
+- id: mined_slab_8cdb0f7b_coherence_v1
+  payload:
+    intent:
+    - 'This slab establishes the core technological premise: the source, the mechanism
+      (quantum conversion), and the initial product (encoded water).'
+    invariants:
+    - The process begins with an exploding wire leading to the manufacturing of a
+      plasma ion cloud accelerator, which facilitates fusion
+    - This fusion power system is described as a lifeblood and circulatory system,
+      utilizing plasma and neutron fusion as its core source
+    - The output is then channeled through a nozzle, which performs a quantum conversion
+      of the fusion energy into encoded water, allowing for a growing power step
+    non_assumptions: []
+    warnings: []
+    heuristics: []
+    markers: []
+    rules: []
+    activation_clause: []
+    canonical_quote_handles: []
+    closing_clause: null
+  version: v1
+  lifecycle_status: ACTIVE
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on:
+  - mined_slab_8cdb0f7b_v1
+  supports:
+  - mined_slab_8cdb0f7b_v1
+  assumptions: []
+- id: mined_slab_f5d5c0a4_coherence_v1
+  payload:
+    intent:
+    - 'This section details the practical application of the technology, moving from
+      infrastructure (grid/encoders) to the ultimate goal: human energy absorption
+      and expansion.'
+    invariants:
+    - The quantum water is transmitted directly to nozzles, eliminating the need for
+      traditional hoses
+    - The narrative also mentions the xenonite prime analogy for grid building materials,
+      solving the 'grey goo' problem through a family collaboration on OLI for all
+      quantum encoders and decoders
+    - Ultimately, drinking this fusion juice allows energy to be directly absorbed
+      as life force for humans, enabling rapid colonial expansion
+    non_assumptions: []
+    warnings: []
+    heuristics: []
+    markers: []
+    rules: []
+    activation_clause: []
+    canonical_quote_handles: []
+    closing_clause: null
+  version: v1
+  lifecycle_status: ACTIVE
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on:
+  - mined_slab_f5d5c0a4_v1
+  supports:
+  - mined_slab_f5d5c0a4_v1
+  assumptions: []
+- id: mined_slab_b3654afe_coherence_v1
+  payload:
+    intent:
+    - This serves as the thematic resolution, grounding the massive technological
+      scope in a deeply personal, familial message.
+    invariants:
+    - 'The piece concludes with a final, reflective moment: ''For those who came before,
+      and for those who come after,'' followed by a final, conclusive line from Vin
+      Diesel, emphasizing the theme of family'
+    non_assumptions: []
+    warnings: []
+    heuristics: []
+    markers: []
+    rules: []
+    activation_clause: []
+    canonical_quote_handles: []
+    closing_clause: null
+  version: v1
+  lifecycle_status: ACTIVE
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on:
+  - mined_slab_b3654afe_v1
+  supports:
+  - mined_slab_b3654afe_v1
+  assumptions: []
+- id: mined_slab_a1b98985_coherence_v1
+  payload:
+    intent:
+    - This complex beat escalates the stakes from mere energy production to cosmic
+      consumption, culminating in a highly symbolic, meta-narrative sequence that
+      breaks the fourth wall.
+    invariants:
+    - The ultimate goal is to consume all matter, feeding the fusion process by deconstructing
+      matter directly into energy
+    - 'This process leads to a final, solitary scene: one lone person floating in
+      the actual infinite void, fading out'
+    - The narrative then shifts dramatically to a cinematic sequence involving Vin
+      Diesel, who catches the falling person near a black hole, followed by a montage
+      of Bob Burnham's 'Divine Disaster' class logic, and finally, a confrontation
+      where Vin Diesel holds PVA glue and a stick over a horse, asking if the subject
+      is still present
+    non_assumptions: []
+    warnings: []
+    heuristics: []
+    markers: []
+    rules: []
+    activation_clause: []
+    canonical_quote_handles: []
+    closing_clause: null
+  version: v1
+  lifecycle_status: ACTIVE
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on:
+  - mined_slab_a1b98985_v1
+  supports:
+  - mined_slab_a1b98985_v1
+  assumptions: []
+- id: mined_slab_663bff4c_coherence_v1
+  payload:
+    intent:
+    - This beat serves as the emotional climax and resolution of the sequence, delivering
+      a specific, resonant claim that is immediately validated by the audience's reaction,
+      confirming the thematic success of the preceding setup.
+    invariants:
+    - The second beat delivers the core thematic message through dialogue, delivered
+      by a voice described as gravelly, calm, and devoid of dramatic flourish
+    - The character delivers the line, 'We thought growing family was all that mattered
+    - ''' This statement is followed by a deliberate pause, allowing the weight of
+      the words to settle'
+    non_assumptions: []
+    warnings: []
+    heuristics: []
+    markers: []
+    rules: []
+    activation_clause: []
+    canonical_quote_handles: []
+    closing_clause: null
+  version: v1
+  lifecycle_status: ACTIVE
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on:
+  - mined_slab_663bff4c_v1
+  supports:
+  - mined_slab_663bff4c_v1
+  assumptions: []
+- id: mined_slab_c8878f8b_coherence_v1
+  payload:
+    intent:
+    - This beat functions as the initial setup, using auditory cues (soft sound, boot
+      on metal) to build tension and establish a mood of quiet, deliberate presence
+      before the dialogue begins.
+    invariants:
+    - The first beat establishes a powerful sense of anticipation through minimal
+      sensory input
+    - The sequence begins with a soft, isolated sound, specifically the distinct sound
+      of a boot making contact with metal
+    - The description emphasizes that the action is not visually detailed, but rather
+      defined by its mere presence
+    non_assumptions: []
+    warnings: []
+    heuristics: []
+    markers: []
+    rules: []
+    activation_clause: []
+    canonical_quote_handles: []
+    closing_clause: null
+  version: v1
+  lifecycle_status: ACTIVE
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on:
+  - mined_slab_c8878f8b_v1
+  supports:
+  - mined_slab_c8878f8b_v1
+  assumptions: []
+- id: mined_slab_e40c0806_coherence_v1
+  payload:
+    intent:
+    - This beat serves as a critical pivot point (Reframe), shifting the focus from
+      external conflict to internal, existential questioning regarding the group's
+      motivation and definition of self.
+    invariants:
+    - The conversation culminates in a sudden, profound realization, encapsulated
+      by the line, “Didn’t stop to think who we were burnin’ to do it
+    - ” This statement forces a momentary silence, allowing the underlying meaning
+      of the word 'family' to flip and fundamentally change in real time, signaling
+      a major thematic shift in the narrative
+    non_assumptions: []
+    warnings: []
+    heuristics: []
+    markers: []
+    rules: []
+    activation_clause: []
+    canonical_quote_handles: []
+    closing_clause: null
+  version: v1
+  lifecycle_status: ACTIVE
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on:
+  - mined_slab_e40c0806_v1
+  supports:
+  - mined_slab_e40c0806_v1
+  assumptions: []
+- id: mined_slab_0ff89414_coherence_v1
+  payload:
+    intent:
+    - This beat serves as a major thematic pivot, providing the emotional core of
+      the narrative. It fundamentally reframes the concept of 'family' from physical
+      strength or immediate support (stacking on fire) to emotional capacity and vulnerability
+      (leaving room when the light fails).
+    invariants:
+    - The conversation shifts to a profound redefinition of family, beginning with
+      the statement that 'Family ain’t who you stack on top of the fire
+    - ''' This is immediately followed by the clarifying beat: ''It’s who you leave
+      room for when the light starts runnin’ out'
+    - ''' The emotional staging is noted as having no swelling score, relying instead
+      on pure sincerity to deliver this final, critical message'
+    non_assumptions: []
+    warnings: []
+    heuristics: []
+    markers: []
+    rules: []
+    activation_clause: []
+    canonical_quote_handles: []
+    closing_clause: null
+  version: v1
+  lifecycle_status: ACTIVE
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on:
+  - mined_slab_0ff89414_v1
+  supports:
+  - mined_slab_0ff89414_v1
+  assumptions: []

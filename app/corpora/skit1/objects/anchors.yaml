@@ -1,0 +1,299 @@
+- id: mined_anchor_131397be_v1
+  canonical_phrase: Narrative Moral Corpus
+  aliases:
+  - NMC
+  invokes: []
+  notes: The name of the proposed dataset and research project.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_0b408529_v1
+  canonical_phrase: RLHF
+  aliases:
+  - Reinforcement Learning from Human Feedback
+  invokes: []
+  notes: A current technique being contrasted with the proposed narrative corpus approach.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_91e82922_v1
+  canonical_phrase: Vertex AI
+  aliases: []
+  invokes: []
+  notes: The existing infrastructure platform to be utilized for sentiment analysis
+    at scale.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_8bfa9075_v1
+  canonical_phrase: Chimera Jacket
+  aliases:
+  - Jacket
+  invokes: []
+  notes: The central artifact and focus of the project; represents a synthesis of
+    moral understanding.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_491afcff_v1
+  canonical_phrase: Moral Graph
+  aliases:
+  - Graph of Graphs
+  invokes: []
+  notes: Represents the structured representation of moral understanding that the
+    jacket aims to embody.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_ce36ce9a_v1
+  canonical_phrase: Mirror
+  aliases:
+  - Samirai
+  invokes: []
+  notes: An exoskeleton component, integral to the Chimera Jacket's functionality
+    and likely a larger system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_24fa4c36_v1
+  canonical_phrase: Psychtown Consortium
+  aliases: []
+  invokes: []
+  notes: The organization responsible for defining the jacket's specifications, indicating
+    a structured development process.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_0a2ce405_v1
+  canonical_phrase: Narrative Moral Corpus
+  aliases: []
+  invokes: []
+  notes: The name of the proposed knowledge system; central to the entire concept.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_10d87b2c_v1
+  canonical_phrase: weighted moral graph
+  aliases: []
+  invokes: []
+  notes: A key technical component of the proposed system; represents the structured
+    moral knowledge.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_5568b081_v1
+  canonical_phrase: delta
+  aliases: []
+  invokes: []
+  notes: Represents the difference between aspirational and baseline moral signals,
+    a key area of focus.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_d262412d_v1
+  canonical_phrase: RLHF
+  aliases:
+  - Reinforcement Learning from Human Feedback
+  invokes: []
+  notes: A competing methodology being contrasted with the Narrative Moral Corpus
+    approach.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_16e623a1_v1
+  canonical_phrase: Chimera Jacket
+  aliases:
+  - the jacket
+  invokes: []
+  notes: The central artifact and focus of the pitch; represents a novel approach
+    to moral reasoning and exoskeletal integration.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_0083a2f2_v1
+  canonical_phrase: Mirror/Samurai
+  aliases:
+  - Mirror
+  - Samurai
+  invokes: []
+  notes: Represents a related project, likely an exoskeleton, that the Chimera Jacket
+    integrates with.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_72a8f0d0_v1
+  canonical_phrase: psychtown consortium
+  aliases: []
+  invokes: []
+  notes: The organization responsible for defining the Chimera Jacket's specifications.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
