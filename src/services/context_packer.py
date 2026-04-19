@@ -388,17 +388,36 @@ def _format_catalog(
     if not slabs:
         return ""
     cmap = collection_by_id or {}
-    lines = ["[CORPUS CATALOG]"]
-    lines.append(
-        "(slabs available for retrieval — full text not loaded this turn)"
-    )
+    # Collapse per-collection so the surface is a short awareness summary,
+    # NOT an enumerated list of IDs the model will parrot verbatim. Smaller
+    # models (gemma 3, and any model that hasn't been RLHF'd against echoing
+    # structured context) treat per-slab catalog lines as a transcript to
+    # recite. A per-collection count keeps the affordance ("these corpora
+    # exist, this one has N reference slabs") without the echo surface.
+    by_coll: dict[str, int] = {}
+    uncollected = 0
     for slab in slabs:
-        title = slab.title or slab.id
-        summary = _slab_summary(slab)
         coll = cmap.get(slab.id)
-        tag = f"{slab.type.value}" + (f", collection={coll}" if coll else "")
-        lines.append(f"{slab.id} [{tag}]: {title} — {summary}")
-    lines.append("[/CORPUS CATALOG]")
+        if coll:
+            by_coll[coll] = by_coll.get(coll, 0) + 1
+        else:
+            uncollected += 1
+    lines = ["[CORPUS AWARENESS]"]
+    lines.append(
+        "The user's corpus contains additional reference slabs beyond what "
+        "is loaded below. The bodies of these slabs are NOT in your context "
+        "this turn — you cannot read them. You are only being told what "
+        "collections exist so you don't claim ignorance of them. If the "
+        "user asks about specific content in one of these collections, say "
+        "you'd need it loaded first; do NOT invent retrieval syntax, tool "
+        "calls, or fabricated slab contents."
+    )
+    lines.append("Collections with slabs not loaded this turn:")
+    for coll in sorted(by_coll):
+        lines.append(f"  - {coll}: {by_coll[coll]} reference slab(s)")
+    if uncollected:
+        lines.append(f"  - (unassigned): {uncollected} slab(s)")
+    lines.append("[/CORPUS AWARENESS]")
     return "\n".join(lines)
 
 

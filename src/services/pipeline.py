@@ -316,24 +316,127 @@ async def process_turn(
 
     # ── Step 3.5: Slab retrieval (RAG over REFERENCE slabs) ───────
     # CONSTITUTIONAL + CANONICAL slabs are always full-text; REFERENCE
-    # slabs go through semantic retrieval — only those close to the
-    # user's current message get their full text in the prompt, the rest
-    # appear as catalog entries (id + title + short summary).
+    # slabs go through a multi-signal retrieval pipeline:
+    #
+    #   (a) Semantic similarity — cosine on nomic-embed-text against the
+    #       user's message (slab_matcher.top_k_for).
+    #   (b) Frame activation bridge — slabs currently active in the frame
+    #       via non-base_set sources (anchor_match cascade, prior retrieval,
+    #       user actions) with weight >= 0.5 promote to full-text, so the
+    #       model sees the content the frame says is "live this turn".
+    #   (c) Collection-name mentions — if the user names a collection
+    #       (e.g. "vindiesel5"), pull all that collection's slabs. Handles
+    #       abbreviations/proper nouns that semantic embeddings can't match.
+    #   (d) Edge-traversal expansion — for each slab surfaced by (a-c),
+    #       walk 1-hop via corpus.edges to add neighbors (SEQUENCE neighbors
+    #       for narrative continuity, LINKS neighbors for anchor context).
+    #
+    # The four signals converge on a single ``retrieved_ids`` set; the
+    # slab-split logic below promotes anything in it to full-text.
+    # Capped at MAX_REFERENCE_FULL_TEXT to bound token budget.
+    MAX_REFERENCE_FULL_TEXT = 25
+    EDGE_EXPANSION_CAP = 10
+
     retrieved_ids: set[str] = set()
+    signal_counts = {"semantic": 0, "frame": 0, "collection": 0, "edges": 0}
+
+    # (a) Semantic retrieval
     if slab_matcher is not None and slab_matcher.has_cache():
         try:
             hits = await slab_matcher.top_k_for(user_text)
-            retrieved_ids = {sid for sid, _score in hits}
+            sem_ids = {sid for sid, _score in hits}
+            retrieved_ids.update(sem_ids)
+            signal_counts["semantic"] = len(sem_ids)
         except Exception as exc:
-            logger.warning("slab retrieval failed, falling back to catalog-only: %r", exc)
+            logger.warning("slab retrieval failed: %r", exc)
 
-    # Close the loop: slabs retrieved for this turn also activate in the
-    # frame, so the graph canvas reflects what the model is actually
-    # reading. Retrieval is a stronger activation signal than base-set
-    # seeding (weight 0.8 vs 0.6) — if something is specifically
-    # surfaced for this query, it should be more prominent than ambient
-    # context. The existing per-turn decay handles fade-out on turns
-    # where the slab isn't re-retrieved.
+    # (b) Frame-activation bridge — any slab the frame says is live this
+    # turn (anchor cascade, etc) with non-base_set source and meaningful weight.
+    if frame_state is not None:
+        before = len(retrieved_ids)
+        for sid, weight in frame_state.active_slabs.items():
+            if weight < 0.5:
+                continue
+            sources = frame_state.activation_sources.get(sid, [])
+            # Skip base_set-only (those are CONSTITUTIONAL/CANONICAL or
+            # ambient REFERENCE seeding that hasn't been specifically engaged).
+            if sources and all(s.source_type == "base_set" for s in sources):
+                continue
+            if frame_manager and sid in frame_manager.corpus.slabs:
+                retrieved_ids.add(sid)
+        signal_counts["frame"] = len(retrieved_ids) - before
+
+    # (c) Collection-name detection — pull all slabs from collections the
+    # user named. Two match modes:
+    #   1. Full-name substring: "vindiesel5" matches collection vindiesel5
+    #   2. Version-suffix abbreviation: "v5" or "version 5" matches any
+    #      collection whose ID ends with that number (vindiesel5, vinN_v5)
+    # The second mode is critical because users abbreviate mining passes
+    # ("compare v5 with v6") and those short forms don't appear as
+    # substrings in full collection IDs.
+    if frame_manager:
+        try:
+            import re as _re
+            from ..api import deps as _deps
+            low = (user_text or "").lower()
+            active_ids = list(_deps.registry.active_ids)
+            mentioned = set()
+            # Full-name match
+            for cid in active_ids:
+                if len(cid) >= 3 and cid.lower() in low:
+                    mentioned.add(cid)
+            # Version-suffix match: "v5", "version 5", "v_5" → find
+            # collections whose trailing digits equal the mentioned number.
+            # "vindiesel5" → trailing "5"; "vin_diesel_v2" → trailing "2".
+            # Pre-extract trailing digits once per collection.
+            trailing_digits = {}
+            for cid in active_ids:
+                md = _re.search(r"(\d+)$", cid)
+                if md:
+                    trailing_digits[cid] = md.group(1)
+            for m in _re.finditer(r"\bv(?:ersion)?[_\s]*(\d+)\b", low):
+                num = m.group(1)
+                for cid, tail in trailing_digits.items():
+                    if tail == num:
+                        mentioned.add(cid)
+            if mentioned:
+                before = len(retrieved_ids)
+                for cid in mentioned:
+                    store = _deps.registry.get_store(cid)
+                    if store:
+                        retrieved_ids.update(store.slabs.keys())
+                signal_counts["collection"] = len(retrieved_ids) - before
+        except Exception as exc:
+            logger.warning("collection-name detection failed: %r", exc)
+
+    # (d) 1-hop edge traversal — for each slab already in retrieved_ids,
+    # add its neighbor slabs via corpus.edges up to a cap. Prioritizes
+    # SEQUENCE and LINKS edges (narrative and semantic), deprioritizes
+    # SUPPORTS (usually bundle→slab, less useful for context expansion).
+    if retrieved_ids and frame_manager:
+        seed_ids = set(retrieved_ids)
+        expansion: set[str] = set()
+        prioritized_types = ("SEQUENCE", "LINKS", "INVOKES", "SUPPORTS", "PARENT_OF")
+        for etype in prioritized_types:
+            if len(expansion) >= EDGE_EXPANSION_CAP:
+                break
+            for e in frame_manager.corpus.edges.values():
+                if e.type.value != etype:
+                    continue
+                if len(expansion) >= EDGE_EXPANSION_CAP:
+                    break
+                neighbor = None
+                if e.from_node in seed_ids and e.to_node not in seed_ids:
+                    neighbor = e.to_node
+                elif e.to_node in seed_ids and e.from_node not in seed_ids:
+                    neighbor = e.from_node
+                if neighbor and neighbor in frame_manager.corpus.slabs:
+                    expansion.add(neighbor)
+        retrieved_ids.update(expansion)
+        signal_counts["edges"] = len(expansion)
+
+    # Close the loop: slabs retrieved/augmented for this turn activate in
+    # the frame so the graph canvas reflects what the model is reading.
     if retrieved_ids and frame_manager and session_id:
         try:
             newly_active = frame_manager.activate_retrieved_slabs(
@@ -350,29 +453,28 @@ async def process_turn(
     full_text_slabs: list = []
     catalog_slabs: list = []
     collection_by_id: dict[str, str] = {}
+    reference_count = 0  # REFERENCE slabs that made it to full-text (budget cap)
     if frame_manager:
         from ..models.enums import SlabType as _SlabType
         all_slabs = frame_manager.corpus.base_set_slabs(oli_mode)
         for s in all_slabs:
             if s.type in (_SlabType.CONSTITUTIONAL, _SlabType.CANONICAL):
                 full_text_slabs.append(s)
-            elif s.id in retrieved_ids:
+            elif s.id in retrieved_ids and reference_count < MAX_REFERENCE_FULL_TEXT:
                 full_text_slabs.append(s)
+                reference_count += 1
             else:
-                # REFERENCE, not retrieved → catalog only
+                # REFERENCE, not retrieved OR over cap → catalog only
                 catalog_slabs.append(s)
-        # Collection provenance for every slab we might show the model —
-        # lets it distinguish slabs across mining passes in comparison
-        # queries. Pulled from the registry via deps; if unavailable (e.g.
-        # during tests) the formatters silently omit the tag.
         try:
             from ..api import deps as _deps
             collection_by_id = _deps.registry.slab_collection_map()
         except Exception:
             collection_by_id = {}
-    logger.debug(
-        "prompt slabs: full_text=%d catalog=%d retrieved=%d",
-        len(full_text_slabs), len(catalog_slabs), len(retrieved_ids),
+    print(
+        f"[RAG] slabs: full_text={len(full_text_slabs)} (ref={reference_count}) "
+        f"catalog={len(catalog_slabs)} signals={signal_counts}",
+        flush=True,
     )
 
     # ── Step 4: Runtime header + system prompt (instant) ──────────
@@ -536,6 +638,13 @@ async def process_turn(
                     "wrapped_spans": [w.model_dump() for w in match_result.wrapped_spans],
                     "correction_hint": match_result.correction_hint,
                 }
+            meta["retrieval"] = {
+                "full_text": len(full_text_slabs),
+                "reference_full": reference_count,
+                "catalog": len(catalog_slabs),
+                "retrieved_count": len(retrieved_ids),
+                "signals": signal_counts,
+            }
             if frame_state:
                 meta["frame_summary"] = {
                     "active_nodes": frame_state.active_nodes[:12],
