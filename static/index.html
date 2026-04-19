@@ -5458,7 +5458,25 @@ async function sendMessage(){
             else{document.getElementById('drift-badge').classList.remove('warn');document.getElementById('drift-badge').style.color=''}
           }else if(data.drift_estimate){const d=data.drift_estimate;const comp=((d.affect_density+d.claim_volatility+d.rigor_drop)/3*100).toFixed(0);document.getElementById('drift-badge').textContent=`drift: ${comp}%`}
           if(data.match_result){(data.match_result.auto_activate||[]).forEach(m=>pushEvent('match',`T1: ${m.matched_phrase} (${(m.confidence*100).toFixed(0)}%)`));(data.match_result.candidates||[]).forEach(m=>pushEvent('match',`T2: ${m.matched_phrase} (${(m.confidence*100).toFixed(0)}%)`))}
-          if(data.retrieval){const r=data.retrieval;const sigs=r.signals||{};const firedParts=Object.entries(sigs).filter(([,v])=>v>0).map(([k,v])=>`${k}:${v}`);const firedStr=firedParts.length?firedParts.join(' '):'none';pushEvent('match',`RAG ref-full=${r.reference_full} catalog=${r.catalog} → ${firedStr}`);}
+          if(data.retrieval){
+            const r=data.retrieval;const sigs=r.signals||{};
+            // Core summary: graph walk → subspace → ranked, plus any
+            // direct/override signals.
+            const parts=[];
+            if(sigs.seeds)parts.push(`seeds:${sigs.seeds}`);
+            if(sigs.subspace)parts.push(`subspace:${sigs.subspace}`);
+            if(sigs.ranked)parts.push(`ranked:${sigs.ranked}`);
+            if(sigs.frame)parts.push(`frame:${sigs.frame}`);
+            if(sigs.collection)parts.push(`coll:${sigs.collection}`);
+            if(sigs.conflicts)parts.push(`conflict:${sigs.conflicts}`);
+            if(sigs.flat)parts.push(`flat:${sigs.flat}`);
+            const firedStr=parts.length?parts.join(' '):'none';
+            pushEvent('match',`RAG ref-full=${r.reference_full} catalog=${r.catalog} → ${firedStr}`);
+            // Edge breakdown as a second line so the type mix is legible.
+            const ew=sigs.edges_walked||{};
+            const edgeParts=Object.entries(ew).filter(([,v])=>v>0).map(([k,v])=>`${k}:${v}`);
+            if(edgeParts.length)pushEvent('match',`  edges → ${edgeParts.join(' ')}`);
+          }
           if(data.frame_summary){document.getElementById('frame-badge').textContent=`frame: ${data.frame_summary.active_nodes?.length||0}`;if(data.frame_summary.active_nodes?.length)pushEvent('frame',`${data.frame_summary.active_nodes.length} active, mismatch: ${(data.frame_summary.mismatch_score*100).toFixed(0)}%`)}
           if(data.oli_flags)(data.oli_flags).forEach(f=>pushEvent('gate',`OLI [${f.layer}] ${f.name}: "${f.pattern}"${f.overridable?'':' (non-overridable)'}`));
           if(data.oli_validation){const ov=data.oli_validation;if(ov.status!=='PASS'){pushEvent('gate',`OLI validation: ${ov.status} (${ov.flag_count} flags${ov.regenerated?' - regenerated':''})`);if(ov.status==='BLOCK'){const warn=document.createElement('div');warn.className='oli-block-notice';warn.style.cssText='background:#3a1a1a;border:1px solid #ff4040;border-radius:6px;padding:8px 12px;margin:6px 0;font-size:0.85em;color:#ff8080';warn.innerHTML='<b>[OLI BLOCK]</b> Response contains non-overridable violations that persisted after regeneration.'+(data.oli_block_reasons||[]).map(r=>'<br>'+r).join('');aDiv.appendChild(warn)}}}

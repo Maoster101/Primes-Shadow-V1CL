@@ -100,6 +100,7 @@ class SlabMatcher:
         query_text: str,
         threshold: float = 0.55,
         max_k: int = 15,
+        id_filter: Optional[set[str]] = None,
     ) -> list[tuple[str, float]]:
         """Return ``(slab_id, cosine_score)`` pairs for REFERENCE slabs
         semantically close to ``query_text``, sorted descending.
@@ -108,11 +109,19 @@ class SlabMatcher:
           * score >= ``threshold`` (default 0.55 — matches AnchorMatcher's
             "candidate" tier for nomic-embed-text).
           * Cap at ``max_k`` entries to bound the token budget.
+          * If ``id_filter`` is provided, only slabs whose id is in the
+            set are considered — this is the "subspace rank" case used by
+            edge-constrained retrieval. The rest of the corpus is excluded
+            even if it would have scored higher. Empty filter returns an
+            empty list (caller should fall back explicitly).
 
         Returns an empty list if the cache is cold, the query is empty, or
         no slab scores above threshold.
         """
         if self._matrix is None or not query_text or not query_text.strip():
+            return []
+        if id_filter is not None and not id_filter:
+            # Explicit empty subspace — caller asked for nothing.
             return []
 
         vecs = await ollama.embed([query_text.strip().lower()])
@@ -127,14 +136,17 @@ class SlabMatcher:
         # Vectorized cosine similarity: one matrix-vector product.
         scores = self._matrix @ q  # shape: (N,)
 
-        # argsort descending, filter by threshold, cap at max_k
+        # argsort descending, filter by threshold, subspace filter, cap at max_k
         idx_sorted = np.argsort(-scores)
         results: list[tuple[str, float]] = []
         for i in idx_sorted:
             score = float(scores[i])
             if score < threshold:
                 break  # sorted, no later entry will pass
-            results.append((self._ordered_ids[i], score))
+            sid = self._ordered_ids[i]
+            if id_filter is not None and sid not in id_filter:
+                continue
+            results.append((sid, score))
             if len(results) >= max_k:
                 break
         return results

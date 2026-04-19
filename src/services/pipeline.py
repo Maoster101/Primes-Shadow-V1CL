@@ -36,6 +36,94 @@ _event_log = EventLog()
 logger = logging.getLogger(__name__)
 
 
+# ── Edge-constrained retrieval ─────────────────────────────────────
+# Per-edge-type budgets for subspace construction. Typed edges act as
+# dimensional filters: INVOKES is curator-authored precision (anchor says
+# "this slab belongs to me"), SEQUENCE is narrative spine, LINKS is
+# lexical co-occurrence (weaker but broader net). CONFLICTS is special-
+# cased: whenever a conflict edge is traversed, BOTH endpoints are forced
+# into the result regardless of budget — seeing one side of a conflict
+# without the other is epistemically broken.
+_EDGE_BUDGETS = {
+    "INVOKES":   8,
+    "SEQUENCE":  10,
+    "SUPPORTS":  6,
+    "LINKS":     6,
+    "PARENT_OF": 4,
+    # CONFLICTS handled separately — no budget cap, always both endpoints.
+}
+
+
+def _build_edge_subspace(
+    corpus,
+    seed_ids: set[str],
+    budgets: dict[str, int] = _EDGE_BUDGETS,
+) -> tuple[set[str], set[str], dict[str, int]]:
+    """Walk typed edges 1 hop from seed_ids to build a candidate slab
+    subspace for semantic ranking.
+
+    Returns:
+      subspace:       set of slab ids reachable from seeds (bounded by
+                      per-type budgets)
+      conflict_forced: set of slab ids pulled in via CONFLICTS edges, which
+                      bypass the ranker — both endpoints of any conflict
+                      must be visible to the model.
+      edges_walked:   dict of edge_type -> count actually traversed
+
+    Slabs are the only node type added to subspace (anchors/bundles are
+    already in the frame or appear via INVOKES expansion). The `seed_ids`
+    set can contain any node type — the walker projects to slab neighbors.
+    """
+    subspace: set[str] = set()
+    conflict_forced: set[str] = set()
+    edges_walked: dict[str, int] = {}
+
+    if not seed_ids or not corpus:
+        return subspace, conflict_forced, edges_walked
+
+    slab_ids = set(corpus.slabs.keys())
+    edges = list(corpus.edges.values())
+
+    # CONFLICTS first — always include both endpoints, no budget.
+    for e in edges:
+        if e.type.value != "CONFLICTS":
+            continue
+        if e.from_node in seed_ids or e.to_node in seed_ids:
+            for endpoint in (e.from_node, e.to_node):
+                if endpoint in slab_ids:
+                    conflict_forced.add(endpoint)
+            edges_walked["CONFLICTS"] = edges_walked.get("CONFLICTS", 0) + 1
+
+    # Typed walk with per-type budgets. Higher-weight edges first within
+    # each type so that if budget is tight the strongest signals win.
+    for etype, cap in budgets.items():
+        if cap <= 0:
+            continue
+        typed = [e for e in edges if e.type.value == etype]
+        typed.sort(key=lambda e: getattr(e, "weight", 0.0), reverse=True)
+        taken = 0
+        for e in typed:
+            if taken >= cap:
+                break
+            neighbor = None
+            if e.from_node in seed_ids and e.to_node not in seed_ids:
+                neighbor = e.to_node
+            elif e.to_node in seed_ids and e.from_node not in seed_ids:
+                neighbor = e.from_node
+            if neighbor is None or neighbor in subspace:
+                continue
+            # Only slab neighbors contribute to the retrieval subspace.
+            # Anchor/bundle neighbors are curator structure, not content
+            # the model needs to "read."
+            if neighbor in slab_ids:
+                subspace.add(neighbor)
+                taken += 1
+        if taken:
+            edges_walked[etype] = taken
+
+    return subspace, conflict_forced, edges_walked
+
+
 async def classify_message(user_text: str) -> MessageClassification:
     """§7 — Function gate. Classify the dominant function of a user message."""
     prompt = FUNCTION_GATE_PROMPT + json.dumps(user_text)
@@ -314,66 +402,125 @@ async def process_turn(
                     "invokes": anchor_obj.invokes,
                 })
 
-    # ── Step 3.5: Slab retrieval (RAG over REFERENCE slabs) ───────
+    # ── Step 3.5: Edge-constrained slab retrieval ────────────────
     # CONSTITUTIONAL + CANONICAL slabs are always full-text; REFERENCE
-    # slabs go through a multi-signal retrieval pipeline:
+    # slabs are retrieved via a graph-constrained pipeline where the
+    # typed-edge graph defines the *candidate region* and embeddings
+    # *rank within it*. Flow:
     #
-    #   (a) Semantic similarity — cosine on nomic-embed-text against the
-    #       user's message (slab_matcher.top_k_for).
-    #   (b) Frame activation bridge — slabs currently active in the frame
-    #       via non-base_set sources (anchor_match cascade, prior retrieval,
-    #       user actions) with weight >= 0.5 promote to full-text, so the
-    #       model sees the content the frame says is "live this turn".
-    #   (c) Collection-name mentions — if the user names a collection
-    #       (e.g. "vindiesel5"), pull all that collection's slabs. Handles
-    #       abbreviations/proper nouns that semantic embeddings can't match.
-    #   (d) Edge-traversal expansion — for each slab surfaced by (a-c),
-    #       walk 1-hop via corpus.edges to add neighbors (SEQUENCE neighbors
-    #       for narrative continuity, LINKS neighbors for anchor context).
+    #   1. Collect seeds — nodes the frame/match says are "live now":
+    #        frame-active non-base_set nodes (weight >= 0.5),
+    #        anchors the matcher just fired on this turn.
+    #   2. Walk typed edges from seeds (per-type budgets) → subspace
+    #        of candidate REFERENCE slabs. CONFLICTS are force-included
+    #        (both endpoints, no budget).
+    #   3. Rank within subspace via cosine similarity to the user query
+    #        (SlabMatcher.top_k_for with id_filter).
+    #   4. Collection-name detection adds all slabs of explicitly named
+    #        collections (strong user-intent signal, bypasses subspace).
+    #   5. Fallbacks when subspace is thin:
+    #        cold start (no seeds) → flat semantic at default threshold
+    #        topic shift (subspace yielded <N hits) → flat semantic at
+    #        a HIGHER threshold (0.70), to catch only genuinely strong
+    #        topical pivots without washing out the edge signal.
     #
-    # The four signals converge on a single ``retrieved_ids`` set; the
-    # slab-split logic below promotes anything in it to full-text.
-    # Capped at MAX_REFERENCE_FULL_TEXT to bound token budget.
+    # All signals converge on retrieved_ids; full_text split below.
     MAX_REFERENCE_FULL_TEXT = 25
-    EDGE_EXPANSION_CAP = 10
+    SUBSPACE_MIN_RANKED = 3          # below this, topic-shift fallback fires
+    FLAT_FALLBACK_THRESHOLD = 0.70   # higher bar for flat cosine when fallback
+    FRAME_ACTIVATION_THRESHOLD = 0.5
 
     retrieved_ids: set[str] = set()
-    signal_counts = {"semantic": 0, "frame": 0, "collection": 0, "edges": 0}
+    signal_counts = {
+        "seeds": 0,
+        "subspace": 0,
+        "ranked": 0,
+        "collection": 0,
+        "frame": 0,
+        "flat": 0,
+        "conflicts": 0,
+        "edges_walked": {},
+    }
 
-    # (a) Semantic retrieval
-    if slab_matcher is not None and slab_matcher.has_cache():
-        try:
-            hits = await slab_matcher.top_k_for(user_text)
-            sem_ids = {sid for sid, _score in hits}
-            retrieved_ids.update(sem_ids)
-            signal_counts["semantic"] = len(sem_ids)
-        except Exception as exc:
-            logger.warning("slab retrieval failed: %r", exc)
-
-    # (b) Frame-activation bridge — any slab the frame says is live this
-    # turn (anchor cascade, etc) with non-base_set source and meaningful weight.
+    # ── 1. Seed collection ──
+    # Seeds are nodes currently in conversational attention. Three sources:
+    #   - Frame-active nodes with a non-base_set source (anchor cascade,
+    #     prior retrieval, user action) and weight above threshold.
+    #   - Anchors the matcher fired on this very turn (from match_result).
+    # Anchors and bundles are valid seeds in addition to slabs — they're
+    # where typed edges radiate from.
+    seed_ids: set[str] = set()
     if frame_state is not None:
-        before = len(retrieved_ids)
-        for sid, weight in frame_state.active_slabs.items():
-            if weight < 0.5:
+        for node_id in frame_state.active_nodes:
+            weight = max(
+                frame_state.active_slabs.get(node_id, 0.0),
+                frame_state.active_anchors.get(node_id, 0.0),
+                frame_state.active_bundles.get(node_id, 0.0),
+            )
+            if weight < FRAME_ACTIVATION_THRESHOLD:
                 continue
-            sources = frame_state.activation_sources.get(sid, [])
-            # Skip base_set-only (those are CONSTITUTIONAL/CANONICAL or
-            # ambient REFERENCE seeding that hasn't been specifically engaged).
+            sources = frame_state.activation_sources.get(node_id, [])
             if sources and all(s.source_type == "base_set" for s in sources):
                 continue
-            if frame_manager and sid in frame_manager.corpus.slabs:
+            seed_ids.add(node_id)
+
+    if match_result is not None:
+        for m in getattr(match_result, "auto_activate", []) or []:
+            if getattr(m, "anchor_id", None):
+                seed_ids.add(m.anchor_id)
+        for m in getattr(match_result, "candidates", []) or []:
+            if getattr(m, "anchor_id", None):
+                seed_ids.add(m.anchor_id)
+
+    signal_counts["seeds"] = len(seed_ids)
+
+    # Frame-active slabs themselves (non-base_set, above threshold) go
+    # directly into retrieved_ids — the frame already decided these are
+    # live, no need to re-rank them.
+    if frame_state is not None and frame_manager:
+        before = len(retrieved_ids)
+        for sid, weight in frame_state.active_slabs.items():
+            if weight < FRAME_ACTIVATION_THRESHOLD:
+                continue
+            sources = frame_state.activation_sources.get(sid, [])
+            if sources and all(s.source_type == "base_set" for s in sources):
+                continue
+            if sid in frame_manager.corpus.slabs:
                 retrieved_ids.add(sid)
         signal_counts["frame"] = len(retrieved_ids) - before
 
-    # (c) Collection-name detection — pull all slabs from collections the
-    # user named. Two match modes:
-    #   1. Full-name substring: "vindiesel5" matches collection vindiesel5
-    #   2. Version-suffix abbreviation: "v5" or "version 5" matches any
-    #      collection whose ID ends with that number (vindiesel5, vinN_v5)
-    # The second mode is critical because users abbreviate mining passes
-    # ("compare v5 with v6") and those short forms don't appear as
-    # substrings in full collection IDs.
+    # ── 2. Subspace construction via typed-edge walk ──
+    subspace: set[str] = set()
+    conflict_forced: set[str] = set()
+    if seed_ids and frame_manager:
+        subspace, conflict_forced, edges_walked = _build_edge_subspace(
+            frame_manager.corpus, seed_ids,
+        )
+        signal_counts["subspace"] = len(subspace)
+        signal_counts["edges_walked"] = edges_walked
+        if conflict_forced:
+            retrieved_ids.update(conflict_forced)
+            signal_counts["conflicts"] = len(conflict_forced)
+
+    # ── 3. Rank within subspace ──
+    # Cosine over the subspace only — the graph chose the candidates,
+    # embeddings choose which of them the query cares about.
+    if slab_matcher is not None and slab_matcher.has_cache() and subspace:
+        try:
+            hits = await slab_matcher.top_k_for(
+                user_text, id_filter=subspace,
+            )
+            ranked = {sid for sid, _s in hits}
+            retrieved_ids.update(ranked)
+            signal_counts["ranked"] = len(ranked)
+        except Exception as exc:
+            logger.warning("subspace rank failed: %r", exc)
+
+    # ── 4. Collection-name detection (user-intent override) ──
+    # If the user explicitly names a collection, pull its slabs whole —
+    # this is a lexical signal embeddings can't match ("v5" never appears
+    # in canonical_text) and it's a strong enough intent that we bypass
+    # the subspace and budget caps.
     if frame_manager:
         try:
             import re as _re
@@ -381,14 +528,9 @@ async def process_turn(
             low = (user_text or "").lower()
             active_ids = list(_deps.registry.active_ids)
             mentioned = set()
-            # Full-name match
             for cid in active_ids:
                 if len(cid) >= 3 and cid.lower() in low:
                     mentioned.add(cid)
-            # Version-suffix match: "v5", "version 5", "v_5" → find
-            # collections whose trailing digits equal the mentioned number.
-            # "vindiesel5" → trailing "5"; "vin_diesel_v2" → trailing "2".
-            # Pre-extract trailing digits once per collection.
             trailing_digits = {}
             for cid in active_ids:
                 md = _re.search(r"(\d+)$", cid)
@@ -409,31 +551,30 @@ async def process_turn(
         except Exception as exc:
             logger.warning("collection-name detection failed: %r", exc)
 
-    # (d) 1-hop edge traversal — for each slab already in retrieved_ids,
-    # add its neighbor slabs via corpus.edges up to a cap. Prioritizes
-    # SEQUENCE and LINKS edges (narrative and semantic), deprioritizes
-    # SUPPORTS (usually bundle→slab, less useful for context expansion).
-    if retrieved_ids and frame_manager:
-        seed_ids = set(retrieved_ids)
-        expansion: set[str] = set()
-        prioritized_types = ("SEQUENCE", "LINKS", "INVOKES", "SUPPORTS", "PARENT_OF")
-        for etype in prioritized_types:
-            if len(expansion) >= EDGE_EXPANSION_CAP:
-                break
-            for e in frame_manager.corpus.edges.values():
-                if e.type.value != etype:
-                    continue
-                if len(expansion) >= EDGE_EXPANSION_CAP:
-                    break
-                neighbor = None
-                if e.from_node in seed_ids and e.to_node not in seed_ids:
-                    neighbor = e.to_node
-                elif e.to_node in seed_ids and e.from_node not in seed_ids:
-                    neighbor = e.from_node
-                if neighbor and neighbor in frame_manager.corpus.slabs:
-                    expansion.add(neighbor)
-        retrieved_ids.update(expansion)
-        signal_counts["edges"] = len(expansion)
+    # ── 5. Fallbacks ──
+    # Cold start: no seeds means the frame has nothing active yet (turn 1
+    # of a fresh chat), so the subspace is empty by construction. Run
+    # flat cosine at the default threshold.
+    # Topic shift: seeds exist but the subspace rank produced few hits —
+    # user may have pivoted away from the current attention. Run flat
+    # cosine at a HIGHER threshold so only genuinely strong matches slip
+    # through as evidence of the pivot; this avoids diluting the graph
+    # signal when the current topic is just narrow.
+    needs_cold_start = not seed_ids
+    needs_topic_shift = (
+        bool(seed_ids)
+        and signal_counts["ranked"] < SUBSPACE_MIN_RANKED
+        and signal_counts["collection"] == 0  # collection override already served
+    )
+    if (needs_cold_start or needs_topic_shift) and slab_matcher is not None and slab_matcher.has_cache():
+        try:
+            fb_threshold = 0.55 if needs_cold_start else FLAT_FALLBACK_THRESHOLD
+            hits = await slab_matcher.top_k_for(user_text, threshold=fb_threshold)
+            before = len(retrieved_ids)
+            retrieved_ids.update(sid for sid, _s in hits)
+            signal_counts["flat"] = len(retrieved_ids) - before
+        except Exception as exc:
+            logger.warning("flat fallback failed: %r", exc)
 
     # Close the loop: slabs retrieved/augmented for this turn activate in
     # the frame so the graph canvas reflects what the model is reading.
