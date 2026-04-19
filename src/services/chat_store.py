@@ -12,6 +12,7 @@ from typing import Optional
 
 from ..models.schemas import Chat, ChatMessage
 from ..models.enums import ChatStatus
+from .atomic_io import atomic_write_json
 
 CHATS_ROOT = Path("app/chats")
 
@@ -34,9 +35,14 @@ class ChatStore:
             return json.load(f)
 
     def _save_raw(self, chat_id: str, data: dict) -> None:
-        path = self._chat_path(chat_id)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, default=str, ensure_ascii=False)
+        """Atomic JSON save — crash-safe via temp-and-rename + fsync.
+
+        Chat transcripts are append-heavy (every user turn appends a
+        message pair), so a non-atomic save could lose the whole
+        chat if the process dies mid-write. atomic_write_json
+        guarantees the file is either pre-update or fully-updated.
+        """
+        atomic_write_json(self._chat_path(chat_id), data)
 
     def create_chat(self, title: str = "New Chat", collection_id: Optional[str] = None) -> Chat:
         chat = Chat(id=str(uuid.uuid4())[:8], title=title, collection_id=collection_id)

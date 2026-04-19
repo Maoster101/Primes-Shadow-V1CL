@@ -16,6 +16,7 @@ import yaml
 
 from ..models.schemas import Anchor, Slab, KeyBundle, Edge, Gate
 from ..models.enums import OLIMode, SlabType, SlabLifecycleStatus
+from .atomic_io import atomic_write_yaml
 
 CORPUS_ROOT = Path("app/corpus")         # Legacy single-corpus path
 CORPORA_ROOT = Path("app/corpora")       # Multi-collection root
@@ -30,9 +31,18 @@ def _load_yaml(path: Path) -> list[dict]:
 
 
 def _save_yaml(path: Path, data: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    """Atomic YAML save — crash-safe via temp-and-rename + fsync.
+
+    See ``atomic_io.atomic_write_text`` for the full idiom. Historical
+    note: this used to be a plain ``open("w")`` truncate, which left
+    half-written YAMLs behind on crash. The save() method below writes
+    five files sequentially, so a mid-save crash could split the corpus
+    across file boundaries (new anchors, stale edges). The per-file
+    atomicity shrinks that window from "tens of ms × 5" to "the tiny
+    gap between 5 separate os.replace calls" — recoverable on next mine
+    pass rather than data loss.
+    """
+    atomic_write_yaml(path, data)
 
 
 class CorpusStore:

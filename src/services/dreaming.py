@@ -49,6 +49,7 @@ from ..prompts.dreaming import (
 )
 from .session_store import SessionStore
 from .corpus import CorpusStore
+from .atomic_io import atomic_write_text
 from . import ollama
 
 
@@ -772,7 +773,7 @@ class DreamingPass:
         lines.append("To reject: delete `.enriched.json` and `.dream_log.md`.")
         lines.append("")
 
-        log_path.write_text("\n".join(lines), encoding="utf-8")
+        atomic_write_text(log_path, "\n".join(lines))
 
 
 async def dream_all_pending(

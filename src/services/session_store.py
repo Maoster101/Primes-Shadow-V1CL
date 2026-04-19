@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..models.schemas import FrameState, DraftStack, DraftPacket, ProposedEdge
+from .atomic_io import atomic_write_json
 
 SESSIONS_ROOT = Path("app/workbench/sessions")
 
@@ -239,11 +240,15 @@ class SessionStore:
     # --- Helpers ---
 
     def write_json(self, path: Path, data: dict) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, default=str, ensure_ascii=False)
-        tmp.replace(path)
+        """Atomic JSON save.
+
+        Previously used a fixed ``.tmp`` suffix which could collide
+        between concurrent writes of the same logical path. Now
+        delegates to the shared atomic helper, which uses a unique
+        temp name, fsyncs before rename, and os.replace for
+        cross-platform atomicity.
+        """
+        atomic_write_json(path, data)
 
     def read_json(self, path: Path) -> Optional[dict]:
         if not path.exists():
