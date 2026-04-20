@@ -170,7 +170,13 @@ async def send_message(chat_id: str, req: SendMessageRequest):
 
     # Shared state between the generator and the post-stream callback.
     # The generator writes into this; the background task reads from it.
+    # `_stream_done` is an asyncio.Event so the post-stream task can wait
+    # signal-based instead of polling — cheaper and correctly handles
+    # long inferences (OLI-ON + gemma3:12b + heavy retrieval can exceed
+    # 5 minutes). The generator sets this in its finally block so it
+    # fires on both success and error paths.
     _stream_result = {"metadata": {}, "assistant_text": "", "done": False}
+    _stream_done = asyncio.Event()
 
     async def stream():
         try:
@@ -249,6 +255,7 @@ async def send_message(chat_id: str, req: SendMessageRequest):
             # partial/empty metadata and gracefully no-op if there's nothing
             # to extract.
             _stream_result["done"] = True
+            _stream_done.set()
 
     async def _post_stream_drafts():
         """Background task: runs AFTER the SSE stream completes.
@@ -256,18 +263,18 @@ async def send_message(chat_id: str, req: SendMessageRequest):
         This avoids the generator-cancellation problem where code after
         the last yield gets killed when the client disconnects.
         """
-        # Wait for stream to finish (poll briefly). 180s headroom because
-        # OLI-ON turns inject the full constitutional prompt + slabs and can
-        # exceed 60s on local gemma3:12b. The try/finally in stream() now
-        # guarantees done=True on both success and error paths, so this loop
-        # should only hit the timeout on genuine runaway inference.
-        for _ in range(1800):  # up to 180s
-            if _stream_result["done"]:
-                break
-            await asyncio.sleep(0.1)
-
-        if not _stream_result["done"]:
-            print("[DRAFT] Stream didn't complete — skipping extraction", flush=True)
+        # Wait for stream completion via asyncio.Event (signal-based, not
+        # polling). The generator sets _stream_done in its finally block,
+        # so this fires on both success and error paths.
+        #
+        # 10-minute ceiling: OLI-ON + gemma3:12b + heavy retrieval can
+        # legitimately take several minutes. The previous 180s polling
+        # window was tripping on genuine completions, not runaway
+        # inference. If 600s IS hit, something's actually wrong.
+        try:
+            await asyncio.wait_for(_stream_done.wait(), timeout=600.0)
+        except asyncio.TimeoutError:
+            print("[DRAFT] Stream didn't complete in 600s — skipping extraction", flush=True)
             return
 
         if _stream_result.get("stream_error"):
