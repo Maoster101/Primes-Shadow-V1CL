@@ -26,7 +26,11 @@ from ..models.schemas import (
     ProvenanceRef, Edge,
 )
 from ..models.enums import DraftStatus, ClaimTag, DriftSeverity, EdgeType
-from ..prompts.proposals import PROPOSAL_EXTRACTION_PROMPT, PROPOSAL_EXPLICIT_PROMPT
+from ..prompts.proposals import (
+    PROPOSAL_EXTRACTION_PROMPT,
+    PROPOSAL_EXPLICIT_PROMPT,
+    RELATIONSHIP_MINING_PROMPT,
+)
 from .corpus import CorpusStore
 from .session_store import SessionStore
 from .verification_router import VerificationRouter
@@ -40,6 +44,21 @@ SWEEP_CADENCE = 1  # every turn — aggressive extraction for interactive use
 DEDUP_THRESHOLD = 0.75  # lower threshold catches more near-duplicates
 
 _event_log = EventLog()
+
+
+def _bundle_label(bundle) -> str:
+    """Human-readable label for a bundle, synthesized from its intent list.
+
+    Bundles have no dedicated title field — the UI and we both produce
+    a label by joining the first two entries of ``payload.intent``. Used
+    as the canonical handle when an LLM miner references a bundle as an
+    edge endpoint. Falls back to ``bundle.id`` if intent is missing.
+    """
+    payload = getattr(bundle, "payload", None)
+    intents = getattr(payload, "intent", None) if payload else None
+    if not intents:
+        return getattr(bundle, "id", "")
+    return "; ".join(intents[:2])
 
 
 class DraftManager:
@@ -91,24 +110,32 @@ class DraftManager:
             for m in recent_messages[-12:]
         )
 
-        # Build existing anchor list for dedup in prompt
-        existing = ", ".join(
+        # Build existing-node catalogs for the prompt. The LLM uses these
+        # both as a dedup signal (don't re-propose these) and as a valid
+        # label space for edges — "you MAY reference them as endpoints."
+        existing_anchors = ", ".join(
             a.canonical_phrase for a in self.corpus.anchors.values()
         )
+        existing_slabs = ", ".join(
+            s.title for s in self.corpus.slabs.values() if getattr(s, "title", "")
+        )
+        existing_bundles = ", ".join(
+            _bundle_label(b) for b in self.corpus.bundles.values() if _bundle_label(b)
+        )
+
+        def _fill_catalogs(p: str) -> str:
+            return (
+                p.replace("$EXISTING_ANCHORS", existing_anchors or "(none)")
+                 .replace("$EXISTING_SLABS", existing_slabs or "(none)")
+                 .replace("$EXISTING_BUNDLES", existing_bundles or "(none)")
+                 .replace("$CONVERSATION", conversation)
+            )
 
         # Choose prompt
         if explicit:
-            prompt = (
-                PROPOSAL_EXPLICIT_PROMPT
-                .replace("$CONVERSATION", conversation)
-                + json.dumps(user_request)
-            )
+            prompt = _fill_catalogs(PROPOSAL_EXPLICIT_PROMPT) + json.dumps(user_request)
         else:
-            prompt = (
-                PROPOSAL_EXTRACTION_PROMPT
-                .replace("$EXISTING_ANCHORS", existing or "(none)")
-                .replace("$CONVERSATION", conversation)
-            )
+            prompt = _fill_catalogs(PROPOSAL_EXTRACTION_PROMPT)
 
         # Model proposes. Phase 3: output is now a wrapper object
         #   {"proposals": [...], "edges": [...]}
@@ -264,86 +291,20 @@ class DraftManager:
         self.session_store.save_draft_stack(session_id, stack)
 
         # Phase 3 — resolve proposed edges (labels -> node_ids) and persist.
-        # Label index priority order:
-        #   1. Just-mined proposals in this turn (canonical_phrase / title / aliases)
-        #   2. Live corpus anchors (canonical_phrase / aliases)
-        #   3. Live corpus slabs (title)
-        # Endpoints that can't be resolved from any of these are skipped with
-        # a debug log — we never invent a node_id for an unresolvable label.
+        # Factored into _resolve_and_persist_edges so the relationship-
+        # mining pass (Phase 4) can reuse the same logic.
         if proposed_edge_specs:
             try:
-                from ..models.schemas import ProposedEdge
-
-                label_to_id: dict[str, str] = {}
-
-                def _register(label: str, nid: str) -> None:
-                    if not label:
-                        return
-                    key = label.strip().lower()
-                    # first write wins — earlier sources are more specific
-                    label_to_id.setdefault(key, nid)
-
-                # 1. Just-mined proposals
-                for pkt in created:
-                    if pkt.anchor:
-                        _register(pkt.anchor.get("canonical_phrase", ""), pkt.id)
-                        for al in pkt.anchor.get("aliases") or []:
-                            _register(al, pkt.id)
-                    if pkt.slab:
-                        _register(pkt.slab.get("title", ""), pkt.id)
-                    if pkt.bundle:
-                        _register(pkt.bundle.get("id", ""), pkt.id)
-
-                # 2. Corpus anchors
-                for a in self.corpus.anchors.values():
-                    _register(a.canonical_phrase, a.id)
-                    for al in a.aliases or []:
-                        _register(al, a.id)
-
-                # 3. Corpus slabs (title is the human-facing label)
-                for s in self.corpus.slabs.values():
-                    if getattr(s, "title", ""):
-                        _register(s.title, s.id)
-
-                resolved_edges: list = []
-                for spec in proposed_edge_specs:
-                    if not isinstance(spec, dict):
-                        continue
-                    etype_raw = (spec.get("type") or "LINKS").upper()
-                    if etype_raw not in {"INVOKES", "SUPPORTS", "CONFLICTS", "LINKS", "SEQUENCE", "PARENT_OF"}:
-                        etype_raw = "LINKS"
-                    from_label = (spec.get("from_label") or "").strip()
-                    to_label = (spec.get("to_label") or "").strip()
-                    if not from_label or not to_label:
-                        continue
-                    from_id = label_to_id.get(from_label.lower())
-                    to_id = label_to_id.get(to_label.lower())
-                    if not from_id or not to_id:
-                        print(f"[DRAFT]   skip edge (unresolved): {from_label!r} -> {to_label!r}", flush=True)
-                        continue
-                    if from_id == to_id:
-                        continue  # no self-loops
-                    try:
-                        confidence = float(spec.get("confidence", 0.5))
-                    except Exception:
-                        confidence = 0.5
-                    resolved_edges.append(ProposedEdge(
-                        id=f"proposed_edge_{uuid.uuid4().hex[:8]}",
-                        type=EdgeType(etype_raw),
-                        from_node=from_id,
-                        to_node=to_id,
-                        from_label=from_label,
-                        to_label=to_label,
-                        confidence=max(0.0, min(1.0, confidence)),
-                        justification=spec.get("justification", "") or "",
-                        status="PROPOSED",
-                        source_chat_id=chat_id,
-                        source_turn=current_turn,
-                    ))
-
-                if resolved_edges:
-                    self.session_store.append_proposed_edges(session_id, resolved_edges)
-                    print(f"[DRAFT] Persisted {len(resolved_edges)} proposed edge(s)", flush=True)
+                n = self._resolve_and_persist_edges(
+                    proposed_edge_specs,
+                    session_id=session_id,
+                    chat_id=chat_id,
+                    current_turn=current_turn,
+                    new_proposals=created,
+                    tag="DRAFT",
+                )
+                if n:
+                    print(f"[DRAFT] Persisted {n} proposed edge(s)", flush=True)
             except Exception as e:
                 print(f"[DRAFT] Edge resolution FAILED: {e}", flush=True)
 
@@ -356,6 +317,231 @@ class DraftManager:
         )
 
         return created
+
+    # ── Edge resolution helpers (shared by extract_proposals + extract_relationships) ──
+
+    def _build_label_index(
+        self,
+        new_proposals: Optional[list["DraftPacket"]] = None,
+    ) -> dict[str, str]:
+        """Build a lowercase-label → node_id map for LLM-emitted edge labels.
+
+        Priority order (first-write-wins in the dict):
+          1. Newly-mined proposals this turn (if any) — most specific.
+          2. Corpus anchors (canonical_phrase + aliases).
+          3. Corpus slabs (title).
+          4. Corpus bundles (synthesized intent label via _bundle_label).
+
+        Used by:
+          - extract_proposals edge resolver (where new_proposals is the
+            just-mined packets — they can be edge endpoints by label).
+          - extract_relationships edge resolver (where new_proposals is
+            None — only existing nodes can be endpoints).
+        """
+        label_to_id: dict[str, str] = {}
+
+        def _register(label: str, nid: str) -> None:
+            if not label or not nid:
+                return
+            key = label.strip().lower()
+            label_to_id.setdefault(key, nid)
+
+        # 1. New proposals
+        if new_proposals:
+            for pkt in new_proposals:
+                if pkt.anchor:
+                    _register(pkt.anchor.get("canonical_phrase", ""), pkt.id)
+                    for al in pkt.anchor.get("aliases") or []:
+                        _register(al, pkt.id)
+                if pkt.slab:
+                    _register(pkt.slab.get("title", ""), pkt.id)
+                if pkt.bundle:
+                    _register(pkt.bundle.get("id", ""), pkt.id)
+
+        # 2. Corpus anchors
+        for a in self.corpus.anchors.values():
+            _register(a.canonical_phrase, a.id)
+            for al in a.aliases or []:
+                _register(al, a.id)
+
+        # 3. Corpus slabs
+        for s in self.corpus.slabs.values():
+            if getattr(s, "title", ""):
+                _register(s.title, s.id)
+
+        # 4. Corpus bundles
+        for b in self.corpus.bundles.values():
+            _register(_bundle_label(b), b.id)
+
+        return label_to_id
+
+    def _resolve_and_persist_edges(
+        self,
+        specs: list,
+        session_id: str,
+        chat_id: str,
+        current_turn: int,
+        new_proposals: Optional[list["DraftPacket"]] = None,
+        tag: str = "DRAFT",
+    ) -> int:
+        """Resolve edge specs (LLM output) to ProposedEdge records and persist.
+
+        Dedupes against:
+          - Committed corpus.edges (same (from, to, type) triple).
+          - Previously-proposed edges in this session (same triple).
+
+        Returns the number of new edges actually persisted.
+        """
+        from ..models.schemas import ProposedEdge
+
+        label_to_id = self._build_label_index(new_proposals=new_proposals)
+
+        # Signature set for dedup: (from_id, to_id, edge_type_value).
+        # Direction-preserving — CONFLICTS and SEQUENCE are directional in
+        # their semantics, and for LINKS an asymmetric directional duplicate
+        # is still a duplicate for our purposes.
+        existing_sigs: set[tuple[str, str, str]] = set()
+        for e in self.corpus.edges.values():
+            existing_sigs.add((e.from_node, e.to_node, e.type.value))
+        try:
+            for pe in self.session_store.list_proposed_edges(session_id):
+                existing_sigs.add((pe.from_node, pe.to_node, pe.type.value))
+        except Exception:
+            pass  # no proposed-edges file yet; continue with empty set
+
+        resolved: list[ProposedEdge] = []
+        for spec in specs:
+            if not isinstance(spec, dict):
+                continue
+            etype_raw = (spec.get("type") or "LINKS").upper()
+            if etype_raw not in {"INVOKES", "SUPPORTS", "CONFLICTS", "LINKS", "SEQUENCE", "PARENT_OF"}:
+                etype_raw = "LINKS"
+            from_label = (spec.get("from_label") or "").strip()
+            to_label = (spec.get("to_label") or "").strip()
+            if not from_label or not to_label:
+                continue
+            from_id = label_to_id.get(from_label.lower())
+            to_id = label_to_id.get(to_label.lower())
+            if not from_id or not to_id:
+                print(
+                    f"[{tag}]   skip edge (unresolved): "
+                    f"{from_label!r} -> {to_label!r}",
+                    flush=True,
+                )
+                continue
+            if from_id == to_id:
+                continue  # no self-loops
+            sig = (from_id, to_id, etype_raw)
+            if sig in existing_sigs:
+                continue  # already in corpus or already proposed
+            existing_sigs.add(sig)  # dedupe within this batch too
+            try:
+                confidence = float(spec.get("confidence", 0.5))
+            except Exception:
+                confidence = 0.5
+            resolved.append(ProposedEdge(
+                id=f"proposed_edge_{uuid.uuid4().hex[:8]}",
+                type=EdgeType(etype_raw),
+                from_node=from_id,
+                to_node=to_id,
+                from_label=from_label,
+                to_label=to_label,
+                confidence=max(0.0, min(1.0, confidence)),
+                justification=spec.get("justification", "") or "",
+                status="PROPOSED",
+                source_chat_id=chat_id,
+                source_turn=current_turn,
+            ))
+
+        if resolved:
+            self.session_store.append_proposed_edges(session_id, resolved)
+        return len(resolved)
+
+    async def extract_relationships(
+        self,
+        session_id: str,
+        chat_id: str,
+        recent_messages: list[dict],
+        current_turn: int,
+    ) -> int:
+        """Second-pass miner: detect edges between EXISTING corpus nodes only.
+
+        Runs after ``extract_proposals`` on every sweep. The primary miner
+        is oriented toward concept extraction (find new anchors/slabs);
+        this pass is narrower and complementary — it asks the LLM:
+        "given this conversation and the list of existing nodes, which
+        pairs of existing nodes are related, and how?"
+
+        Neither a tentative nor a library draft is produced. Only
+        ProposedEdges that reference two corpus-resident nodes.
+
+        Returns the number of edges persisted.
+        """
+        if not recent_messages:
+            return 0
+
+        conversation = "\n".join(
+            f"[turn {m.get('turn', '?')}] [{m['role']}] {m['content'][:300]}"
+            for m in recent_messages[-12:]
+        )
+
+        existing_anchors = ", ".join(
+            a.canonical_phrase for a in self.corpus.anchors.values()
+        )
+        existing_slabs = ", ".join(
+            s.title for s in self.corpus.slabs.values() if getattr(s, "title", "")
+        )
+        existing_bundles = ", ".join(
+            _bundle_label(b) for b in self.corpus.bundles.values() if _bundle_label(b)
+        )
+
+        # If there are no existing anchors AND no slabs (brand-new corpus),
+        # there's nothing to relate. Skip the LLM call.
+        if not existing_anchors and not existing_slabs:
+            return 0
+
+        prompt = (
+            RELATIONSHIP_MINING_PROMPT
+            .replace("$EXISTING_ANCHORS", existing_anchors or "(none)")
+            .replace("$EXISTING_SLABS", existing_slabs or "(none)")
+            .replace("$EXISTING_BUNDLES", existing_bundles or "(none)")
+            .replace("$CONVERSATION", conversation)
+        )
+
+        try:
+            raw = await ollama.structured_extract(prompt)
+        except Exception as e:
+            print(f"[RELMINE] Extraction FAILED (turn {current_turn}): {e}", flush=True)
+            return 0
+
+        specs: list = []
+        if isinstance(raw, dict):
+            specs = raw.get("edges") or []
+        elif isinstance(raw, list):
+            # Model regressed to bare array — treat as edge list directly.
+            specs = raw
+        if not specs:
+            print(f"[RELMINE] No relationships detected at turn {current_turn}", flush=True)
+            return 0
+
+        try:
+            n = self._resolve_and_persist_edges(
+                specs,
+                session_id=session_id,
+                chat_id=chat_id,
+                current_turn=current_turn,
+                new_proposals=None,  # existing-only miner
+                tag="RELMINE",
+            )
+        except Exception as e:
+            print(f"[RELMINE] Edge resolution FAILED: {e}", flush=True)
+            return 0
+
+        if n:
+            print(f"[RELMINE] Persisted {n} existing-to-existing edge(s) at turn {current_turn}", flush=True)
+        else:
+            print(f"[RELMINE] {len(specs)} candidate edge(s) but all dedup'd or unresolved", flush=True)
+        return n
 
     async def verify_draft_claims(
         self,

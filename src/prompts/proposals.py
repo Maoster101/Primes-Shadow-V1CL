@@ -1,14 +1,34 @@
-"""Structured extraction prompts for tentative anchor/slab proposals.
+"""Structured extraction prompts for tentative anchor/slab proposals
+and existing-to-existing relationship mining.
 
 Conservative by design: only propose load-bearing concepts, not every
 passing mention. The corpus must stay sparse and authoritative.
 
-Phase 3: prompts now also emit RELATIONSHIPS between concepts. The output
-format is a wrapper object with `proposals` (nodes) and `edges` (relations).
-The parser in draft_manager tolerates the legacy bare-array format too, so
-if the model regresses to the old schema, nothing breaks — edges just
-silently won't be captured for that turn.
+Phase 3: prompts emit RELATIONSHIPS between concepts. The output
+format is a wrapper object with ``proposals`` (nodes) and ``edges``
+(relations). The parser in draft_manager tolerates the legacy
+bare-array format too, so if the model regresses to the old schema,
+nothing breaks — edges just silently won't be captured for that turn.
+
+Phase 4: existing-to-existing relationship miner (RELATIONSHIP_MINING_PROMPT).
+Runs as a second pass after the main extractor. Its job is different —
+not "extract new concepts" but "detect latent relationships between
+nodes that already exist in the corpus." The LLM is shown the full
+label index (anchors + slab titles + bundle-intent synthesized labels)
+and told both endpoints MUST be from that list. This surfaces
+connections the main miner under-proposes because the main miner is
+oriented toward novelty, not cross-reference.
 """
+
+# Shared edge-type definitions so all three prompts stay in sync.
+_EDGE_TYPES_BLOCK = """\
+  - INVOKES: A summons or activates B (structural dependency, e.g. an anchor points to the slab it describes).
+  - SUPPORTS: A provides evidence, grounding, or justification for B.
+  - CONFLICTS: A and B make incompatible claims. Both endpoints must be preserved together — seeing one without the other produces biased reasoning.
+  - LINKS: soft association — A and B are related but no stronger claim can be made.
+  - SEQUENCE: A precedes B in a narrative or causal chain (story order, derivation step, temporal priority).
+  - PARENT_OF: A is a container/bundle whose scope includes B (hierarchical composition)."""
+
 
 PROPOSAL_EXTRACTION_PROMPT = """\
 You are a semantic extraction engine for a knowledge corpus. Analyze the \
@@ -29,20 +49,33 @@ Rules:
 
 RELATIONSHIPS (Phase 3): if the conversation asserts a clear relationship \
 between two concepts, also emit edges connecting them. Use concept labels \
-(not IDs) — the system will resolve them. Reference:
+(not IDs) — the system will resolve them. Valid endpoints:
   - Proposals from this turn's own proposals list, OR
   - Existing corpus anchors (from the list below), OR
-  - Any concept mentioned by name in the conversation.
+  - Existing corpus slabs (from the list below, referenced by their title), OR
+  - Existing corpus bundles (from the list below, referenced by their label), OR
+  - Any concept explicitly named in the conversation.
+
+IMPORTANT: Relationships between TWO EXISTING nodes (no new proposal \
+needed) are valuable and often missed. If the conversation connects two \
+things that already exist in the corpus — e.g. "X supports Y" or "these \
+are in sequence" — emit that edge even if you aren't proposing either X \
+or Y as new.
+
 Edge types:
-  - INVOKES: A summons or activates B (structural dependency)
-  - SUPPORTS: A provides evidence or grounding for B
-  - CONFLICTS: A and B make incompatible claims
-  - LINKS: soft association, no stronger claim available
+$EDGE_TYPES
+
 Only emit edges that are explicitly asserted or strongly implied. No speculation.
 
 Existing corpus anchors (do NOT re-propose these, but you MAY reference \
-them as edge endpoints):
+them as edge endpoints by their canonical phrase):
 $EXISTING_ANCHORS
+
+Existing corpus slabs (reference by title, same rule — no re-proposal):
+$EXISTING_SLABS
+
+Existing corpus bundles (reference by label — descriptive intent summary):
+$EXISTING_BUNDLES
 
 Return ONLY raw JSON — an object with `proposals` and `edges` arrays:
 {
@@ -56,7 +89,7 @@ Return ONLY raw JSON — an object with `proposals` and `edges` arrays:
      "claim_tag": "FACT" or "INFERENCE" or "HYPOTHESIS" or "UNKNOWN"}
   ],
   "edges": [
-    {"type": "INVOKES|SUPPORTS|CONFLICTS|LINKS",
+    {"type": "INVOKES|SUPPORTS|CONFLICTS|LINKS|SEQUENCE|PARENT_OF",
      "from_label": "concept name A",
      "to_label": "concept name B",
      "confidence": 0.0-1.0,
@@ -67,7 +100,8 @@ Return ONLY raw JSON — an object with `proposals` and `edges` arrays:
 Recent conversation:
 $CONVERSATION
 
-Proposals: """
+Proposals: """.replace("$EDGE_TYPES", _EDGE_TYPES_BLOCK)
+
 
 PROPOSAL_EXPLICIT_PROMPT = """\
 The user has explicitly asked to save or anchor a concept from the conversation. \
@@ -75,8 +109,23 @@ Extract the specific concept they are referring to.
 
 If the user's request implies a relationship to other concepts in the \
 conversation (e.g. "save this as a slab that supports X", "anchor this — \
-it conflicts with Y"), also emit edges linking them. Use concept labels \
-(not IDs). Edge types: INVOKES, SUPPORTS, CONFLICTS, LINKS.
+it conflicts with Y", "this comes after Z in the narrative"), also emit \
+edges linking them. Use concept labels (not IDs). Valid endpoints are:
+  - The proposal you're creating now, OR
+  - Any existing corpus anchor/slab/bundle from the lists below, OR
+  - Any concept named in the conversation.
+
+Edge types:
+$EDGE_TYPES
+
+Existing corpus anchors (reference by canonical phrase):
+$EXISTING_ANCHORS
+
+Existing corpus slabs (reference by title):
+$EXISTING_SLABS
+
+Existing corpus bundles (reference by label):
+$EXISTING_BUNDLES
 
 Return ONLY raw JSON — an object with `proposals` (a single-element array) \
 and `edges` arrays:
@@ -91,7 +140,7 @@ and `edges` arrays:
      "claim_tag": "FACT" or "INFERENCE" or "HYPOTHESIS" or "UNKNOWN"}
   ],
   "edges": [
-    {"type": "INVOKES|SUPPORTS|CONFLICTS|LINKS",
+    {"type": "INVOKES|SUPPORTS|CONFLICTS|LINKS|SEQUENCE|PARENT_OF",
      "from_label": "concept name A",
      "to_label": "concept name B",
      "confidence": 0.0-1.0,
@@ -102,4 +151,67 @@ and `edges` arrays:
 Recent conversation:
 $CONVERSATION
 
-User's request: """
+User's request: """.replace("$EDGE_TYPES", _EDGE_TYPES_BLOCK)
+
+
+RELATIONSHIP_MINING_PROMPT = """\
+You are a RELATIONSHIP DETECTION engine — a complementary pass to the \
+main concept extractor. Your job is narrow and specific: given a \
+recent conversation AND a catalog of existing corpus nodes, identify \
+RELATIONSHIPS between those existing nodes that the conversation \
+asserts or strongly implies.
+
+This is different from concept extraction. You do NOT propose new \
+nodes. You look ONLY for connections between things that already \
+exist in the catalog below. Both endpoints of every edge MUST be \
+drawn from the lists provided.
+
+Goal: flesh out the graph's relational structure. The corpus has \
+many nodes, and many of them are related in ways that have never \
+been formally recorded. When the conversation discusses two existing \
+corpus concepts together — explaining one in terms of another, \
+noting a contradiction, placing them in narrative order, showing \
+that one grounds the other — that is an edge worth surfacing.
+
+Rules:
+- Only edges between existing nodes. If a concept in the conversation \
+  doesn't match anything in the catalog below, skip it — that's a \
+  job for the concept extractor, not you.
+- Exact or near-exact label match. If the conversation mentions \
+  "terra preta" and the catalog has "Terra Preta" as an anchor, use \
+  the anchor's canonical phrase verbatim.
+- Be conservative. Only emit edges that are explicitly asserted or \
+  very strongly implied. Speculation pollutes the graph.
+- If the conversation touches nothing in the catalog, or only one \
+  thing, return {"edges": []}.
+- A relationship that was previously mined doesn't need to be \
+  re-emitted — the system dedupes on (from, to, type) — so when in \
+  doubt, emit.
+
+Edge types:
+$EDGE_TYPES
+
+Existing corpus anchors (reference by canonical phrase):
+$EXISTING_ANCHORS
+
+Existing corpus slabs (reference by title):
+$EXISTING_SLABS
+
+Existing corpus bundles (reference by label):
+$EXISTING_BUNDLES
+
+Return ONLY raw JSON — an object with an `edges` array:
+{
+  "edges": [
+    {"type": "INVOKES|SUPPORTS|CONFLICTS|LINKS|SEQUENCE|PARENT_OF",
+     "from_label": "exact label from catalog",
+     "to_label": "exact label from catalog",
+     "confidence": 0.0-1.0,
+     "justification": "the specific conversational moment that asserts this relationship"}
+  ]
+}
+
+Recent conversation:
+$CONVERSATION
+
+Edges: """.replace("$EDGE_TYPES", _EDGE_TYPES_BLOCK)

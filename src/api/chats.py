@@ -310,6 +310,23 @@ async def send_message(chat_id: str, req: SendMessageRequest):
         else:
             print(f"[DRAFT] No sweep at turn {actual_turn}", flush=True)
 
+        # Phase 4 — second-pass relationship miner. Complementary to
+        # extract_proposals: the primary miner is oriented toward concept
+        # extraction (new anchors/slabs); this pass is narrower, asking
+        # specifically "which EXISTING corpus nodes does this conversation
+        # relate to each other?" Fires on every turn that got as far as
+        # the post-stream phase (no turn-threshold gate), because existing-
+        # to-existing edges are cheap to propose and directly flesh out
+        # the graph's relational structure. Dedup against both corpus
+        # edges and already-proposed edges is inside extract_relationships,
+        # so re-firing per turn is safe — we just won't duplicate.
+        try:
+            await draft_manager.extract_relationships(
+                session_id, chat_id, recent, actual_turn,
+            )
+        except Exception as e:
+            print(f"[RELMINE] outer failure: {e}", flush=True)
+
         # Auto-trigger dreaming pass on newly mined drafts.
         # Runs as another background task so the user sees drafts in the
         # review panel immediately; by the time they open one, the
