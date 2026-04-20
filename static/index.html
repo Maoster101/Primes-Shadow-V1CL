@@ -5470,6 +5470,7 @@ async function sendMessage(){
             if(sigs.collection)parts.push(`coll:${sigs.collection}`);
             if(sigs.conflicts)parts.push(`conflict:${sigs.conflicts}`);
             if(sigs.flat)parts.push(`flat:${sigs.flat}`);
+            if(sigs.ppr_lift)parts.push(`pr_lift:${sigs.ppr_lift}`);
             const firedStr=parts.length?parts.join(' '):'none';
             pushEvent('match',`RAG ref-full=${r.reference_full} catalog=${r.catalog} → ${firedStr}`);
             // Edge breakdown as a second line so the type mix is legible.

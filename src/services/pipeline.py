@@ -439,6 +439,7 @@ async def process_turn(
         "frame": 0,
         "flat": 0,
         "conflicts": 0,
+        "ppr_lift": 0,       # slabs where PR materially changed combined score
         "edges_walked": {},
     }
 
@@ -502,19 +503,34 @@ async def process_turn(
             retrieved_ids.update(conflict_forced)
             signal_counts["conflicts"] = len(conflict_forced)
 
-    # ── 3. Rank within subspace ──
-    # Cosine over the subspace only — the graph chose the candidates,
-    # embeddings choose which of them the query cares about.
+    # ── 3. Rank within subspace (hybrid: cosine + PPR + global PR) ──
+    # The graph chose the candidates; three signals choose which
+    # of them survive and in what order:
+    #   cosine:    query-dependent text similarity
+    #   PPR:       reachability from conversational attention (seeds)
+    #   global PR: intrinsic structural importance
+    # See slab_matcher.hybrid_rank for the linear-combination details.
+    ppr_lift_count = 0
     if slab_matcher is not None and slab_matcher.has_cache() and subspace:
         try:
-            hits = await slab_matcher.top_k_for(
-                user_text, id_filter=subspace,
+            hits = await slab_matcher.hybrid_rank(
+                user_text,
+                seed_ids=seed_ids,
+                id_filter=subspace,
             )
-            ranked = {sid for sid, _s in hits}
+            ranked = {sid for sid, _s, _c in hits}
             retrieved_ids.update(ranked)
             signal_counts["ranked"] = len(ranked)
+            # Count slabs whose combined score was materially boosted by
+            # PR (ppr or global_pr contribution >= 0.1 after weighting).
+            # Useful signal: did PR change the ranking vs pure cosine?
+            for _sid, _score, comp in hits:
+                ppr_bonus = 0.5 * comp.get("ppr", 0.0) + 0.3 * comp.get("global_pr", 0.0)
+                if ppr_bonus >= 0.1:
+                    ppr_lift_count += 1
         except Exception as exc:
-            logger.warning("subspace rank failed: %r", exc)
+            logger.warning("subspace hybrid rank failed: %r", exc)
+    signal_counts["ppr_lift"] = ppr_lift_count
 
     # ── 4. Collection-name detection (user-intent override) ──
     # If the user explicitly names a collection, pull its slabs whole —
@@ -569,9 +585,18 @@ async def process_turn(
     if (needs_cold_start or needs_topic_shift) and slab_matcher is not None and slab_matcher.has_cache():
         try:
             fb_threshold = 0.55 if needs_cold_start else FLAT_FALLBACK_THRESHOLD
-            hits = await slab_matcher.top_k_for(user_text, threshold=fb_threshold)
+            # Fallback still hybrids in global PR (gamma) — even in
+            # cold-start, structurally-central slabs deserve a bias.
+            # PPR (beta) is skipped in cold-start (no seeds, nothing
+            # to teleport to); in topic-shift it still fires from the
+            # existing seeds as a conservative tiebreaker.
+            hits = await slab_matcher.hybrid_rank(
+                user_text,
+                seed_ids=seed_ids if not needs_cold_start else None,
+                threshold=fb_threshold,
+            )
             before = len(retrieved_ids)
-            retrieved_ids.update(sid for sid, _s in hits)
+            retrieved_ids.update(sid for sid, _s, _c in hits)
             signal_counts["flat"] = len(retrieved_ids) - before
         except Exception as exc:
             logger.warning("flat fallback failed: %r", exc)
