@@ -440,6 +440,7 @@ async def process_turn(
         "flat": 0,
         "conflicts": 0,
         "ppr_lift": 0,       # slabs where PR materially changed combined score
+        "ranked_mode": None,  # "subspace" | "full_ppr" | None — what mode ranking ran in
         "edges_walked": {},
     }
 
@@ -448,8 +449,12 @@ async def process_turn(
     #   - Frame-active nodes with a non-base_set source (anchor cascade,
     #     prior retrieval, user action) and weight above threshold.
     #   - Anchors the matcher fired on this very turn (from match_result).
-    # Anchors and bundles are valid seeds in addition to slabs — they're
-    # where typed edges radiate from.
+    #   - Slabs from any collection the user explicitly named — a
+    #     collection mention is a strong "please pay attention to this"
+    #     signal and those slabs should drive PPR teleport too, not
+    #     just get pulled directly.
+    # Anchors, slabs, and bundles are all valid seeds — typed edges
+    # radiate from all three node types.
     seed_ids: set[str] = set()
     if frame_state is not None:
         for node_id in frame_state.active_nodes:
@@ -473,8 +478,6 @@ async def process_turn(
             if getattr(m, "anchor_id", None):
                 seed_ids.add(m.anchor_id)
 
-    signal_counts["seeds"] = len(seed_ids)
-
     # Frame-active slabs themselves (non-base_set, above threshold) go
     # directly into retrieved_ids — the frame already decided these are
     # live, no need to re-rank them.
@@ -490,53 +493,15 @@ async def process_turn(
                 retrieved_ids.add(sid)
         signal_counts["frame"] = len(retrieved_ids) - before
 
-    # ── 2. Subspace construction via typed-edge walk ──
-    subspace: set[str] = set()
-    conflict_forced: set[str] = set()
-    if seed_ids and frame_manager:
-        subspace, conflict_forced, edges_walked = _build_edge_subspace(
-            frame_manager.corpus, seed_ids,
-        )
-        signal_counts["subspace"] = len(subspace)
-        signal_counts["edges_walked"] = edges_walked
-        if conflict_forced:
-            retrieved_ids.update(conflict_forced)
-            signal_counts["conflicts"] = len(conflict_forced)
-
-    # ── 3. Rank within subspace (hybrid: cosine + PPR + global PR) ──
-    # The graph chose the candidates; three signals choose which
-    # of them survive and in what order:
-    #   cosine:    query-dependent text similarity
-    #   PPR:       reachability from conversational attention (seeds)
-    #   global PR: intrinsic structural importance
-    # See slab_matcher.hybrid_rank for the linear-combination details.
-    ppr_lift_count = 0
-    if slab_matcher is not None and slab_matcher.has_cache() and subspace:
-        try:
-            hits = await slab_matcher.hybrid_rank(
-                user_text,
-                seed_ids=seed_ids,
-                id_filter=subspace,
-            )
-            ranked = {sid for sid, _s, _c in hits}
-            retrieved_ids.update(ranked)
-            signal_counts["ranked"] = len(ranked)
-            # Count slabs whose combined score was materially boosted by
-            # PR (ppr or global_pr contribution >= 0.1 after weighting).
-            # Useful signal: did PR change the ranking vs pure cosine?
-            for _sid, _score, comp in hits:
-                ppr_bonus = 0.5 * comp.get("ppr", 0.0) + 0.3 * comp.get("global_pr", 0.0)
-                if ppr_bonus >= 0.1:
-                    ppr_lift_count += 1
-        except Exception as exc:
-            logger.warning("subspace hybrid rank failed: %r", exc)
-    signal_counts["ppr_lift"] = ppr_lift_count
-
-    # ── 4. Collection-name detection (user-intent override) ──
-    # If the user explicitly names a collection, pull its slabs whole —
-    # this is a lexical signal embeddings can't match ("v5" never appears
-    # in canonical_text) and it's a strong enough intent that we bypass
-    # the subspace and budget caps.
+    # ── 2. Collection-name detection (runs BEFORE subspace) ──
+    # When the user names a collection, those slabs do double duty:
+    #   (a) Pulled directly into retrieved_ids (user-intent override).
+    #   (b) Added to seed_ids so the subsequent edge walk and PPR
+    #       teleport FROM them — which is what surfaces structurally
+    #       related content in neighboring collections or linked nodes.
+    # Without (b), a query like "compare v5 and v6" populates the
+    # retrieval pool but never feeds those slabs into graph-aware
+    # ranking — exactly the case that produced subspace:0 pre-fix.
     if frame_manager:
         try:
             import re as _re
@@ -562,10 +527,86 @@ async def process_turn(
                 for cid in mentioned:
                     store = _deps.registry.get_store(cid)
                     if store:
-                        retrieved_ids.update(store.slabs.keys())
+                        store_slab_ids = set(store.slabs.keys())
+                        retrieved_ids.update(store_slab_ids)
+                        # Feed collection slabs into seed_ids so PPR
+                        # teleports to them and the edge walk can
+                        # radiate from them into neighbors.
+                        seed_ids.update(store_slab_ids)
                 signal_counts["collection"] = len(retrieved_ids) - before
         except Exception as exc:
             logger.warning("collection-name detection failed: %r", exc)
+
+    signal_counts["seeds"] = len(seed_ids)
+
+    # ── 3. Subspace construction via typed-edge walk ──
+    subspace: set[str] = set()
+    conflict_forced: set[str] = set()
+    if seed_ids and frame_manager:
+        subspace, conflict_forced, edges_walked = _build_edge_subspace(
+            frame_manager.corpus, seed_ids,
+        )
+        signal_counts["subspace"] = len(subspace)
+        signal_counts["edges_walked"] = edges_walked
+        if conflict_forced:
+            retrieved_ids.update(conflict_forced)
+            signal_counts["conflicts"] = len(conflict_forced)
+
+    # Diagnostic: seeds exist but edge walk returned nothing. Usually
+    # means the seeds are isolated nodes (no edges touch them) or live
+    # in collections whose edges haven't been mined yet. Prints the
+    # first few seed ids so we can inspect in the corpus.
+    if seed_ids and not subspace and frame_manager:
+        edge_touching_seeds = 0
+        for e in frame_manager.corpus.edges.values():
+            if e.from_node in seed_ids or e.to_node in seed_ids:
+                edge_touching_seeds += 1
+        print(
+            f"[RAG-DIAG] subspace empty despite {len(seed_ids)} seeds; "
+            f"{edge_touching_seeds} edges touch any seed. "
+            f"seeds (first 5)={sorted(seed_ids)[:5]}",
+            flush=True,
+        )
+
+    # ── 4. Rank (hybrid: cosine + PPR + global PR) ──
+    # Two modes:
+    #   subspace: graph chose the candidates (typed-edge walk),
+    #             ranker orders them by cosine + PPR + global PR.
+    #   full_ppr: subspace was empty but we have seeds — let PPR walk
+    #             the full corpus from seeds. This is the ideal PR
+    #             case: continuous, multi-hop reachability, no hard
+    #             budget. Captures relationships that 1-hop typed walk
+    #             missed (isolated seed anchor, misrouted edges, etc).
+    ppr_lift_count = 0
+    if slab_matcher is not None and slab_matcher.has_cache() and seed_ids:
+        try:
+            if subspace:
+                signal_counts["ranked_mode"] = "subspace"
+                hits = await slab_matcher.hybrid_rank(
+                    user_text,
+                    seed_ids=seed_ids,
+                    id_filter=subspace,
+                )
+            else:
+                # Fall through: no subspace but seeds exist → PPR over
+                # the full corpus teleporting to seeds.
+                signal_counts["ranked_mode"] = "full_ppr"
+                hits = await slab_matcher.hybrid_rank(
+                    user_text,
+                    seed_ids=seed_ids,
+                )
+            ranked = {sid for sid, _s, _c in hits}
+            retrieved_ids.update(ranked)
+            signal_counts["ranked"] = len(ranked)
+            # Count slabs whose combined score was materially boosted by
+            # PR (ppr or global_pr contribution >= 0.1 after weighting).
+            for _sid, _score, comp in hits:
+                ppr_bonus = 0.5 * comp.get("ppr", 0.0) + 0.3 * comp.get("global_pr", 0.0)
+                if ppr_bonus >= 0.1:
+                    ppr_lift_count += 1
+        except Exception as exc:
+            logger.warning("hybrid rank failed: %r", exc)
+    signal_counts["ppr_lift"] = ppr_lift_count
 
     # ── 5. Fallbacks ──
     # Cold start: no seeds means the frame has nothing active yet (turn 1

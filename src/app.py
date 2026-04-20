@@ -53,7 +53,11 @@ async def startup():
     # system prompts. The model sees a compact catalog always; the full text
     # of semantically-relevant slabs gets injected on the turns they matter.
     await deps.slab_matcher.warm_cache()
-    print(f"[MATCHER] Slab embedding cache warmed ({len(deps.slab_matcher._embed_cache)} REFERENCE slabs)")
+    print(
+        f"[MATCHER] Slab embedding cache warmed "
+        f"({len(deps.slab_matcher._embed_cache)} REFERENCE slabs, "
+        f"{len(deps.slab_matcher._global_pr)} PR nodes)"
+    )
 
     # Reconcile dangling state across the five draft/tentative locations.
     # Commits ACCEPTED edges whose endpoints have since landed, prunes
