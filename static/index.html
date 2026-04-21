@@ -2238,9 +2238,9 @@ function dashPageMine(c){
           ondrop="event.preventDefault();this.style.borderColor='var(--border)';_mineHandleFile(event.dataTransfer.files[0])"
           onclick="document.getElementById('mine-file-input').click()">
           Drop file here or click to browse<br>
-          <span style="font-size:9px;color:#3a4060">.json · .jsonl · .md · .txt — max 5 MB</span>
+          <span style="font-size:9px;color:#3a4060">.json · .jsonl · .md · .txt · .pdf · .docx — max 10 MB</span>
         </div>
-        <input type="file" id="mine-file-input" accept=".json,.jsonl,.md,.txt" style="display:none" onchange="_mineHandleFile(this.files[0])">
+        <input type="file" id="mine-file-input" accept=".json,.jsonl,.md,.txt,.pdf,.docx,.doc" style="display:none" onchange="_mineHandleFile(this.files[0])">
         <div id="mine-file-chip" style="display:none;font-size:10px;color:var(--accent);margin-bottom:8px"></div>
         <textarea id="mine-text" rows="8" style="width:100%;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;padding:10px;resize:vertical;min-height:80px" placeholder="Or paste text here — pick Mine Conversation for chat logs, Mine Narrative for stories/essays/docs..."></textarea>
         <div style="display:flex;gap:10px;margin-top:10px;align-items:center">
@@ -2306,14 +2306,49 @@ async function _renderCollectionChips(){
   }catch(e){console.warn('Failed to render collection chips',e)}
 }
 
-function _mineHandleFile(file){
+async function _mineHandleFile(file){
   if(!file)return;
-  if(file.size>5*1024*1024){alert('File too large (max 5 MB)');return}
+  // 10 MB ceiling — matches the /upload endpoint's _MAX_FILE_SIZE.
+  if(file.size>10*1024*1024){alert('File too large (max 10 MB)');return}
   const chip=document.getElementById('mine-file-chip');
   chip.style.display='block';
+  const ext=(file.name.split('.').pop()||'').toLowerCase();
+  const textarea=document.getElementById('mine-text');
+
+  // Binary formats (PDF, DOCX) — can't be read client-side, so POST to
+  // /upload which uses pdfplumber + python-docx server-side. For plain
+  // text formats we keep the client-side FileReader fast path: zero
+  // round-trip, zero server load.
+  const binaryExts=new Set(['pdf','docx','doc']);
+  if(binaryExts.has(ext)){
+    chip.textContent=`📄 ${file.name} (${(file.size/1024).toFixed(1)} KB) — extracting…`;
+    try{
+      const fd=new FormData();fd.append('file',file);
+      const r=await fetch(`${API}/upload`,{method:'POST',body:fd});
+      if(!r.ok){
+        const err=await r.json().catch(()=>({detail:r.statusText}));
+        throw new Error(err.detail||`Upload failed (${r.status})`);
+      }
+      const data=await r.json();
+      textarea.value=data.content||data.text||'';
+      const nchars=textarea.value.length;
+      // /upload truncates at ~80k chars. Surface that so a user who
+      // drops a 200-page PDF knows their mining input was clipped.
+      const truncNote=data.truncated?' — TRUNCATED':'';
+      chip.textContent=`📄 ${file.name} (${(file.size/1024).toFixed(1)} KB → ${nchars.toLocaleString()} chars${truncNote})`;
+      chip.style.color=data.truncated?'#ffc040':'';
+    }catch(e){
+      chip.textContent=`📄 ${file.name} — extraction failed: ${e.message}`;
+      chip.style.color='#ff6b6b';
+    }
+    return;
+  }
+
+  // Plain text — client-side is fine.
   chip.textContent=`📄 ${file.name} (${(file.size/1024).toFixed(1)} KB)`;
+  chip.style.color='';
   const reader=new FileReader();
-  reader.onload=()=>{document.getElementById('mine-text').value=reader.result};
+  reader.onload=()=>{textarea.value=reader.result};
   reader.readAsText(file);
 }
 
