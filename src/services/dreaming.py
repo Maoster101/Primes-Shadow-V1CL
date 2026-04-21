@@ -52,6 +52,18 @@ from .corpus import CorpusStore
 from .atomic_io import atomic_write_text
 from . import ollama
 
+# Dedicated small/fast model for dream enrichment. Dreams are text-to-text
+# transforms (grounding audit + rewrite) that don't need the reasoning
+# strength of the main chat model. Routing them to a small model (Llama
+# 3.2 3B ≈ 2 GB) instead of gemma3:12b gives roughly 5-10× throughput at
+# minimal quality cost, AND fits alongside the chat model in 16 GB VRAM
+# so Ollama doesn't have to swap models per call.
+#
+# Overridable via env var for easy experimentation without editing code.
+# Set to empty string to disable override (fall back to main chat model).
+import os as _os
+DREAM_MODEL: Optional[str] = _os.environ.get("PS_DREAM_MODEL", "llama3.2:latest") or None
+
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -601,9 +613,11 @@ class DreamingPass:
             .replace("{$DRAFT_TYPE}", draft_type)
         )
 
-        print(f"[DREAM] Stage 1: grounding audit for {draft_id} ({grounding_mode})...")
+        print(f"[DREAM] Stage 1: grounding audit for {draft_id} ({grounding_mode})"
+              + (f" [model={DREAM_MODEL}]" if DREAM_MODEL else "")
+              + "...")
         try:
-            audit_result = await ollama.structured_extract(audit_prompt)
+            audit_result = await ollama.structured_extract(audit_prompt, model=DREAM_MODEL)
         except Exception as e:
             return {"status": "error", "error": f"Audit model call failed: {e}"}
 
@@ -639,9 +653,11 @@ class DreamingPass:
             .replace("{$DRAFT_TYPE}", draft_type)
         )
 
-        print(f"[DREAM] Stage 2: rewriting {draft_id} ({grounding_mode})...")
+        print(f"[DREAM] Stage 2: rewriting {draft_id} ({grounding_mode})"
+              + (f" [model={DREAM_MODEL}]" if DREAM_MODEL else "")
+              + "...")
         try:
-            rewritten = await ollama.structured_extract(rewrite_prompt)
+            rewritten = await ollama.structured_extract(rewrite_prompt, model=DREAM_MODEL)
         except Exception as e:
             return {
                 "status": "error",

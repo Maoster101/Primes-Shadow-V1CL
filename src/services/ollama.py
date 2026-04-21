@@ -102,21 +102,26 @@ async def generate(
     temperature: float = 0.7,
     raw_json: bool = False,
     num_ctx: Optional[int] = None,
+    model: Optional[str] = None,
 ) -> str:
     """Single-shot generation. Use for structured extraction tasks.
 
     `num_ctx` override: structured extraction rarely needs the full chat
     context budget. Passing a smaller value (e.g. 8192 for mining) avoids
     reserving a huge KV cache for a short prompt.
+
+    `model` override: if provided, routes this call to a different Ollama
+    model than the active chat model. Used by dream enrichment to run on
+    a small/fast model (e.g. llama3.2:latest) without evicting the chat
+    model from VRAM. Falls back to ``CHAT_MODEL`` when unset.
     """
     opts = _opts(temperature)
     if num_ctx is not None:
         opts["num_ctx"] = num_ctx
-    payload: dict = _payload_base(
-        prompt=prompt,
-        stream=False,
-        options=opts,
-    )
+    payload_kwargs: dict = {"prompt": prompt, "stream": False, "options": opts}
+    if model is not None:
+        payload_kwargs["model"] = model
+    payload: dict = _payload_base(**payload_kwargs)
     if system:
         payload["system"] = system
     if raw_json:
@@ -330,6 +335,7 @@ async def structured_extract(
     prompt: str,
     system: Optional[str] = None,
     num_ctx: Optional[int] = None,
+    model: Optional[str] = None,
 ) -> dict:
     """Generate and parse structured JSON from the model.
 
@@ -340,10 +346,15 @@ async def structured_extract(
     PS_EXTRACT_NUM_CTX (default 8192). Structured extraction prompts are
     short-to-medium; reserving a full chat-sized KV cache for them wastes
     VRAM that the chat model needs.
+
+    `model` override: optional per-call model swap (see ``generate``).
+    Used by dream enrichment to route to a small fast model.
     """
     if num_ctx is None:
         num_ctx = _EXTRACT_NUM_CTX
-    raw = await generate(prompt, system=system, temperature=0.3, num_ctx=num_ctx)
+    raw = await generate(
+        prompt, system=system, temperature=0.3, num_ctx=num_ctx, model=model,
+    )
     return _parse_json_response(raw)
 
 
