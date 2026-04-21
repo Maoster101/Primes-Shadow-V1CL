@@ -62,6 +62,17 @@ things that already exist in the corpus — e.g. "X supports Y" or "these \
 are in sequence" — emit that edge even if you aren't proposing either X \
 or Y as new.
 
+CRITICAL — collection names are NOT valid edge endpoints. Edges connect \
+nodes (anchors / slabs / bundles), not collections (which are containers \
+of nodes). The following are COLLECTION IDs, never use them as \
+from_label or to_label:
+$ACTIVE_COLLECTIONS
+If the user says something like "v5 conflicts with v6" or "this \
+collection supports that one," find the specific slab TITLE or anchor \
+PHRASE inside those collections that the claim is actually about, and \
+use that as the endpoint. Picking a specific slab is always better \
+than picking a collection name.
+
 Edge types:
 $EDGE_TYPES
 
@@ -114,6 +125,11 @@ edges linking them. Use concept labels (not IDs). Valid endpoints are:
   - The proposal you're creating now, OR
   - Any existing corpus anchor/slab/bundle from the lists below, OR
   - Any concept named in the conversation.
+
+CRITICAL — these are COLLECTION IDs, never use them as endpoints:
+$ACTIVE_COLLECTIONS
+Edges connect nodes, not collections. Find the specific slab TITLE or \
+anchor PHRASE that the claim is about.
 
 Edge types:
 $EDGE_TYPES
@@ -187,6 +203,15 @@ Rules:
 - A relationship that was previously mined doesn't need to be \
   re-emitted — the system dedupes on (from, to, type) — so when in \
   doubt, emit.
+
+CRITICAL — these are COLLECTION IDs, NEVER use them as from_label or \
+to_label. They are containers, not nodes. Edges must connect nodes:
+$ACTIVE_COLLECTIONS
+If the user says "v5 conflicts with v6" or "this collection relates \
+to that one," identify which SPECIFIC slab or anchor WITHIN those \
+collections the claim is actually about, and use those as endpoints. \
+If you cannot identify a specific node-level referent, skip the edge \
+rather than using a collection name.
 
 Edge types:
 $EDGE_TYPES
