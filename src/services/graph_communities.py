@@ -462,22 +462,280 @@ class CommunityStore:
         return _fingerprint_materially_changed(old_fp, current_fingerprint)
 
 
-def compute_and_persist(
-    store_api,
+# ── Label generation ─────────────────────────────────────────────────
+
+# Small fast model for cluster labeling. Same rationale as dream
+# enrichment: labeling is a text-summarization task that doesn't need
+# the main chat model's capability. Overridable via env var.
+import os as _os
+LABEL_MODEL: Optional[str] = _os.environ.get(
+    "PS_LABEL_MODEL", "llama3.2:latest",
+) or None
+
+# Max titles per cluster to feed the labeler. Too few = poor signal;
+# too many = wasted tokens and the LLM tunes out the tail. 10 hits a
+# sweet spot where the label reflects the cluster's character.
+_LABEL_MAX_TITLES = 10
+
+# Sample strategy when a cluster has more members than _LABEL_MAX_TITLES:
+# take the first-N as iteration order (Leiden returns vertices in a
+# roughly-density-sorted order per cluster, so first-N biases toward
+# the denser core rather than the fringe).
+# Alternative would be random sample; first-N is cheaper and more stable
+# across recomputes with the fixed LEIDEN_SEED.
+
+
+_LABEL_PROMPT = """\
+You will be shown titles of nodes that form a semantic cluster in a knowledge graph. \
+Output ONE short label (2-4 words) that captures what this cluster is about. \
+No punctuation, no quotes, no explanation — just the label itself.
+{parent_context}
+Titles:
+{titles}
+
+Label: """
+
+
+_LABEL_PROMPT_WITH_PARENT = """\
+You will be shown titles of nodes that form a sub-cluster within a larger knowledge-graph cluster. \
+Output ONE short label (2-4 words) that describes this sub-cluster as a sub-topic of its parent. \
+No punctuation, no quotes, no explanation — just the label itself.
+
+Parent cluster: "{parent_label}"
+
+Titles:
+{titles}
+
+Label: """
+
+
+def _title_for_node(node_id: str, corpus) -> str:
+    """Best human-readable title for any node type. Used for labeling
+    input. Falls back to node_id if no better name is available.
+    """
+    if node_id in getattr(corpus, "anchors", {}):
+        a = corpus.anchors[node_id]
+        return a.canonical_phrase or node_id
+    if node_id in getattr(corpus, "slabs", {}):
+        s = corpus.slabs[node_id]
+        return (s.title or (s.canonical_text or "")[:60] or node_id).strip()
+    if node_id in getattr(corpus, "bundles", {}):
+        b = corpus.bundles[node_id]
+        intents = getattr(b.payload, "intent", []) if getattr(b, "payload", None) else []
+        return "; ".join(intents[:2]) if intents else node_id
+    return node_id
+
+
+async def _generate_label(
+    titles: list[str],
+    parent_label: Optional[str] = None,
+    model: Optional[str] = None,
+) -> str:
+    """Call the labeler LLM. Returns a single short label string.
+
+    Falls back to the longest-common-prefix heuristic on LLM error,
+    which is crude but keeps the pipeline non-fatal.
+    """
+    from . import ollama
+
+    if not titles:
+        return "Unlabeled"
+
+    titles_block = "\n".join(f"- {t}" for t in titles)
+    if parent_label:
+        prompt = _LABEL_PROMPT_WITH_PARENT.format(
+            parent_label=parent_label, titles=titles_block,
+        )
+    else:
+        prompt = _LABEL_PROMPT.format(
+            parent_context="", titles=titles_block,
+        )
+
+    try:
+        # Use generate (free-form text output) not structured_extract —
+        # we want a short label, not JSON.
+        raw = await ollama.generate(
+            prompt,
+            temperature=0.2,       # low temp for consistent labels
+            num_ctx=2048,          # labeling prompts are small
+            model=model or LABEL_MODEL,
+        )
+    except Exception as exc:
+        logger.warning("Label generation failed for %d titles: %r", len(titles), exc)
+        return _fallback_label(titles)
+
+    # Clean the response: strip quotes, trailing punct, whitespace, newlines.
+    label = (raw or "").strip().splitlines()[0].strip() if raw else ""
+    # Strip common LLM artifacts
+    label = label.strip("\"'`.,;:()[]{}").strip()
+    # Cap at 50 chars defensively
+    if len(label) > 50:
+        label = label[:50].rsplit(" ", 1)[0]
+    if not label:
+        return _fallback_label(titles)
+    return label
+
+
+def _fallback_label(titles: list[str]) -> str:
+    """Dead-simple label fallback: longest common word prefix across
+    titles, or the first title truncated. Used when LLM call fails.
+    """
+    if not titles:
+        return "Unlabeled"
+    words_per_title = [t.lower().split()[:3] for t in titles[:5]]
+    if not words_per_title:
+        return titles[0][:40]
+    # Find common leading words
+    common = []
+    for i in range(min(len(w) for w in words_per_title)):
+        word = words_per_title[0][i]
+        if all(w[i] == word for w in words_per_title):
+            common.append(word)
+        else:
+            break
+    if common:
+        return " ".join(common).title()
+    return titles[0][:40]
+
+
+def _cluster_titles(members: list[str], corpus) -> list[str]:
+    """Produce the labeler input: up to _LABEL_MAX_TITLES human titles."""
+    titles = [_title_for_node(nid, corpus) for nid in members[:_LABEL_MAX_TITLES]]
+    # Dedupe while preserving order
+    seen: set[str] = set()
+    unique = []
+    for t in titles:
+        if t and t not in seen:
+            seen.add(t)
+            unique.append(t)
+    return unique
+
+
+def _path_key(path: tuple) -> str:
+    """Serialize a cluster path tuple to a stable string key for JSON."""
+    return ",".join(str(i) for i in path)
+
+
+async def label_tree(
+    tree: list[dict],
+    corpus,
+    old_labels: Optional[dict[str, str]] = None,
+    old_tree: Optional[list[dict]] = None,
+    model: Optional[str] = None,
+    _parent_label: Optional[str] = None,
+    _path: tuple = (),
+) -> dict[str, str]:
+    """Walk a cluster tree and generate a label for each cluster.
+
+    Reuses labels from ``old_labels`` when the new cluster's frozenset
+    of member_ids matches an old cluster's (via ``old_tree`` walked in
+    parallel). This is the "Leiden is stable, only re-label what
+    changed" optimization — cuts re-labeling cost from O(clusters) to
+    O(changed_clusters).
+
+    Special-cases:
+      * ``_is_misc`` clusters use a fixed label, skip LLM
+      * Clusters with zero members skip LLM
+      * LLM failures fall through to _fallback_label
+
+    Returns a flat dict ``{path_str: label}`` for the full tree.
+    """
+    # Build membership→label cache from old state (if any)
+    cache: dict[frozenset, str] = {}
+    if old_labels and old_tree:
+        _walk_for_cache(old_tree, old_labels, cache, path=())
+
+    labels: dict[str, str] = {}
+    for i, cluster in enumerate(tree):
+        path = _path + (i,)
+        path_str = _path_key(path)
+        members = cluster.get("members", [])
+        members_set = frozenset(members)
+
+        # Misc bucket: fixed label, no LLM.
+        if cluster.get("_is_misc"):
+            labels[path_str] = cluster.get("_label_hint", "Miscellaneous")
+        elif not members:
+            labels[path_str] = "Empty"
+        elif members_set in cache:
+            # Stable membership — reuse old label.
+            labels[path_str] = cache[members_set]
+            logger.debug("label cache hit: path=%s", path_str)
+        else:
+            titles = _cluster_titles(members, corpus)
+            labels[path_str] = await _generate_label(
+                titles,
+                parent_label=_parent_label,
+                model=model,
+            )
+            logger.info(
+                "label generated: path=%s members=%d -> %r",
+                path_str, len(members), labels[path_str],
+            )
+
+        # Recurse into children with this cluster's label as parent-context.
+        if cluster.get("children"):
+            child_labels = await label_tree(
+                cluster["children"],
+                corpus,
+                old_labels=old_labels,
+                old_tree=old_tree[i]["children"] if (
+                    old_tree and i < len(old_tree) and old_tree[i].get("children")
+                ) else None,
+                model=model,
+                _parent_label=labels[path_str],
+                _path=path,
+            )
+            labels.update(child_labels)
+
+    return labels
+
+
+def _walk_for_cache(
+    tree: list[dict],
+    labels: dict[str, str],
+    cache: dict[frozenset, str],
+    path: tuple,
+) -> None:
+    """Populate a membership→label cache by walking an old tree + labels."""
+    for i, cluster in enumerate(tree):
+        p = path + (i,)
+        key = _path_key(p)
+        if key in labels:
+            members_set = frozenset(cluster.get("members", []))
+            if members_set:
+                cache[members_set] = labels[key]
+        if cluster.get("children"):
+            _walk_for_cache(cluster["children"], labels, cache, p)
+
+
+async def compute_and_persist(
+    corpus,
     scope: str,
     node_ids: list[str],
     edges: list,
     community_store: CommunityStore,
     force: bool = False,
+    coalesce_min_size: int = 3,
+    skip_labels: bool = False,
 ) -> dict:
     """Top-level orchestrator: check fingerprint, compute if needed,
-    persist, return the payload.
+    label via LLM, persist, return the payload.
 
-    ``store_api`` isn't actually used yet (parameter reserved for a
-    future optimization that would diff against the previous tree
-    and selectively re-label only changed clusters). Pass None for
-    now. Kept as parameter so the signature doesn't churn when that
-    lands.
+    Flow:
+      1. Compute fingerprint → cache hit → return cached (no LLM cost).
+      2. Cache miss → run Leiden → coalesce singletons.
+      3. Reuse labels from previous payload where cluster membership
+         is unchanged (Leiden is stable + frozenset cache).
+      4. Generate LLM labels only for new/changed clusters.
+      5. Atomic-write the full payload {tree, fingerprint, labels}.
+
+    ``corpus`` is needed for title lookup during labeling; pass the
+    ``CorpusStore`` for the scope being labeled (or the merged view).
+
+    Set ``skip_labels=True`` to compute clusters without LLM labeling
+    (useful during bulk warm where labeling would dominate wall-time
+    and can run deferred).
     """
     fingerprint = _graph_fingerprint(node_ids, edges)
     if not force and not community_store.needs_recompute(scope, fingerprint):
@@ -487,10 +745,26 @@ def compute_and_persist(
         "Computing communities for scope=%r: %d nodes, %d edges",
         scope, len(node_ids), len(edges),
     )
-    tree = compute_hierarchical_communities(node_ids, edges)
 
-    # Labels are computed lazily / by a separate pass — we save the
-    # tree here without them. A follow-up call can add labels when
-    # they're wanted (e.g. on first API request after a warm).
-    community_store.save(scope, tree, fingerprint, labels={})
+    # Preserve old payload so label-reuse can happen on recompute
+    old_payload = community_store.load(scope) if not force else None
+    old_tree = old_payload.get("tree") if old_payload else None
+    old_labels = old_payload.get("labels") if old_payload else None
+
+    raw_tree = compute_hierarchical_communities(node_ids, edges)
+    tree = coalesce_small_clusters(raw_tree, min_size=coalesce_min_size)
+
+    labels: dict[str, str] = {}
+    if not skip_labels:
+        try:
+            labels = await label_tree(
+                tree, corpus,
+                old_labels=old_labels,
+                old_tree=old_tree,
+            )
+        except Exception as exc:
+            logger.warning("Label generation failed for scope=%r: %r", scope, exc)
+            labels = {}
+
+    community_store.save(scope, tree, fingerprint, labels=labels)
     return community_store.load(scope)

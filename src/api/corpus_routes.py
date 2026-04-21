@@ -626,3 +626,131 @@ async def delete_node(node_id: str):
 
     deps.corpus.save()
     return {"deleted": node_id, "type": ntype, "edges_removed": len(dead_edges)}
+
+
+# ── Graph shape + communities ─────────────────────────────────
+# Feed the frontend enough to decide how to render each collection:
+#   - /corpus/shape: cheap classifier (spine vs highway vs sparse vs flat)
+#   - /corpus/communities: recursive Leiden tree + labels for cluster/zoom views
+
+@router.get("/corpus/shape")
+async def get_corpus_shape(scope: Optional[str] = None):
+    """Classify a collection's graph topology for visualization routing.
+
+    ``scope`` is a collection id. When omitted, returns shape reports
+    for all active collections plus the merged view. No LLM cost,
+    no caching — the classifier is cheap enough to re-run per request.
+    """
+    from ..services.graph_shape import classify_shape, shape_report_to_dict
+
+    if scope is not None:
+        store = registry.get_store(scope)
+        if store is None:
+            raise HTTPException(404, f"Collection '{scope}' not found")
+        return shape_report_to_dict(classify_shape(store))
+
+    # No scope → all active + merged
+    out = {}
+    for cid in sorted(registry.active_ids):
+        store = registry.get_store(cid)
+        if store is not None:
+            out[cid] = shape_report_to_dict(classify_shape(store))
+    # Merged = the unified corpus view
+    out["__merged__"] = shape_report_to_dict(classify_shape(deps.corpus))
+    return out
+
+
+@router.get("/corpus/communities")
+async def get_corpus_communities(
+    scope: Optional[str] = None,
+    force: bool = False,
+    skip_labels: bool = False,
+):
+    """Return the community tree + labels for a collection (or merged view).
+
+    ``scope`` behaves like the shape endpoint:
+      - collection id → that collection's tree
+      - ``"__merged__"`` → cross-collection union graph
+      - omitted → defaults to ``"__merged__"``
+
+    ``force=true`` bypasses the fingerprint cache check; useful for
+    forcing a recompute after a manual corpus edit that didn't cross
+    the 10% node-delta threshold.
+
+    ``skip_labels=true`` returns the tree structure without running
+    the LLM labeling pass. Fast — sub-second even on the largest
+    collection. Callers that only want visualization without human-
+    readable labels can use this.
+
+    Response shape::
+
+        {
+          "scope": "podv1",
+          "tree": [ {"members": [...], "children": [...], ...}, ... ],
+          "labels": {"0": "Physical Infrastructure", "0,1": "Plumbing", ...},
+          "fingerprint": {"node_count": 710, ...},
+          "computed_at": "...",
+          "meta_nodes": [ ... ],      # top-level cluster summary
+          "meta_edges": [ ... ]        # inter-cluster edge counts
+        }
+    """
+    from ..services.graph_communities import (
+        compute_and_persist,
+        CommunityStore,
+        build_meta_graph,
+    )
+
+    # Resolve scope
+    scope = scope or "__merged__"
+    if scope == "__merged__":
+        corpus = deps.corpus
+        node_ids = (
+            list(corpus.anchors.keys())
+            + list(corpus.slabs.keys())
+            + list(corpus.bundles.keys())
+        )
+        edges = list(corpus.edges.values())
+    else:
+        store = registry.get_store(scope)
+        if store is None:
+            raise HTTPException(404, f"Collection '{scope}' not found")
+        corpus = store
+        node_ids = (
+            list(store.anchors.keys())
+            + list(store.slabs.keys())
+            + list(store.bundles.keys())
+        )
+        edges = list(store.edges.values())
+
+    if not node_ids:
+        return {
+            "scope": scope,
+            "tree": [],
+            "labels": {},
+            "fingerprint": {"node_count": 0, "edge_count": 0, "nodes_hash": ""},
+            "meta_nodes": [],
+            "meta_edges": [],
+        }
+
+    # CommunityStore singleton lives on deps.community_store (wired below).
+    # Fall back to a fresh instance if not yet wired (e.g. in tests).
+    cs = getattr(deps, "community_store", None) or CommunityStore()
+    payload = await compute_and_persist(
+        corpus=corpus,
+        scope=scope,
+        node_ids=node_ids,
+        edges=edges,
+        community_store=cs,
+        force=force,
+        skip_labels=skip_labels,
+    )
+
+    # Enrich with meta-graph for the frontend. Computed here rather
+    # than persisted because it's cheap and keeps the on-disk payload
+    # smaller (the tree + labels are the expensive-to-compute parts).
+    meta_nodes, meta_edges = build_meta_graph(payload["tree"], edges)
+    return {
+        **payload,
+        "meta_nodes": meta_nodes,
+        "meta_edges": meta_edges,
+    }

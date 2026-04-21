@@ -39,6 +39,12 @@ anchor_matcher = AnchorMatcher(corpus)
 slab_matcher = SlabMatcher(corpus)
 draft_manager = DraftManager(corpus, session_store)
 
+# Per-collection community trees + labels, persisted under
+# app/state/communities/ so cluster IDs are stable across reboots
+# despite Leiden's randomization. See graph_communities.CommunityStore.
+from ..services.graph_communities import CommunityStore
+community_store = CommunityStore()
+
 from ..services.drift_monitor import DriftMonitor
 drift_monitor = DriftMonitor()
 
@@ -85,6 +91,16 @@ def rebind_corpus() -> None:
     draft_manager._registry = registry
     gauntlet_engine.corpus = corpus
     lifecycle.corpus = corpus
+
+    # Community cache: collection activation changes can affect the
+    # merged-view cluster tree. Invalidate the in-memory cache so next
+    # GET /corpus/communities?scope=__merged__ recomputes against the
+    # new active set. Per-collection cached trees are unaffected —
+    # deactivating a collection doesn't change its own clustering.
+    try:
+        community_store.invalidate("__merged__")
+    except Exception:
+        pass
 
 
 def save_session_state(sid: str) -> None:

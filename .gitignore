@@ -59,6 +59,9 @@ app/workbench/*.log
 # Runtime state (not already covered above)
 app/corpus/state/session_history.jsonl
 
+# Derived state — regenerable from corpus (community trees, future caches)
+app/state/
+
 # LaTeX build artifacts
 arxiv_submission/*.aux
 arxiv_submission/*.log
