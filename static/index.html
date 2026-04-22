@@ -340,11 +340,19 @@
       </div>
       <div class="event-list" id="event-list"></div>
       <div class="corpus-canvas-wrap" id="corpus-canvas-wrap" style="display:none;flex:1;position:relative;min-height:0">
-        <div id="corpus-filter-bar" style="position:absolute;top:4px;left:4px;right:4px;z-index:10;display:flex;gap:6px;align-items:center;padding:4px 8px;background:rgba(13,17,23,0.85);border-radius:6px;border:1px solid var(--border)">
+        <div id="corpus-filter-bar" style="position:absolute;top:4px;left:4px;right:4px;z-index:10;display:flex;gap:6px;align-items:center;padding:4px 8px;background:rgba(13,17,23,0.85);border-radius:6px;border:1px solid var(--border);flex-wrap:wrap">
           <span style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em">View:</span>
           <select id="corpus-collection-filter" onchange="_corpusFilterChanged()" style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:2px 6px;font-size:10px;font-family:inherit">
             <option value="__all__">All Collections (merged)</option>
           </select>
+          <span style="font-size:9px;color:var(--text-dim);margin-left:4px">Mode:</span>
+          <!-- Mode toggle: Nodes (current) vs Clusters (meta-graph from Leiden communities).
+               Drilled state is implicit: when we're inside a cluster, shows "← {clusterLabel}" instead. -->
+          <span id="corpus-mode-toggle" style="display:flex;border:1px solid var(--border);border-radius:4px;overflow:hidden;font-size:10px">
+            <button id="corpus-mode-nodes" onclick="_setCorpusMode('nodes')" style="background:rgba(255,255,255,0.08);border:none;border-right:1px solid var(--border);color:var(--text);padding:2px 8px;cursor:pointer;font-family:inherit;font-size:10px">Nodes</button>
+            <button id="corpus-mode-clusters" onclick="_setCorpusMode('clusters')" style="background:transparent;border:none;color:var(--text-dim);padding:2px 8px;cursor:pointer;font-family:inherit;font-size:10px">Clusters</button>
+          </span>
+          <span id="corpus-breadcrumb" style="display:none;font-size:10px;color:#ff8c00;font-family:'JetBrains Mono',monospace;cursor:pointer" onclick="_exitDrilledCluster()" title="Back to clusters overview"></span>
           <span id="corpus-filter-stats" style="font-size:9px;color:var(--text-dim);margin-left:auto"></span>
         </div>
         <canvas id="corpus-canvas"></canvas>
@@ -1719,6 +1727,9 @@ async function _renderDashCollections(){
 async function _dashToggleCollection(cid,active){
   try{
     await fetch(`${API}/collections/${cid}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({active})});
+    // Invalidate client-side cluster cache — merged-view changed and any
+    // cached single-collection may have been gc'd server-side.
+    if(typeof _communitiesCache!=='undefined')_communitiesCache={};
     await _fetchDashData();
     await _renderDashCollections();
     // Also refresh AI Mine chips if they exist
@@ -3006,6 +3017,11 @@ async function _toggleCollection(cid, active){
     if(!res.ok){const err=await res.json();alert(err.detail||'Failed');return}
     const result=await res.json();
     pushEvent('system',`Collection '${cid}' ${active?'activated':'deactivated'} — merged: ${result.merged_anchors}a/${result.merged_slabs}s/${result.merged_bundles}b`);
+    // Any collection activation change invalidates the merged cluster
+    // view (and possibly single-collection views if the backend gc'd).
+    // Clearing the entire client-side cache is cheap — ~15 clusters
+    // worth of JSON — and ensures the next render fetches fresh data.
+    if(typeof _communitiesCache!=='undefined')_communitiesCache={};
     // Refresh both chips and dropdown
     await Promise.all([_loadCollections(), _renderCollectionChips()]);
   }catch(e){alert('Error: '+e.message)}
@@ -3781,8 +3797,186 @@ function cProject(x,y,z){
 async function _corpusFilterChanged(){
   const sel=document.getElementById('corpus-collection-filter');
   _corpusFilterCollection=sel.value;
+  // Changing collection always exits any drilled state — new collection
+  // has a different cluster space. Mode preference is preserved.
+  _drilledCluster=null;
   corpusLoaded=false;
+  _updateCorpusBreadcrumb();
   await loadCorpusGraph();
+}
+
+// ── Cluster view state ──
+// Mode: 'nodes' = existing full-graph view; 'clusters' = meta-graph
+// (top-level cluster circles from Leiden). Drilled state layers on top:
+// when _drilledCluster is set, we're inside a specific cluster seeing
+// its members only.
+let _corpusViewMode='nodes';
+let _drilledCluster=null;  // {scope, path, label, members}
+let _communitiesCache={};  // {scope: payload} — tiny client-side cache
+
+async function _setCorpusMode(mode){
+  if(mode!==_corpusViewMode){
+    _corpusViewMode=mode;
+    _drilledCluster=null;  // exit any drill state when mode changes
+    // Update toggle button styling
+    const nb=document.getElementById('corpus-mode-nodes');
+    const cb=document.getElementById('corpus-mode-clusters');
+    if(nb&&cb){
+      const active='background:rgba(255,255,255,0.08);border:none;border-right:1px solid var(--border);color:var(--text);padding:2px 8px;cursor:pointer;font-family:inherit;font-size:10px';
+      const inactive='background:transparent;border:none;border-right:1px solid var(--border);color:var(--text-dim);padding:2px 8px;cursor:pointer;font-family:inherit;font-size:10px';
+      nb.style.cssText=(mode==='nodes')?active:inactive;
+      cb.style.cssText=(mode==='clusters')?active.replace('border-right:1px solid var(--border);',''):inactive.replace('border-right:1px solid var(--border);','');
+    }
+    _updateCorpusBreadcrumb();
+    corpusLoaded=false;
+    await loadCorpusGraph();
+  }
+}
+
+function _exitDrilledCluster(){
+  if(_drilledCluster){
+    _drilledCluster=null;
+    _updateCorpusBreadcrumb();
+    corpusLoaded=false;
+    loadCorpusGraph();
+  }
+}
+
+function _updateCorpusBreadcrumb(){
+  const bc=document.getElementById('corpus-breadcrumb');
+  if(!bc)return;
+  if(_drilledCluster){
+    bc.style.display='inline';
+    bc.textContent=`← ${_drilledCluster.label} (${(_drilledCluster.members||[]).length} nodes)`;
+  }else{
+    bc.style.display='none';
+  }
+}
+
+function _currentCommunityScope(){
+  // Map the collection filter to a communities API scope. The filter uses
+  // '__all__' as "all collections merged"; the communities API uses
+  // '__merged__' for the same concept. Single-collection filters pass through.
+  return _corpusFilterCollection==='__all__' ? '__merged__' : _corpusFilterCollection;
+}
+
+async function _loadClusterView(){
+  // Fetch cluster tree + labels for the current scope, synthesize
+  // cluster nodes and meta-edges for the existing renderer to draw.
+  const scope=_currentCommunityScope();
+  let payload=_communitiesCache[scope];
+  if(!payload){
+    try{
+      const res=await fetch(`${API}/corpus/communities?scope=${encodeURIComponent(scope)}`);
+      if(!res.ok)throw new Error(`communities API returned ${res.status}`);
+      payload=await res.json();
+      _communitiesCache[scope]=payload;
+    }catch(err){
+      console.warn('cluster fetch failed:',err);
+      const statsEl=document.getElementById('corpus-filter-stats');
+      if(statsEl)statsEl.textContent=`cluster load failed: ${err.message}`;
+      cNodes=[];cEdges=[];cAffinityPairs=[];cImplicitEdges=[];
+      return;
+    }
+  }
+
+  const tree=payload.tree||[];
+  const labels=payload.labels||{};
+  const metaEdges=payload.meta_edges||[];
+
+  // Build synthetic nodes: one per top-level cluster.
+  // - struct: 'bundle' so the existing renderer picks a distinct shape
+  // - temp: scales with member count for visual weight (bigger cluster = warmer)
+  // - label/canonical_phrase: the LLM-generated label
+  // A simple radial/cloud layout; we're only rendering ~15-25 items so
+  // we don't need the flow/spine logic.
+  const N=tree.length;
+  const maxMembers=Math.max(1,...tree.map(c=>(c.members||[]).length));
+  const nodes=[], idToIdx={};
+  tree.forEach((cluster,i)=>{
+    const pathKey=String(i);
+    const label=labels[pathKey]||(cluster._is_misc?'Miscellaneous':`Cluster ${i}`);
+    const memberCount=(cluster.members||[]).length;
+    const sizeFactor=Math.min(1,memberCount/maxMembers);
+    // Radial layout: golden-angle spiral for pleasing distribution at any count
+    const theta=i*2.39996; // golden angle in radians
+    const r=180+sizeFactor*120;
+    const x=Math.cos(theta)*r;
+    const y=Math.sin(theta)*r*0.7;  // squashed ellipse to fit canvas aspect
+    const z=sizeFactor*80-40;
+    const syntheticId=`__cluster__:${scope}:${pathKey}`;
+    idToIdx[pathKey]=syntheticId;
+    nodes.push({
+      id: syntheticId,
+      label: label,
+      canonical_phrase: label,
+      title: `${label} · ${memberCount} nodes`,
+      struct: cluster._is_misc?'concept':'bundle',
+      type: 'bundle',
+      status: cluster._is_misc?'tentative':'corpus',
+      active: false,
+      x: x, y: y, z: z,
+      sem_x: x, sem_y: y, sem_z: z,
+      temp: 0.35+sizeFactor*0.5,       // bigger cluster = warmer glow
+      salience_now: sizeFactor,
+      salience_smoothed: sizeFactor,
+      structural_weight: sizeFactor,
+      rejected: false,
+      // Cluster-specific metadata for click-handling + tooltip
+      _isCluster: true,
+      _clusterPath: pathKey,
+      _clusterMembers: cluster.members||[],
+      _clusterLabel: label,
+      _clusterScope: scope,
+    });
+  });
+
+  // Meta-edges: weighted inter-cluster connections.
+  const edges=metaEdges.map(me=>({
+    from: idToIdx[String(me.from)],
+    to: idToIdx[String(me.to)],
+    type: 'LINKS',
+    strength: Math.min(1, Math.log1p(me.weight)/3),  // log-scale edge weight
+    weight: me.weight,
+    tentative: false,
+  })).filter(e=>e.from&&e.to);
+
+  cNodes=nodes;
+  cEdges=edges;
+  cAffinityPairs=[];
+  cImplicitEdges=[];
+
+  // Update filter stats line
+  const statsEl=document.getElementById('corpus-filter-stats');
+  if(statsEl){
+    const clusterLabel=scope==='__merged__'?'all collections':scope;
+    statsEl.textContent=`${N} clusters · ${metaEdges.length} inter-cluster edges · ${clusterLabel}`;
+  }
+}
+
+async function _loadDrilledView(){
+  // We're inside a specific cluster — render only its member nodes
+  // as a filtered sub-view of the full corpus. Uses the same data
+  // source as the default Nodes mode but restricts to known members.
+  if(!_drilledCluster||!_drilledCluster.members)return;
+  const memberSet=new Set(_drilledCluster.members);
+  // We still fetch the full corpus (with the collection filter) and
+  // filter client-side — server doesn't have a "nodes by id list"
+  // endpoint, and the size is fine since we already cache /corpus/full.
+  const qp=_corpusFilterCollection!=='__all__'?`?collection=${_corpusFilterCollection}`:'';
+  const data=await fetch(`${API}/corpus/full${qp}`).then(r=>r.json());
+  // Build a filtered data object, then run the existing layout logic
+  // by delegating to the normal path. We swap data in place.
+  const filtered={
+    anchors:(data.anchors||[]).filter(a=>memberSet.has(a.id)),
+    slabs:(data.slabs||[]).filter(s=>memberSet.has(s.id)),
+    bundles:(data.bundles||[]).filter(b=>memberSet.has(b.id)),
+    edges:(data.edges||[]).filter(e=>memberSet.has(e.from)&&memberSet.has(e.to)),
+    implicit_parent_edges:[],
+    layout_hint:'cloud',
+    spine_order:[],
+  };
+  return filtered;
 }
 
 async function _populateCorpusFilter(){
@@ -3808,14 +4002,32 @@ async function loadCorpusGraph(){
   // Populate filter dropdown
   await _populateCorpusFilter();
 
-  const qp=_corpusFilterCollection!=='__all__'?`?collection=${_corpusFilterCollection}`:'';
-  const data=await fetch(`${API}/corpus/full${qp}`).then(r=>r.json());
+  // ── Dispatch by view mode ──
+  //   clusters    → render the meta-graph from /api/corpus/communities
+  //   nodes       → render all nodes from /api/corpus/full (default)
+  //   drilled     → render only the drilled cluster's members (filtered /corpus/full)
+  // Drilled state wins over mode because it's a more specific sub-view.
+  if(_corpusViewMode==='clusters' && !_drilledCluster){
+    await _loadClusterView();
+    corpusLoaded=true;
+    return;
+  }
+
+  let data;
+  if(_drilledCluster){
+    data=await _loadDrilledView();
+    if(!data){corpusLoaded=true;return;}
+  }else{
+    const qp=_corpusFilterCollection!=='__all__'?`?collection=${_corpusFilterCollection}`:'';
+    data=await fetch(`${API}/corpus/full${qp}`).then(r=>r.json());
+  }
 
   // Update stats
   const statsEl=document.getElementById('corpus-filter-stats');
   if(statsEl){
     const ac=(data.anchors||[]).length, sc=(data.slabs||[]).length, bc=(data.bundles||[]).length, ec=(data.edges||[]).length;
-    statsEl.textContent=`${ac} anchors · ${sc} slabs · ${bc} bundles · ${ec} edges`;
+    const prefix=_drilledCluster?`[${_drilledCluster.label}] `:'';
+    statsEl.textContent=`${prefix}${ac} anchors · ${sc} slabs · ${bc} bundles · ${ec} edges`;
   }
   cNodes=[];cEdges=[];cAffinityPairs=[];cImplicitEdges=[];
   const typeMap={};
@@ -4521,12 +4733,21 @@ cCanvas.addEventListener('mousemove',e=>{
     const rect=cCanvas.getBoundingClientRect();
     const n=cHitTest(e.clientX-rect.left,e.clientY-rect.top);
     if(n){
-      const bonds=cEdges.filter(e=>e.from===n.id||e.to===n.id).length;
-      const deps=(n.depends_on||[]).length?` deps:${n.depends_on.length}`:'';
-      const hits=n.hitCount||0;
-      const hitInfo=hits>0?` · hits:${hits} (last: turn ${n.lastHitTurn||'?'})`:'';
-      tooltipEl.innerHTML=`<div style="color:var(--text);font-size:12px;font-weight:500;margin-bottom:4px">${n.label}</div>`
-        +`<div style="color:var(--text-dim)">${n.struct} · corpus · bonds:${bonds}${deps}${hitInfo}</div>`;
+      if(n._isCluster){
+        // Cluster tooltip: label + member count + hint to drill
+        const mc=(n._clusterMembers||[]).length;
+        const bonds=cEdges.filter(e=>e.from===n.id||e.to===n.id).length;
+        tooltipEl.innerHTML=`<div style="color:#ff8c00;font-size:12px;font-weight:500;margin-bottom:4px">${_esc(n._clusterLabel)}</div>`
+          +`<div style="color:var(--text-dim)">cluster · ${mc} nodes · ${bonds} inter-cluster edges</div>`
+          +`<div style="color:#7fb3ff;font-size:10px;margin-top:4px">click to drill into cluster</div>`;
+      }else{
+        const bonds=cEdges.filter(e=>e.from===n.id||e.to===n.id).length;
+        const deps=(n.depends_on||[]).length?` deps:${n.depends_on.length}`:'';
+        const hits=n.hitCount||0;
+        const hitInfo=hits>0?` · hits:${hits} (last: turn ${n.lastHitTurn||'?'})`:'';
+        tooltipEl.innerHTML=`<div style="color:var(--text);font-size:12px;font-weight:500;margin-bottom:4px">${n.label}</div>`
+          +`<div style="color:var(--text-dim)">${n.struct} · corpus · bonds:${bonds}${deps}${hitInfo}</div>`;
+      }
       tooltipEl.style.display='block';
       tooltipEl.style.left=(e.clientX+14)+'px';
       tooltipEl.style.top=(e.clientY-10)+'px';
@@ -4538,10 +4759,24 @@ cCanvas.addEventListener('mouseup',e=>{
     const rect=cCanvas.getBoundingClientRect();
     const n=cHitTest(e.clientX-rect.left,e.clientY-rect.top);
     if(n){
-      // Full deep inspect — same as main canvas, with corpus backend data
-      const wrapped={...n, temp:0.15, restTemp:0.15, status:'corpus', rejected:false,
-        _backendData:{depends_on:n.depends_on||[],invokes:n.invokes||[],supports:n.supports||[]}};
-      showInspect(wrapped);
+      if(n._isCluster){
+        // Drill into cluster: show its members in Nodes view with breadcrumb back.
+        _drilledCluster={
+          scope: n._clusterScope,
+          path: n._clusterPath,
+          label: n._clusterLabel,
+          members: n._clusterMembers||[],
+        };
+        _updateCorpusBreadcrumb();
+        tooltipEl.style.display='none';
+        corpusLoaded=false;
+        loadCorpusGraph();
+      }else{
+        // Full deep inspect — same as main canvas, with corpus backend data
+        const wrapped={...n, temp:0.15, restTemp:0.15, status:'corpus', rejected:false,
+          _backendData:{depends_on:n.depends_on||[],invokes:n.invokes||[],supports:n.supports||[]}};
+        showInspect(wrapped);
+      }
     }else{closeInspect()}
   }
   cDrag=null;_corpusDragging=false;
