@@ -464,19 +464,28 @@ class CommunityStore:
 
 # ── Label generation ─────────────────────────────────────────────────
 
-# Cluster labeling model. Originally set to llama3.2:latest for speed
-# (dreams are high-volume, ~200+ per mine, so speed matters there), but
-# labels are LOW-VOLUME (~20 per scope, once per mine) and QUALITY
-# matters — a bad label mislabels an entire region of the corpus
-# permanently until the next recompute. Small models produced drift-
-# prone results: on real corpus data, llama3.2 called a cluster of
-# pod-design testing content "Automotive Testing" because those word
-# co-occurrences are more common in its training. 12B has enough
-# in-context reasoning to resist that drift. Overridable via env.
+# Cluster labeling model — default is "whatever chat model is currently
+# active" (None → ollama.generate falls back to ollama.CHAT_MODEL).
+#
+# Rationale: labels are low-volume (~20 per scope, once per mine) and
+# quality-sensitive. On small models, we saw drift-prone mislabels
+# (a pod-design cluster became "Automotive Testing" because those
+# token co-occurrences are more common in pretraining). The chat
+# model is the user's chosen big model and is already resident in
+# VRAM — reusing it eliminates cold-load latency AND automatically
+# adopts any quality improvements when the user upgrades their chat
+# model. No env-var maintenance required.
+#
+# Contrast with DREAM_MODEL (llama3.2): dreams are high-volume
+# (~200 per mine), speed dominates, and a dedicated small model is
+# correct. Labels are the opposite tradeoff, so the right default
+# is the opposite choice.
+#
+# Override via PS_LABEL_MODEL for experimentation (e.g. set to
+# "gemma3:12b" to pin regardless of chat-model switches).
 import os as _os
-LABEL_MODEL: Optional[str] = _os.environ.get(
-    "PS_LABEL_MODEL", "gemma3:12b",
-) or None
+_LABEL_MODEL_ENV = _os.environ.get("PS_LABEL_MODEL", "").strip()
+LABEL_MODEL: Optional[str] = _LABEL_MODEL_ENV if _LABEL_MODEL_ENV else None
 
 # Max titles per cluster to feed the labeler. Too few = poor signal;
 # too many = wasted tokens and the LLM tunes out the tail. 10 hits a
