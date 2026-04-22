@@ -464,12 +464,18 @@ class CommunityStore:
 
 # ── Label generation ─────────────────────────────────────────────────
 
-# Small fast model for cluster labeling. Same rationale as dream
-# enrichment: labeling is a text-summarization task that doesn't need
-# the main chat model's capability. Overridable via env var.
+# Cluster labeling model. Originally set to llama3.2:latest for speed
+# (dreams are high-volume, ~200+ per mine, so speed matters there), but
+# labels are LOW-VOLUME (~20 per scope, once per mine) and QUALITY
+# matters — a bad label mislabels an entire region of the corpus
+# permanently until the next recompute. Small models produced drift-
+# prone results: on real corpus data, llama3.2 called a cluster of
+# pod-design testing content "Automotive Testing" because those word
+# co-occurrences are more common in its training. 12B has enough
+# in-context reasoning to resist that drift. Overridable via env.
 import os as _os
 LABEL_MODEL: Optional[str] = _os.environ.get(
-    "PS_LABEL_MODEL", "llama3.2:latest",
+    "PS_LABEL_MODEL", "gemma3:12b",
 ) or None
 
 # Max titles per cluster to feed the labeler. Too few = poor signal;
@@ -486,25 +492,39 @@ _LABEL_MAX_TITLES = 10
 
 
 _LABEL_PROMPT = """\
-You will be shown titles of nodes that form a semantic cluster in a knowledge graph. \
-Output ONE short label (2-4 words) that captures what this cluster is about. \
-No punctuation, no quotes, no explanation — just the label itself.
-{parent_context}
+You will be shown titles of nodes that form a semantic cluster in a knowledge graph.
+Output ONE short label (2-4 words) that captures what this cluster is about.
+
+CRITICAL: The label MUST describe the actual content of the titles within its \
+domain context. Do NOT reach for statistically-similar domains from general \
+knowledge. If titles mention "chamber" and "testing" in a pod-design corpus, \
+the right label is "Pod Testing" or "Chamber Validation" — NOT "Automotive \
+Testing" just because that's a common co-occurrence elsewhere.
+
+{collection_context}
+
 Titles:
 {titles}
+
+Output only the label itself — no punctuation, no quotes, no explanation.
 
 Label: """
 
 
 _LABEL_PROMPT_WITH_PARENT = """\
-You will be shown titles of nodes that form a sub-cluster within a larger knowledge-graph cluster. \
-Output ONE short label (2-4 words) that describes this sub-cluster as a sub-topic of its parent. \
-No punctuation, no quotes, no explanation — just the label itself.
+You will be shown titles of nodes that form a sub-cluster within a larger knowledge-graph cluster.
+Output ONE short label (2-4 words) that describes this sub-cluster as a sub-topic of its parent.
+
+{collection_context}
 
 Parent cluster: "{parent_label}"
 
 Titles:
 {titles}
+
+The label should be specific to this sub-cluster and coherent with the parent \
+cluster's scope. Output only the label — no punctuation, no quotes, no \
+explanation.
 
 Label: """
 
@@ -530,8 +550,17 @@ async def _generate_label(
     titles: list[str],
     parent_label: Optional[str] = None,
     model: Optional[str] = None,
+    collection_context: str = "",
 ) -> str:
     """Call the labeler LLM. Returns a single short label string.
+
+    ``collection_context`` is a short free-text block identifying the
+    corpus the cluster belongs to (e.g. "Collection: podv1 — Aquatic
+    Sensory Pod design document"). Empty string when unknown. Feeding
+    this to the LLM prevents the "Automotive Testing" class of
+    mislabel, where the model grabs a statistically-similar domain
+    from pretraining because nothing in the prompt anchored it to
+    the actual corpus.
 
     Falls back to the longest-common-prefix heuristic on LLM error,
     which is crude but keeps the pipeline non-fatal.
@@ -542,13 +571,19 @@ async def _generate_label(
         return "Unlabeled"
 
     titles_block = "\n".join(f"- {t}" for t in titles)
+    ctx_block = (
+        f"Collection context: {collection_context}" if collection_context else ""
+    )
     if parent_label:
         prompt = _LABEL_PROMPT_WITH_PARENT.format(
-            parent_label=parent_label, titles=titles_block,
+            parent_label=parent_label,
+            titles=titles_block,
+            collection_context=ctx_block,
         )
     else:
         prompt = _LABEL_PROMPT.format(
-            parent_context="", titles=titles_block,
+            titles=titles_block,
+            collection_context=ctx_block,
         )
 
     try:
@@ -616,12 +651,46 @@ def _path_key(path: tuple) -> str:
     return ",".join(str(i) for i in path)
 
 
+def _build_collection_context(scope: str, corpus) -> str:
+    """Build a compact free-text block describing the corpus scope.
+
+    Given to the labeler so it can resist drifting to statistically-
+    adjacent domains ("Automotive Testing" for sensory-pod testing
+    content). Short enough not to dominate the prompt budget, rich
+    enough for the LLM to anchor on.
+
+    Content: scope name + up to 8 representative anchor phrases +
+    up to 4 representative slab titles. No PR sorting yet; uses
+    dict iteration order (which is insertion order in Python 3.7+,
+    meaning earliest-mined concepts appear first — usually the
+    collection's "anchor" topics).
+    """
+    parts = [f"Collection: {scope}"]
+    # Special case for the merged view — it spans everything
+    if scope == "__merged__":
+        parts[0] = "Collection: __merged__ (cross-collection union view)"
+    anchor_phrases = [
+        a.canonical_phrase for a in list(getattr(corpus, "anchors", {}).values())[:8]
+        if getattr(a, "canonical_phrase", "")
+    ]
+    slab_titles = [
+        s.title for s in list(getattr(corpus, "slabs", {}).values())[:4]
+        if getattr(s, "title", "")
+    ]
+    if anchor_phrases:
+        parts.append("Key anchor concepts: " + ", ".join(anchor_phrases))
+    if slab_titles:
+        parts.append("Sample slab titles: " + ", ".join(slab_titles))
+    return "\n".join(parts)
+
+
 async def label_tree(
     tree: list[dict],
     corpus,
     old_labels: Optional[dict[str, str]] = None,
     old_tree: Optional[list[dict]] = None,
     model: Optional[str] = None,
+    collection_context: str = "",
     _parent_label: Optional[str] = None,
     _path: tuple = (),
 ) -> dict[str, str]:
@@ -667,6 +736,7 @@ async def label_tree(
                 titles,
                 parent_label=_parent_label,
                 model=model,
+                collection_context=collection_context,
             )
             logger.info(
                 "label generated: path=%s members=%d -> %r",
@@ -683,6 +753,7 @@ async def label_tree(
                     old_tree and i < len(old_tree) and old_tree[i].get("children")
                 ) else None,
                 model=model,
+                collection_context=collection_context,
                 _parent_label=labels[path_str],
                 _path=path,
             )
@@ -757,10 +828,17 @@ async def compute_and_persist(
     labels: dict[str, str] = {}
     if not skip_labels:
         try:
+            # Build a collection-context string so the labeler doesn't
+            # drift to statistically-adjacent domains. The scope name
+            # alone is a weak hint ("podv1" means nothing to the LLM);
+            # supplement with a sample of top-frequency anchor phrases
+            # and slab titles so the model sees the domain flavor.
+            context = _build_collection_context(scope, corpus)
             labels = await label_tree(
                 tree, corpus,
                 old_labels=old_labels,
                 old_tree=old_tree,
+                collection_context=context,
             )
         except Exception as exc:
             logger.warning("Label generation failed for scope=%r: %r", scope, exc)
