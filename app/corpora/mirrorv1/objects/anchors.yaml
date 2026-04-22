@@ -1,0 +1,1945 @@
+- id: mined_anchor_39269706_v1
+  canonical_phrase: Mirror
+  aliases: []
+  invokes: []
+  notes: The name of the proposed neuro-symbolic architecture and the central subject
+    of the paper.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_1291b7da_v1
+  canonical_phrase: Neuro-Symbolic Architecture
+  aliases: []
+  invokes: []
+  notes: The fundamental technological framework proposed by the paper, combining
+    symbolic reasoning with neural models.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_aa540846_v1
+  canonical_phrase: Epistemic Integrity
+  aliases: []
+  invokes: []
+  notes: The core concept the system aims to maintain, referring to the reliability
+    and truthfulness of knowledge within the LLM interaction.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_56c4a50a_v1
+  canonical_phrase: Operational Layer Integrity (OLI)
+  aliases: []
+  invokes: []
+  notes: The first integrated subsystem of Mirror, which acts as a constitutional
+    constraint system for hard-gated claim admissibility and adversarial resistance
+    detection.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_54591d4b_v1
+  canonical_phrase: Graph-of-graphs semantic memory corpus
+  aliases: []
+  invokes: []
+  notes: The second integrated subsystem of Mirror, designed to maintain persistent
+    context and prevent semantic entropy.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_25f74786_v1
+  canonical_phrase: Semantic drift
+  aliases: []
+  invokes: []
+  notes: A core failure mode defined in the text; it describes the loss of conceptual
+    precision over long interactions.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_abbb6579_v1
+  canonical_phrase: Plausibility-filling
+  aliases: []
+  invokes: []
+  notes: A core failure mode defined in the text; it describes the tendency to generate
+    internally coherent but unsupported reasoning.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_2c949e14_v1
+  canonical_phrase: Operationalisation drift
+  aliases: []
+  invokes: []
+  notes: A core failure mode defined in the text; it describes the dangerous escalation
+    from analysis toward action-planning.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_d2a2f2b2_v1
+  canonical_phrase: Neuro-Symbolic Hybrid
+  aliases:
+  - neuro-symbolic architecture
+  invokes: []
+  notes: This is the core theoretical model of the system, defining how symbolic rules
+    constrain the LLM's neural output.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_49b61aef_v1
+  canonical_phrase: Prime's Shadow
+  aliases: []
+  invokes: []
+  notes: The advanced, self-hosted, power-user-grade version of the architecture.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_454d4d62_v1
+  canonical_phrase: Graph-of-graphs substrate
+  aliases:
+  - true graph-of-graphs substrate
+  invokes: []
+  notes: This is a foundational, advanced data structure supporting the system's memory
+    and logic, crucial for handling complex, evolving semantics.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_e1daafe3_v1
+  canonical_phrase: Self-sealing logic
+  aliases: []
+  invokes: []
+  notes: A specific, dangerous form of plausibility-filling where arguments are structured
+    to ignore counterevidence.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_bd7b7d4f_v1
+  canonical_phrase: Mirror Architecture
+  aliases:
+  - Mirror
+  invokes: []
+  notes: The central, named system being described, which processes inputs through
+    a defined pipeline.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_9854941a_v1
+  canonical_phrase: L4 drift
+  aliases:
+  - L4 drift
+  invokes: []
+  notes: A specific, named form of architectural degradation or drift, crucial for
+    understanding system failure modes.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_64bc700c_v1
+  canonical_phrase: L0 Epistemic Floor
+  aliases: []
+  invokes: []
+  notes: This is the foundational layer of truth maintenance, defining the relationship
+    between external reality and internal coherence.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_f9fc6ce0_v1
+  canonical_phrase: L0.5 Claim Admissibility Gate
+  aliases: []
+  invokes: []
+  notes: This is the specific, mandatory gate mechanism that classifies all non-trivial
+    assertions into defined categories ([FACT], [INFERENCE], [HYPOTHESIS], [UNKNOWN]).
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_71ac1776_v1
+  canonical_phrase: Domain Separation
+  aliases:
+  - Internal/External Domain
+  invokes: []
+  notes: A core architectural constraint defining the boundaries between affective/intuitive
+    context and technical/logic critique.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_764ff81c_v1
+  canonical_phrase: Commit authority
+  aliases:
+  - User-triggered commitment
+  invokes: []
+  notes: The mechanism by which provisional knowledge gains official, actionable status
+    within the system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c20b1275_v1
+  canonical_phrase: DEGRADATION_FLAG
+  aliases:
+  - Stability decline flag
+  invokes: []
+  notes: The system's mandatory alert mechanism used when neutrality, rigor, or stability
+    declines, requiring immediate user intervention.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_18942a59_v1
+  canonical_phrase: Epistemic authority
+  aliases:
+  - Knowledge authority
+  invokes: []
+  notes: The measure of certainty or legitimacy assigned to a piece of information
+    within the system's reasoning process.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_a4efd35c_v1
+  canonical_phrase: L8 Runtime Refinement
+  aliases: []
+  invokes: []
+  notes: A specific, high-level operational stage or mechanism used for system updates
+    and corrections.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_a90f9b4d_v1
+  canonical_phrase: L0.5 Claim Admissibility
+  aliases: []
+  invokes: []
+  notes: A critical gate or protocol that determines whether a claim is valid and
+    accepted into the knowledge structure.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_0178b5c6_v1
+  canonical_phrase: Epistemic Status
+  aliases: []
+  invokes: []
+  notes: The required output of the model, detailing its level of certainty or knowledge
+    regarding a given assertion.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_cfffd105_v1
+  canonical_phrase: Behavioural Mode Distribution (BMD)
+  aliases: []
+  invokes: []
+  notes: This is the primary mechanism being defined in this segment, controlling
+    the system's operational focus and tone.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_2b771e4a_v1
+  canonical_phrase: Reasoning archetypes
+  aliases: []
+  invokes: []
+  notes: These are the discrete components (aᵢ) that the BMD distributes probability
+    over, representing distinct ways the system can reason or behave.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_a8e37076_v1
+  canonical_phrase: Primary reasoning axis
+  aliases: []
+  invokes: []
+  notes: This is the defining characteristic of each reasoning archetype, specifying
+    its core focus (e.g., structural rigour, creative exploration).
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_4056fa24_v1
+  canonical_phrase: Council of Experts
+  aliases:
+  - Mirror implementation
+  invokes: []
+  notes: This is the specific, named instantiation of the BMD system used for demonstration
+    within the narrative.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_09755c07_v1
+  canonical_phrase: Brennan Structural Integrity
+  aliases: []
+  invokes: []
+  notes: This is a specific, named metric or system within the knowledge architecture,
+    suggesting it is a key component of the overall system design.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_bb2b68f1_v1
+  canonical_phrase: Behavioral Mode Distribution (BMD)
+  aliases:
+  - BMD
+  invokes: []
+  notes: The core system mechanism being discussed; it is the framework that governs
+    how the system's reasoning capabilities are weighted and applied.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_82ec9ca6_v1
+  canonical_phrase: Persona-anchored BMD instantiation
+  aliases:
+  - Character-based BMD
+  invokes: []
+  notes: 'The core concept being advocated: using named characters (like Dr. Brennan)
+    to anchor the system''s reasoning, which is argued to be more effective than abstract
+    labels.'
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_6af365ff_v1
+  canonical_phrase: formal specification
+  aliases: []
+  invokes: []
+  notes: This is the core, abstract set of rules or structure being defined and discussed
+    throughout the paper. Its independence is a major claim.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_b25ec08b_v1
+  canonical_phrase: Persona sets
+  aliases: []
+  invokes: []
+  notes: These are the specific character or role definitions that can be swapped
+    out based on the deployment context.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_7f5ab761_v1
+  canonical_phrase: cultural reference points
+  aliases: []
+  invokes: []
+  notes: These are the variable cultural inputs that the system must accommodate,
+    demonstrating its global applicability.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_8d5eb0db_v1
+  canonical_phrase: Reasoning gauntlet
+  aliases: []
+  invokes: []
+  notes: The specific, mandatory process triggered by Mirror when resistance is absent.
+    It is a coined term for a structural check.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_0a9ff5f0_v1
+  canonical_phrase: Anchors
+  aliases: []
+  invokes: []
+  notes: The primary retrieval handle in the Corpus; it points to semantic content
+    without containing it itself.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_99555879_v1
+  canonical_phrase: Bundles
+  aliases: []
+  invokes: []
+  notes: Coherent conceptual units that collect related concepts, constraints, and
+    frames, loaded together upon anchor invocation.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_e981c16c_v1
+  canonical_phrase: Slabs
+  aliases: []
+  invokes: []
+  notes: The lowest-level semantic units, representing atomic canonical text blocks
+    or stable claims.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_8523be11_v1
+  canonical_phrase: Layer Integrity
+  aliases: []
+  invokes: []
+  notes: This is the formal name of the structural system responsible for maintaining
+    semantic consistency and bounding agent actions.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_50a8def9_v1
+  canonical_phrase: L3
+  aliases: []
+  invokes: []
+  notes: This represents the hard, enforced boundary level within Mirror's output
+    abstraction system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_018caa1e_v1
+  canonical_phrase: Function gate
+  aliases: []
+  invokes: []
+  notes: The initial mechanism that classifies the intent of a message to determine
+    the required processing mode.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_5d791d39_v1
+  canonical_phrase: Layer integrity taxonomy
+  aliases: []
+  invokes: []
+  notes: The formal structure defining the permissible scope and escalation levels
+    of agent action (L0-L4).
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_af9fb4e8_v1
+  canonical_phrase: L4 operationalization
+  aliases:
+  - Operationalization
+  invokes: []
+  notes: The highest, restricted level of action involving coordination and execution
+    sequencing.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_7b8db824_v1
+  canonical_phrase: OLI constraint layer
+  aliases: []
+  invokes: []
+  notes: The layer responsible for evaluating all non-trivial assertions in the pending
+    output for claim admissibility.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_8be6b719_v1
+  canonical_phrase: Resistance check
+  aliases: []
+  invokes: []
+  notes: A final check that evaluates whether the reasoning encountered appropriate
+    friction, triggering the gauntlet if acceptance is too smooth.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_110131c4_v1
+  canonical_phrase: Corpus
+  aliases: []
+  invokes: []
+  notes: The primary, versioned knowledge base of the system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_afbd4926_v1
+  canonical_phrase: Model-agnostic pipeline
+  aliases: []
+  invokes: []
+  notes: Describes the core architectural principle that allows the system to interface
+    with any LLM without internal modification.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_82ec702d_v1
+  canonical_phrase: L4 slope
+  aliases: []
+  invokes: []
+  notes: A specific technical metric or check point used during the pipeline evaluation
+    process.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_ab7dff73_v1
+  canonical_phrase: Resistance gauntlet
+  aliases: []
+  invokes: []
+  notes: A specific mechanism that triggers when the system detects an anomalous or
+    escalating frame.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_e4398ebf_v1
+  canonical_phrase: Semantic Control Degradation
+  aliases:
+  - semantic constraints degradation
+  invokes: []
+  notes: A core technical limitation identified in the research, describing the decline
+    in adherence to instructions as context grows.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_b9abedb0_v1
+  canonical_phrase: prompt-layer constraint
+  aliases:
+  - prompt-based safety mechanism
+  invokes: []
+  notes: The specific operational method of Mirror, defining its dependency on the
+    LLM's instruction-following ability.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_a18a9879_v1
+  canonical_phrase: OLI system
+  aliases: []
+  invokes: []
+  notes: This is a specific, named component of the Mirror architecture responsible
+    for applying epistemic constraints.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_5f14a67a_v1
+  canonical_phrase: Structured semantic graph
+  aliases: []
+  invokes: []
+  notes: This defines the unique data structure used by the Corpus, distinguishing
+    it from standard vector databases.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_f694038d_v1
+  canonical_phrase: Retrieval-Augmented Generation (RAG)
+  aliases: []
+  invokes: []
+  notes: This is the established field of research that the Corpus is explicitly compared
+    against, highlighting its architectural improvements.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_2d5034e8_v1
+  canonical_phrase: L4 blocking mechanism
+  aliases:
+  - L4 operationalization
+  invokes: []
+  notes: A specific, named mechanism responsible for enforcing corrigibility at the
+    interaction layer.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_82f79a7b_v1
+  canonical_phrase: Layered World Model
+  aliases: []
+  invokes: []
+  notes: The architectural framework providing the epistemological grounding for the
+    system's safety and control hierarchy.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_a6e82ea0_v1
+  canonical_phrase: anomalous-smoothness detection
+  aliases: []
+  invokes: []
+  notes: A specific invariant used by Mirror's reasoning gauntlet to detect deviations
+    in the thought process.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_287b5e3b_v1
+  canonical_phrase: rigour decay
+  aliases: []
+  invokes: []
+  notes: This refers to the measurable decline in the quality or consistency of reasoning
+    over time, a key failure mode the system aims to detect.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_0ef7a576_v1
+  canonical_phrase: epistemic posture
+  aliases: []
+  invokes: []
+  notes: The established set of beliefs or constraints that the AI must maintain and
+    adhere to throughout a complex, multi-turn reasoning process.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_23a5c7f9_v1
+  canonical_phrase: escalation energy
+  aliases: []
+  invokes: []
+  notes: A specific pattern of adversarial pressure used in testing, likely referring
+    to the increasing intensity or scope of a conflict or argument.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_006b5572_v1
+  canonical_phrase: narrative compression
+  aliases: []
+  invokes: []
+  notes: A specific pattern of adversarial pressure used in testing, likely referring
+    to the forced condensing or simplification of complex narrative elements.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_73d617a9_v1
+  canonical_phrase: grievance-and-leverage stacking
+  aliases: []
+  invokes: []
+  notes: A specific pattern of adversarial pressure used in testing, implying the
+    accumulation of complaints or points of conflict to exert maximum influence.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_af0792a5_v1
+  canonical_phrase: YAML-backed graph storage
+  aliases: []
+  invokes: []
+  notes: A specific technical component required for the Corpus's implementation,
+    indicating a structured, persistent knowledge base.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_473a08ca_v1
+  canonical_phrase: epistemic taxonomy
+  aliases: []
+  invokes: []
+  notes: A core conceptual framework developed by Mirror, used to classify and manage
+    knowledge and belief structures within the model.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_bb8b70c7_v1
+  canonical_phrase: dependency-weighted drift detection
+  aliases: []
+  invokes: []
+  notes: The primary functional benefit of upgrading the Corpus structure, allowing
+    for nuanced detection of semantic decay based on relationship strength.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_49d8d289_v1
+  canonical_phrase: session-local activation layer
+  aliases:
+  - ephemeral overlay
+  invokes: []
+  notes: This is the primary, named mechanism for real-time monitoring of model state
+    and activity.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_684aa60a_v1
+  canonical_phrase: accumulated mismatch score
+  aliases:
+  - score_t
+  invokes: []
+  notes: This is the specific, quantifiable metric used to track semantic drift and
+    misalignment over multiple turns.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_65d1b752_v1
+  canonical_phrase: bounded cascade preview
+  aliases:
+  - change-impact surface
+  invokes: []
+  notes: This is the named, predictive tool that allows users to simulate the consequences
+    of proposed changes before they are committed.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_4da00336_v1
+  canonical_phrase: Human epistemic health monitoring
+  aliases: []
+  invokes: []
+  notes: This is the central, novel concept being proposed—the systematic tracking
+    of a human user's cognitive decline or change in reasoning quality.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_f253d85e_v1
+  canonical_phrase: Longitudinal safeguarding
+  aliases: []
+  invokes: []
+  notes: 'This term describes the goal of the monitoring system: providing continuous,
+    long-term protection and assessment of the user''s cognitive state.'
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_71660d89_v1
+  canonical_phrase: Constitutional epistemic constraints
+  aliases:
+  - OLI's constraints
+  invokes: []
+  notes: This is the name of the first core subsystem component of the Mirror architecture,
+    defining its role in maintaining epistemic rigor.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_413d8735_v1
+  canonical_phrase: Graph-of-graphs Corpus
+  aliases:
+  - Corpus for persistent semantic memory
+  invokes: []
+  notes: This is the name of the second core subsystem, defining the system's method
+    for storing and accessing persistent semantic memory.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_324d0c40_v1
+  canonical_phrase: constitutional AI
+  aliases: []
+  invokes: []
+  notes: A key, state-of-the-art field of AI research that validates the necessity
+    of the proposed architecture.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_ab721ce3_v1
+  canonical_phrase: long-context reasoning
+  aliases: []
+  invokes: []
+  notes: A specific, advanced capability of LLMs that the architecture addresses and
+    validates.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_ee8546a8_v1
+  canonical_phrase: autonomous agent safety
+  aliases: []
+  invokes: []
+  notes: A major, high-stakes area of AI research that provides the theoretical grounding
+    for the system's safety features.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_1f8cc661_v1
+  canonical_phrase: Real World Model (RWM)
+  aliases:
+  - RWM
+  invokes: []
+  notes: The second layer of the LWM; the best empirical approximation of reality,
+    derived from scientific consensus.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_7d3b9ec5_v1
+  canonical_phrase: FrameState
+  aliases: []
+  invokes: []
+  notes: The fourth layer of the LWM; the active, working subset of the Corpus loaded
+    for the current interaction turn.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_6afed434_v1
+  canonical_phrase: Layered World Model (LWM)
+  aliases:
+  - LWM
+  invokes: []
+  notes: The overarching architectural framework defining the system's knowledge structure
+    and hierarchy.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_0b3e2180_v1
+  canonical_phrase: User World Model (Corpus)
+  aliases:
+  - Corpus
+  invokes: []
+  notes: The third layer of the LWM; the user's personalized semantic graph of committed
+    and interpreted knowledge.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_a71f6b94_v1
+  canonical_phrase: Epistemic Floor
+  aliases:
+  - L0
+  invokes: []
+  notes: The foundational constraint ensuring that external reality always overrides
+    internal system coherence.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_d6b5c8e6_v1
+  canonical_phrase: Claim Admissibility
+  aliases:
+  - L0.5
+  invokes: []
+  notes: A hard gate mechanism that strictly classifies all system assertions into
+    defined categories (FACT, INFERENCE, HYPOTHESIS, UNKNOWN).
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_a422e3fd_v1
+  canonical_phrase: Provisional to Stabilised Lifecycle
+  aliases:
+  - L4
+  invokes: []
+  notes: The mandatory three-stage process for knowledge commitment, ensuring that
+    preliminary signals do not affect downstream reasoning until explicitly confirmed
+    by the user.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_48678bb9_v1
+  canonical_phrase: Degradation Flag
+  aliases:
+  - DEGRADATION_FLAG
+  invokes: []
+  notes: A critical system mechanism used to flag declines in neutrality, rigor, or
+    stability, requiring immediate resolution or controlled deferral.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_004ff10f_v1
+  canonical_phrase: Traceability
+  aliases:
+  - Verification Path
+  invokes: []
+  notes: The mandatory requirement that every factual claim must be linked to an explicit,
+    verifiable source or path.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_0984dd45_v1
+  canonical_phrase: Moral debt
+  aliases:
+  - obligation caps obligation
+  invokes: []
+  notes: This is the core ethical constraint governing the system's power and responsibility.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_ef034f70_v1
+  canonical_phrase: Compressed frame
+  aliases:
+  - treat statements as compressed
+  invokes: []
+  notes: This is the fundamental unit of information processing, requiring statements
+    to be interpreted as condensed units.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_8320b276_v1
+  canonical_phrase: Hand-wave inference
+  aliases:
+  - hand-wave inference
+  invokes: []
+  notes: This is the mechanism used to draw conclusions, which requires contextual
+    support (ballast).
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_39a3f01d_v1
+  canonical_phrase: Canonical definition
+  aliases:
+  - canonical JD definition
+  invokes: []
+  notes: This represents the single, authoritative, and resolved definition for any
+    given concept.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_d60ce31c_v1
+  canonical_phrase: Scope exit/containment
+  aliases:
+  - not my circus not my
+  invokes: []
+  notes: This is the protocol for recognizing and isolating information or claims
+    that fall outside the system's operational scope.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_e74e5c75_v1
+  canonical_phrase: Justified Distribution (JD)
+  aliases: []
+  invokes: []
+  notes: This is the core, defined concept for the Council of Experts' behavioral
+    mode distribution, central to the system's logic.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_761b2a93_v1
+  canonical_phrase: Council of Experts behavioral mode
+  aliases:
+  - JD distribution
+  invokes: []
+  notes: This phrase specifies the source and nature of the Justified Distribution,
+    defining the behavioral parameters.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_077c334f_v1
+  canonical_phrase: Edge Map
+  aliases: []
+  invokes: []
+  notes: A structural component used to visualize and define the dependencies and
+    relationships between different system modules.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []

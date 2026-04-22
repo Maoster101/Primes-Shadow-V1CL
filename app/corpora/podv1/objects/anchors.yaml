@@ -1,0 +1,6030 @@
+- id: mined_anchor_650d66cb_v1
+  canonical_phrase: Aquatic Sensory Pod
+  aliases:
+  - Pod
+  invokes: []
+  notes: The central technology and environment being designed; will be referenced
+    throughout the document.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_d666fc99_v1
+  canonical_phrase: MVP
+  aliases:
+  - Minimum Viable Product
+  invokes: []
+  notes: A key concept indicating the phased development approach.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_bfd97b27_v1
+  canonical_phrase: Minimum Viable Product
+  aliases:
+  - MVP
+  invokes: []
+  notes: Represents the initial, focused iteration of the Aquatic Sensory Pod design,
+    emphasizing its practical origins.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_ec1cfa3b_v1
+  canonical_phrase: mechanistically plausible
+  aliases: []
+  invokes: []
+  notes: Describes a key characteristic of the system design - that its functionality
+    can be explained through established principles.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_1c54c250_v1
+  canonical_phrase: sensory environment
+  aliases:
+  - controllable environment
+  - sensory space
+  invokes: []
+  notes: A core concept of the project, representing the space where the user experiences
+    stimuli.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_38a8853b_v1
+  canonical_phrase: full agency
+  aliases:
+  - user control
+  - user autonomy
+  invokes: []
+  notes: 'Highlights a key design principle: the user must maintain complete control
+    over their experience.'
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_ba2658c9_v1
+  canonical_phrase: full environmental envelope
+  aliases: []
+  invokes: []
+  notes: Describes the design approach of the Aquatic Sensory Pod, emphasizing its
+    holistic nature.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_95e235b9_v1
+  canonical_phrase: aggressively reset
+  aliases: []
+  invokes: []
+  notes: Describes the scent control mechanism, highlighting its thoroughness.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_408f222f_v1
+  canonical_phrase: neurodivergent users
+  aliases: []
+  invokes: []
+  notes: Identifies a key user group whose specific needs inform the design, highlighting
+    the system's inclusivity.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_19b515f1_v1
+  canonical_phrase: aquatic sensory environment
+  aliases:
+  - sensory pod environment
+  invokes: []
+  notes: This is the core concept being discussed and will likely be referenced throughout
+    the document.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_3f83d743_v1
+  canonical_phrase: empirical questions
+  aliases: []
+  invokes: []
+  notes: Refers to the method of testing and validating the design's effectiveness.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_283cc4e5_v1
+  canonical_phrase: MVP-for-One
+  aliases:
+  - user-specific MVP
+  invokes: []
+  notes: This phrase encapsulates the design philosophy of optimizing the system for
+    a single user, a departure from broader MVP approaches.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_7b7eb825_v1
+  canonical_phrase: neurodivergent populations
+  aliases:
+  - neurodivergent users
+  invokes: []
+  notes: Refers to the target user group for the Aquatic Sensory Pod, a key consideration
+    throughout the design process.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_6292a07b_v1
+  canonical_phrase: bounded
+  aliases: []
+  invokes: []
+  notes: Describes a key characteristic of the project's scope and design, limiting
+    its complexity for research purposes.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_b10170fc_v1
+  canonical_phrase: falsifiable
+  aliases: []
+  invokes: []
+  notes: A key design principle, indicating a commitment to empirical testing and
+    clear failure modes.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_8fcbe05d_v1
+  canonical_phrase: mechanism-driven
+  aliases:
+  - outcome-driven
+  invokes: []
+  notes: Describes a preferred design approach focused on understanding underlying
+    processes, contrasting with a purely outcome-based strategy.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_8ffab876_v1
+  canonical_phrase: agency-first
+  aliases: []
+  invokes: []
+  notes: A core design philosophy prioritizing user control and autonomy within the
+    sensory environment.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_d0427e76_v1
+  canonical_phrase: complete sensory-controlled environment
+  aliases:
+  - sensory environment
+  - full environmental envelope
+  invokes: []
+  notes: This is the core concept being proposed; it's a key element for future reference
+    and system definition.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_69561326_v1
+  canonical_phrase: sensory overload
+  aliases:
+  - overload
+  - sensory distress
+  invokes: []
+  notes: A recurring challenge for neurodivergent users, central to the design problem.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_31fb9f6b_v1
+  canonical_phrase: agency
+  aliases:
+  - full agency
+  - user agency
+  invokes: []
+  notes: A key design principle, directly linked to mitigating sensory overload and
+    improving user experience.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_3ac9ee87_v1
+  canonical_phrase: activation cost
+  aliases:
+  - cost of interaction
+  invokes: []
+  notes: A recurring concept describing the effort required to utilize a regulatory
+    environment, particularly water.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_ea6f3dfd_v1
+  canonical_phrase: sensory conditions
+  aliases:
+  - sensory environment
+  invokes: []
+  notes: A recurring concept referring to the specific stimuli users experience, which
+    current systems inadequately address.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_bd93af57_v1
+  canonical_phrase: low-stimulation state
+  aliases:
+  - neutral state
+  invokes: []
+  notes: Refers to the default operational mode of the system, minimizing sensory
+    input. This is a core design element for managing sensory conditions.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_b559e66b_v1
+  canonical_phrase: sensory penalties
+  aliases:
+  - post-use sensory effects
+  - sensory aftereffects
+  invokes: []
+  notes: Describes the negative sensory consequences that users might experience after
+    interacting with the environment, which the design aims to minimize.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_77d207ba_v1
+  canonical_phrase: Design Requirements
+  aliases: []
+  invokes: []
+  notes: The heading of the section, indicating a shift to outlining specific design
+    considerations.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_245935e7_v1
+  canonical_phrase: single-user environment
+  aliases:
+  - single-user mode
+  invokes: []
+  notes: A core design constraint, directly impacting agency and predictability.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_f0a9aa4b_v1
+  canonical_phrase: global calm function
+  aliases:
+  - calm function
+  - emergency reset
+  invokes: []
+  notes: A core system feature for rapid environmental regulation and user safety.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_1a568a07_v1
+  canonical_phrase: commercial cost bounds
+  aliases:
+  - plausible commercial cost
+  invokes: []
+  notes: Highlights the need for the system to be economically feasible for production
+    and deployment.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_ef0c74a3_v1
+  canonical_phrase: user control
+  aliases: []
+  invokes: []
+  notes: A central design principle; refers to the degree of agency and influence
+    users have over the system's behavior.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_b5165518_v1
+  canonical_phrase: Outcome Framing
+  aliases: []
+  invokes: []
+  notes: This phrase encapsulates the methodology for defining success and failure,
+    emphasizing user-centricity and iterative learning.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_8a8cb8ad_v1
+  canonical_phrase: Design Philosophy
+  aliases:
+  - Design Principles
+  - Core Principles
+  invokes: []
+  notes: Represents the overarching guiding principles for the system's design, a
+    key concept for future reference.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_7621c443_v1
+  canonical_phrase: hard constraints
+  aliases:
+  - non-negotiable principles
+  - design limitations
+  invokes: []
+  notes: Highlights the restrictive nature of the design principles, crucial for understanding
+    the design process.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_8676eedc_v1
+  canonical_phrase: neutral baseline
+  aliases:
+  - default state
+  - resting state
+  invokes: []
+  notes: Represents the core design principle of a calm, non-stimulating starting
+    point for the system's operation.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c24545bb_v1
+  canonical_phrase: stillness
+  aliases:
+  - calm
+  - quiet
+  invokes: []
+  notes: A key concept defining the default state; emphasizes that it's more than
+    just a lack of stimulation.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_cd08e88c_v1
+  canonical_phrase: sensory load
+  aliases:
+  - sensory input
+  invokes: []
+  notes: Refers to the amount of sensory stimulation the system provides, a key design
+    parameter.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_1281f8b8_v1
+  canonical_phrase: optional overlays
+  aliases:
+  - optional enhancements
+  invokes: []
+  notes: Describes the nature of the additional sensory features, distinguishing them
+    from core system functionality.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_073b7b33_v1
+  canonical_phrase: additive stimulation
+  aliases:
+  - user-selected inputs
+  invokes: []
+  notes: Describes the core design philosophy for sensory input, emphasizing user
+    control and flexibility.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_0a5e86f8_v1
+  canonical_phrase: sensory thresholds
+  aliases:
+  - sensory preferences
+  - state-dependent needs
+  invokes: []
+  notes: Refers to the fluctuating sensory sensitivities of neurodivergent users,
+    a key consideration in the design.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_55148503_v1
+  canonical_phrase: user agency
+  aliases:
+  - user control
+  invokes: []
+  notes: Central design principle; represents the user's ability to directly manipulate
+    the system's sensory output.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_d3ab6446_v1
+  canonical_phrase: instant calm function
+  aliases:
+  - global calm function
+  invokes: []
+  notes: Specific feature directly linked to the principle of user agency and safety.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_93fee1c6_v1
+  canonical_phrase: continuous control
+  aliases:
+  - gradual adjustments
+  invokes: []
+  notes: A core design principle for user interaction, contrasting with discrete or
+    preset options.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_41087b4c_v1
+  canonical_phrase: presets
+  aliases: []
+  invokes: []
+  notes: Represents a specific type of control mechanism that is being carefully managed
+    within the system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_f614b304_v1
+  canonical_phrase: No Forced Exposure
+  aliases:
+  - Avoided Exposure
+  - Sensory Opt-In
+  invokes: []
+  notes: This is a core design principle, a named constraint on system behavior related
+    to user agency and safety.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_2287e109_v1
+  canonical_phrase: Low Friction
+  aliases:
+  - Ease of Use
+  - Usability
+  invokes: []
+  notes: Represents a key design principle, emphasizing a smooth and effortless user
+    experience across all interaction stages.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_e5972dcd_v1
+  canonical_phrase: Falsifiability
+  aliases:
+  - testability
+  invokes: []
+  notes: A core design principle, distinguishing this approach from validation-focused
+    design.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_49544e10_v1
+  canonical_phrase: physical envelope
+  aliases:
+  - system shape
+  - physical boundaries
+  invokes: []
+  notes: Refers to the defined physical space and limitations within which the system
+    operates, a recurring concept in design and implementation.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_d95a14cf_v1
+  canonical_phrase: structural interactions
+  aliases:
+  - physical interactions
+  - structural design
+  invokes: []
+  notes: Highlights the importance of how different physical components affect each
+    other's structural integrity and design.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_620f90d5_v1
+  canonical_phrase: pacing
+  aliases: []
+  invokes: []
+  notes: A specific user behavior that informs the design of the system's interaction
+    and environment.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_7d6ddb55_v1
+  canonical_phrase: buoyancy-assist mode
+  aliases:
+  - bubble floor
+  invokes: []
+  notes: Represents a specific feature enabling effortless floating through artificial
+    means.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_f482b04e_v1
+  canonical_phrase: baseline buoyancy floating
+  aliases:
+  - neutral buoyancy floating
+  invokes: []
+  notes: A core use case and state of being within the system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c02de7fd_v1
+  canonical_phrase: plant or service zone
+  aliases:
+  - service zone
+  invokes: []
+  notes: A designated area for supporting functions, likely requiring a different
+    environmental profile than the other zones.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_2ec94088_v1
+  canonical_phrase: pool geometry
+  aliases:
+  - pool dimensions
+  invokes: []
+  notes: A core design element and constraint, repeatedly referenced and influencing
+    other aspects of the system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c9340ee5_v1
+  canonical_phrase: non-coercive flow
+  aliases: []
+  invokes: []
+  notes: Describes a desired user experience and a design goal related to the pool's
+    functionality.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_1d8d406f_v1
+  canonical_phrase: proprioceptive neutrality
+  aliases: []
+  invokes: []
+  notes: A key concept describing the desired sensory state during floating; relates
+    to user comfort and the system's effectiveness.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_158911e5_v1
+  canonical_phrase: baseline functionality
+  aliases:
+  - core functionality
+  invokes: []
+  notes: Refers to the fundamental operation of the system, which remains accessible
+    regardless of whether buoyancy assistance is enabled.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_51688887_v1
+  canonical_phrase: buoyancy assist
+  aliases:
+  - buoyancy-assist mode
+  invokes: []
+  notes: Refers to a specific mode of operation for the floating environment, likely
+    involving automated adjustments to buoyancy.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_3540778c_v1
+  canonical_phrase: lateral clearance
+  aliases:
+  - clearance
+  invokes: []
+  notes: Refers to the necessary space for movement during floating, a key design
+    consideration.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_8af01820_v1
+  canonical_phrase: rain zoning
+  aliases: []
+  invokes: []
+  notes: A specific design feature enabling user agency in horizontal postures.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_e4cf058e_v1
+  canonical_phrase: sloped floor
+  aliases: []
+  invokes: []
+  notes: A key design element enabling user control and movement within the wet chamber.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_6d5fbf3a_v1
+  canonical_phrase: buoyancy modulation
+  aliases:
+  - buoyancy control
+  invokes: []
+  notes: Refers to the ability to adjust buoyancy levels, a core functionality of
+    the system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_836ffafe_v1
+  canonical_phrase: Body Zone
+  aliases: []
+  invokes: []
+  notes: A distinct zone within the rain system, likely influencing user experience.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_be722d11_v1
+  canonical_phrase: Head Lane
+  aliases: []
+  invokes: []
+  notes: A distinct zone within the rain system, likely influencing user experience.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_63a071af_v1
+  canonical_phrase: rain-on-water sound
+  aliases: []
+  invokes: []
+  notes: A key sensory component of the floating experience, explicitly mentioned
+    as important to users.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_728d9e86_v1
+  canonical_phrase: large-orifice nozzles
+  aliases:
+  - large-orifice, low-pressure nozzles
+  invokes: []
+  notes: Specific component of the rain delivery system, important for achieving desired
+    acoustic effect.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_aaf31d51_v1
+  canonical_phrase: water volume
+  aliases:
+  - pool volume
+  invokes: []
+  notes: A core design parameter influencing stability, comfort, and cost.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_dbacf9bc_v1
+  canonical_phrase: wetted surfaces
+  aliases: []
+  invokes: []
+  notes: Refers to the surfaces in contact with water, a key design consideration
+    for hygiene and user interaction.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_d67ef3fd_v1
+  canonical_phrase: low-adsorption
+  aliases: []
+  invokes: []
+  notes: A key material property impacting hygiene and scent control.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_e92b0651_v1
+  canonical_phrase: tactile smoothness
+  aliases:
+  - tactile feel
+  invokes: []
+  notes: A key sensory characteristic influencing user comfort and transition between
+    states.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_9d0ced8d_v1
+  canonical_phrase: positional biasing
+  aliases:
+  - drift reduction
+  invokes: []
+  notes: A potential future refinement to reduce user drift during floating.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_108dd9c9_v1
+  canonical_phrase: bubble assistance
+  aliases:
+  - bubble assist
+  invokes: []
+  notes: Refers to the mechanism providing buoyancy support, a key feature of the
+    system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_899063e4_v1
+  canonical_phrase: controllable sensory layers
+  aliases: []
+  invokes: []
+  notes: Describes the fundamental nature of the water systems – they are not fixed
+    features but adaptable sensory inputs.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_ca5c6cd7_v1
+  canonical_phrase: still-water baseline
+  aliases:
+  - quiescent water
+  - default state
+  invokes: []
+  notes: Represents the fundamental, inactive state of the water system, serving as
+    a reference point for active systems.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_637a2317_v1
+  canonical_phrase: flow system
+  aliases:
+  - flow
+  invokes: []
+  notes: The primary mechanism for introducing dynamic sensory input, a core element
+    of the experience.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_23df418f_v1
+  canonical_phrase: relaxed floating
+  aliases: []
+  invokes: []
+  notes: A desired state of sensory neutrality that is impacted by flow intensity.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_12e313d5_v1
+  canonical_phrase: turbulence
+  aliases:
+  - micro-currents
+  invokes: []
+  notes: A core element of the sensory system, distinguishing it from simple water
+    flow.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_dd621029_v1
+  canonical_phrase: low-velocity injectors
+  aliases: []
+  invokes: []
+  notes: The mechanism used to generate turbulence, a key technological detail.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c005904e_v1
+  canonical_phrase: bubble floor
+  aliases:
+  - bubble system
+  invokes: []
+  notes: A key technological element with dual functionality – buoyancy and tactile
+    sensation.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_0d52d08f_v1
+  canonical_phrase: tactile sensory layer
+  aliases:
+  - controllable sensory layers
+  invokes: []
+  notes: Highlights the sensory aspect of the bubble floor, a key element of the overall
+    experience.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_e9bbcaf0_v1
+  canonical_phrase: floor manifolds
+  aliases:
+  - distributed manifolds
+  invokes: []
+  notes: A specific technology used for bubble generation; distinct from point injectors.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_918dee7f_v1
+  canonical_phrase: tactile variation
+  aliases:
+  - sensory feedback
+  invokes: []
+  notes: Refers to the system's ability to provide diverse tactile sensations, a key
+    element of the controllable sensory layers.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c7c34071_v1
+  canonical_phrase: acoustic harshness
+  aliases: []
+  invokes: []
+  notes: Represents a negative sensory characteristic the system aims to minimize,
+    highlighting the importance of a pleasant user experience.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_d98214cb_v1
+  canonical_phrase: bubble zoning
+  aliases: []
+  invokes: []
+  notes: Refers to a specific method of controlling bubble distribution within the
+    system, likely related to positional biasing and rain zoning.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_80fe1edb_v1
+  canonical_phrase: lower-body zone
+  aliases:
+  - leg/hip zone
+  invokes: []
+  notes: Refers to a specific area of the bubble system's output, crucial for individualized
+    buoyancy control.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c5ae27f7_v1
+  canonical_phrase: secondary zone
+  aliases:
+  - torso zone
+  invokes: []
+  notes: Describes an optional area for bubble output, further enhancing user customization.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_0726b697_v1
+  canonical_phrase: safety envelopes
+  aliases: []
+  invokes: []
+  notes: Represents the physical boundaries within which the system operates, ensuring
+    user safety and preventing unintended consequences.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_6b4efb62_v1
+  canonical_phrase: water-generated sound
+  aliases:
+  - acoustic signature
+  invokes: []
+  notes: Refers to the sound produced by the water systems, a key element of the user
+    experience.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_7c3ccede_v1
+  canonical_phrase: safe state
+  aliases: []
+  invokes: []
+  notes: A key design principle ensuring system safety upon failure.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_aaa909ba_v1
+  canonical_phrase: sensory architecture
+  aliases: []
+  invokes: []
+  notes: Refers to the holistic design approach integrating environmental factors
+    like air handling with user perception.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_cb1e35df_v1
+  canonical_phrase: wet chamber air volume
+  aliases:
+  - wet chamber
+  invokes: []
+  notes: Refers to a specific, defined zone within the pod's environment.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_62bd53ef_v1
+  canonical_phrase: dry transition chamber air volume
+  aliases:
+  - dry transition chamber
+  invokes: []
+  notes: Refers to a specific, defined zone within the pod's environment, acting as
+    a buffer.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_5cf9c11e_v1
+  canonical_phrase: air-handling
+  aliases:
+  - air handling
+  invokes: []
+  notes: A core subsystem responsible for environmental control.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_e8fc3f9d_v1
+  canonical_phrase: wet chamber air environment
+  aliases:
+  - wet chamber atmosphere
+  invokes: []
+  notes: Refers to the specific air conditions within the wet chamber, a recurring
+    design consideration.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_8abadf6d_v1
+  canonical_phrase: thermal shock
+  aliases:
+  - temperature shock
+  invokes: []
+  notes: A potential hazard that the system is designed to avoid, indicating a safety
+    concern.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_d25d9ed1_v1
+  canonical_phrase: air knives
+  aliases: []
+  invokes: []
+  notes: Specific drying technology explicitly excluded due to sensory impact; represents
+    a design constraint.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_69306aef_v1
+  canonical_phrase: diffuse airflow
+  aliases: []
+  invokes: []
+  notes: Describes a key characteristic of the drying process, contrasting with high-velocity
+    methods.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_7bacb79d_v1
+  canonical_phrase: safe limits
+  aliases:
+  - safety limits
+  invokes: []
+  notes: Refers to the boundaries within which air temperature can be adjusted, ensuring
+    user safety and system integrity.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_51e8220a_v1
+  canonical_phrase: neutral air state
+  aliases:
+  - minimal airflow state
+  invokes: []
+  notes: Represents a default, safe operating condition for the air systems, ensuring
+    a quick return to baseline.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_d2dec369_v1
+  canonical_phrase: purge function
+  aliases:
+  - environmental reset
+  invokes: []
+  notes: A core system process for maintaining cleanliness and neutrality.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_39476243_v1
+  canonical_phrase: environmental neutrality
+  aliases:
+  - neutral environment
+  invokes: []
+  notes: A core design principle, indicating a deliberate effort to minimize external
+    influences on the user experience.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_b7ee7535_v1
+  canonical_phrase: dry chamber purge
+  aliases:
+  - dry purge
+  invokes: []
+  notes: Refers to the specific air purging process within the dry chamber, a recurring
+    element in the air handling system design.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_f305eb6e_v1
+  canonical_phrase: wet chamber purge
+  aliases:
+  - purge function
+  invokes: []
+  notes: A critical process for maintaining environmental neutrality within the wet
+    chamber, as previously established.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_8747a179_v1
+  canonical_phrase: air-handling equipment
+  aliases:
+  - mechanical noise sources
+  invokes: []
+  notes: Refers to the fans, dehumidifiers, and purge equipment responsible for air
+    circulation and environmental control; a key component of the system's operation.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_ff66861e_v1
+  canonical_phrase: dry chamber
+  aliases: []
+  invokes: []
+  notes: Another key environment within the system, requiring specific acoustic considerations.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_75a887d2_v1
+  canonical_phrase: thermal sensitivity
+  aliases:
+  - sensory sensitivity
+  invokes: []
+  notes: Refers to the potential for users to be negatively affected by temperature
+    or other sensory stimuli, a key design consideration.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_169d3b60_v1
+  canonical_phrase: wet chamber
+  aliases: []
+  invokes: []
+  notes: The primary environment where the wind sensory layer is implemented; referenced
+    in multiple prior segments.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_bf9e9629_v1
+  canonical_phrase: scent injection
+  aliases:
+  - scent dispersal
+  invokes: []
+  notes: Refers to the process of introducing scents into the environment, a key feature
+    of the system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_f6d21b70_v1
+  canonical_phrase: airflow mode
+  aliases: []
+  invokes: []
+  notes: A generalized term for the various ways airflow is controlled and delivered.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_6e153a1a_v1
+  canonical_phrase: scent gradients
+  aliases: []
+  invokes: []
+  notes: Refers to the spatial distribution of scent, a key factor in user perception
+    and system design.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_0d423b60_v1
+  canonical_phrase: emergent outcome
+  aliases: []
+  invokes: []
+  notes: Highlights the unpredictable and user-dependent nature of scent perception
+    within the system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c186bdad_v1
+  canonical_phrase: airflow paths
+  aliases: []
+  invokes: []
+  notes: Specific routes or channels through which airflow is directed, crucial for
+    system functionality and safety.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_dad9fafb_v1
+  canonical_phrase: environmental reset
+  aliases: []
+  invokes: []
+  notes: A function that returns the system to a neutral state between uses.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_b492e311_v1
+  canonical_phrase: scent dispersion
+  aliases:
+  - scent distribution
+  invokes: []
+  notes: Refers to the process of spreading scent molecules throughout an environment,
+    a core function of the system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_f9c2f660_v1
+  canonical_phrase: perceptible airflow
+  aliases:
+  - noticeable airflow
+  invokes: []
+  notes: An optional airflow mode that users can choose to experience.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_49ee770b_v1
+  canonical_phrase: imperceptible airflow
+  aliases:
+  - undetectable airflow
+  invokes: []
+  notes: A key design element allowing scent distribution without user sensory input.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_254dc582_v1
+  canonical_phrase: visual systems
+  aliases: []
+  invokes: []
+  notes: Refers to the broader technological infrastructure controlling visual elements,
+    a recurring concept in the design.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_978816ea_v1
+  canonical_phrase: wet chamber lighting
+  aliases:
+  - chamber lighting
+  invokes: []
+  notes: Refers to the specific lighting system within the wet chamber, a key environmental
+    element.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_5402a33d_v1
+  canonical_phrase: visual effects
+  aliases:
+  - sound-reactive visuals
+  invokes: []
+  notes: Represents the prohibited types of visual stimuli within the wet chamber,
+    defining the system's aesthetic boundaries.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c7ae40dd_v1
+  canonical_phrase: color temperature
+  aliases:
+  - color temp
+  invokes: []
+  notes: A key feature of the lighting system, allowing for user customization and
+    impacting the overall environment.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_ef38deb5_v1
+  canonical_phrase: circadian tuning
+  aliases: []
+  invokes: []
+  notes: Explicitly excluded functionality, defining the scope of the lighting system's
+    capabilities.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_9a2ab02a_v1
+  canonical_phrase: saturation
+  aliases: []
+  invokes: []
+  notes: A constraint on the color lighting, limiting its visual impact and maintaining
+    a controlled aesthetic.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c629ec21_v1
+  canonical_phrase: scent delivery
+  aliases:
+  - scent mechanisms
+  invokes: []
+  notes: Refers to the system responsible for distributing scents, a key sensory element.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_27c1f7b2_v1
+  canonical_phrase: wind simulation
+  aliases:
+  - perceptible airflow
+  - environmental reset
+  invokes: []
+  notes: Represents the system that generates and controls airflow, a significant
+    environmental factor.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_39f6dd3f_v1
+  canonical_phrase: emergency illumination
+  aliases: []
+  invokes: []
+  notes: Refers to backup lighting systems, a key safety feature.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_fd63fdbf_v1
+  canonical_phrase: visual stimulation
+  aliases: []
+  invokes: []
+  notes: Refers to the effect of light and visual elements on the user's state; a
+    key consideration in the design.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_37edcf4d_v1
+  canonical_phrase: sensory neutrality
+  aliases: []
+  invokes: []
+  notes: A core design principle, ensuring the system doesn't favor specific audio
+    content or sources.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_daec5d42_v1
+  canonical_phrase: algorithmic mixing
+  aliases: []
+  invokes: []
+  notes: Refers to a prohibited method of audio generation, highlighting the system's
+    focus on user control and predictability.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_73eaae48_v1
+  canonical_phrase: acoustic control
+  aliases:
+  - sound configuration
+  invokes: []
+  notes: Refers to the user's ability to manipulate the auditory environment, a recurring
+    theme in the design.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_4f2c12b4_v1
+  canonical_phrase: multisensory experiences
+  aliases:
+  - sensory presets
+  - combined sensory effects
+  invokes: []
+  notes: Represents a design choice to avoid pre-programmed sensory combinations,
+    reinforcing the principle of user control and sensory neutrality.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_2908e106_v1
+  canonical_phrase: global calm control
+  aliases: []
+  invokes: []
+  notes: A specific control mechanism for disabling audio playback, representing a
+    safety or reset function.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_0c95cec5_v1
+  canonical_phrase: sensory exposure
+  aliases: []
+  invokes: []
+  notes: Refers to the potential for unwanted or uncontrolled sensory input, a key
+    concern in the design.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_1ff08050_v1
+  canonical_phrase: predictability
+  aliases:
+  - user control
+  invokes: []
+  notes: A core design value, indicating a focus on user agency and a reduction of
+    unexpected auditory stimuli.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_98693ee9_v1
+  canonical_phrase: session lifecycle
+  aliases:
+  - session state
+  invokes: []
+  notes: A core concept defining the progression of user interaction and system operation.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_dc8d1faa_v1
+  canonical_phrase: state transitions
+  aliases: []
+  invokes: []
+  notes: The mechanism by which the session progresses, a key element of the defined
+    system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_057af60f_v1
+  canonical_phrase: sensory layer
+  aliases:
+  - layer
+  invokes: []
+  notes: A fundamental component of the system, representing a distinct sensory modality
+    or effect that can be controlled independently.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_13603de4_v1
+  canonical_phrase: dry transition chamber
+  aliases: []
+  invokes: []
+  notes: A key environmental space facilitating a transition between states; referenced
+    repeatedly.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_8e6a48a9_v1
+  canonical_phrase: dry chamber ventilation
+  aliases: []
+  invokes: []
+  notes: Component of the environmental reset process, ensuring air quality.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_37552efc_v1
+  canonical_phrase: neutral idle state
+  aliases:
+  - idle state
+  invokes: []
+  notes: The default state of the chambers after a reset, indicating a return to a
+    baseline configuration.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_b79696b6_v1
+  canonical_phrase: sensory interpretation
+  aliases:
+  - sensory layer
+  invokes: []
+  notes: The process of analyzing and understanding sensory data, a key function requiring
+    explicit configuration.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_65c43de0_v1
+  canonical_phrase: safety limits
+  aliases: []
+  invokes: []
+  notes: Represents the defined boundaries within which the system operates safely.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_d28da87d_v1
+  canonical_phrase: failure behavior
+  aliases:
+  - failure response
+  invokes: []
+  notes: Describes how the system is expected to react and function during malfunctions
+    or errors.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_6a6fe8f1_v1
+  canonical_phrase: hard limits
+  aliases: []
+  invokes: []
+  notes: Refers to the system's safety constraints, distinguishing it from advisory
+    or suggested practices.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_552c4ec1_v1
+  canonical_phrase: fail-safe defaults
+  aliases: []
+  invokes: []
+  notes: Describes the system's preferred method of error handling and safety response.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_eeafb050_v1
+  canonical_phrase: graceful degradation
+  aliases: []
+  invokes: []
+  notes: Contrasts with the 'fail-safe defaults' approach, highlighting a deliberate
+    design choice.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c11ddaff_v1
+  canonical_phrase: user controls
+  aliases: []
+  invokes: []
+  notes: Represents the user's ability to manage and interact with the system, a key
+    element in safety protocols.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_bc29b04f_v1
+  canonical_phrase: physiological range
+  aliases: []
+  invokes: []
+  notes: Refers to the acceptable limits for bodily functions, a key concept in the
+    system's safety design.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_b50a29c6_v1
+  canonical_phrase: ramp constraints
+  aliases: []
+  invokes: []
+  notes: Describes a system-level mechanism to control the rate of thermal changes,
+    preventing sudden shifts.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_1e4f32ac_v1
+  canonical_phrase: velocity caps
+  aliases: []
+  invokes: []
+  notes: Limits on wind speed to mitigate evaporative cooling effects, demonstrating
+    a specific safety precaution.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_71d85c44_v1
+  canonical_phrase: ground-fault protection
+  aliases: []
+  invokes: []
+  notes: A specific safety mechanism employed to prevent electrical hazards; a recurring
+    concept in safety protocols.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_3a1baea2_v1
+  canonical_phrase: purge
+  aliases:
+  - purging
+  invokes: []
+  notes: Refers to a process of removing contaminants or residual materials, a recurring
+    element in system maintenance and safety protocols.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_91eb7fdc_v1
+  canonical_phrase: reset phases
+  aliases:
+  - reset
+  invokes: []
+  notes: A distinct operational period where the system undergoes maintenance or calibration,
+    a key element in the session lifecycle.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_0f8d9b4e_v1
+  canonical_phrase: global calm
+  aliases:
+  - emergency stop
+  invokes: []
+  notes: Represents the system's immediate shutdown mechanism, a key safety feature.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_efa95bc1_v1
+  canonical_phrase: power loss
+  aliases:
+  - power failure
+  invokes: []
+  notes: A critical event triggering a defined safety response; likely to be referenced
+    in other failure scenarios.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_2b7cbf29_v1
+  canonical_phrase: service mode
+  aliases: []
+  invokes: []
+  notes: A specific operational state enabling maintenance procedures, distinct from
+    normal user operation. This is a key control mechanism.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_3d29800d_v1
+  canonical_phrase: surprise stimulation
+  aliases: []
+  invokes: []
+  notes: Highlights the importance of predictable system behavior and avoiding unexpected
+    sensory input, reinforcing the fail-safe design principles.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_8db083af_v1
+  canonical_phrase: intensity
+  aliases: []
+  invokes: []
+  notes: Refers to the level of stimulation or effect produced by the system, a key
+    factor in safety considerations and user interaction.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_4376690a_v1
+  canonical_phrase: commercial readiness
+  aliases: []
+  invokes: []
+  notes: Represents the state of the system being prepared for market deployment.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_231b15f5_v1
+  canonical_phrase: sensory layers
+  aliases:
+  - water sensory layers
+  invokes: []
+  notes: Refers to the additional environmental stimuli that can be added to the wet
+    chamber, linking to earlier discussions of sensory input.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_87fa8faa_v1
+  canonical_phrase: variable-depth water geometry
+  aliases: []
+  invokes: []
+  notes: A specific technical characteristic of the wet chamber, important for understanding
+    its capabilities.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_d054f368_v1
+  canonical_phrase: air handling
+  aliases: []
+  invokes: []
+  notes: Refers to the system's atmospheric regulation component.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_04c9ff68_v1
+  canonical_phrase: scent system
+  aliases:
+  - aroma system
+  invokes: []
+  notes: An optional sensory layer for environmental customization.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_1d014b8d_v1
+  canonical_phrase: neutral idle baseline
+  aliases: []
+  invokes: []
+  notes: Represents the default state of the system between sessions, a key aspect
+    of environmental neutrality and fail-safe defaults.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_1ed61add_v1
+  canonical_phrase: automated personalization
+  aliases:
+  - personalization
+  - adaptive features
+  invokes: []
+  notes: Represents a feature intentionally excluded from the MVP due to complexity.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_4098de23_v1
+  canonical_phrase: biometric sensing
+  aliases:
+  - biometric inference
+  invokes: []
+  notes: Represents a technology intentionally excluded from the MVP.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_f2cd71cd_v1
+  canonical_phrase: therapeutic claims
+  aliases:
+  - clinical protocols
+  invokes: []
+  notes: Refers to the evidence-based interventions and protocols that the system
+    will support, a core aspect of its functionality.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_2293e353_v1
+  canonical_phrase: clinician-driven presets
+  aliases:
+  - customizable sessions
+  - preset configurations
+  invokes: []
+  notes: Highlights the ability for clinicians to tailor sessions, crucial for adapting
+    to individual patient needs.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_189328e5_v1
+  canonical_phrase: autonomous session termination
+  aliases:
+  - automated shutdown
+  - session end
+  invokes: []
+  notes: A critical safety feature ensuring sessions conclude appropriately and without
+    intervention.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_6bcbab57_v1
+  canonical_phrase: algorithmic experience design
+  aliases: []
+  invokes: []
+  notes: Represents a specific design approach intentionally excluded from the current
+    scope.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_d407bca1_v1
+  canonical_phrase: expanded scent libraries
+  aliases:
+  - scent libraries
+  invokes: []
+  notes: Refers to the potential for a wider range of scents to be available for sensory
+    experiences.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_2f3384f5_v1
+  canonical_phrase: multi-pod facilities
+  aliases: []
+  invokes: []
+  notes: Refers to a potential expansion of the system's physical infrastructure,
+    suggesting modularity and scalability.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c63736b2_v1
+  canonical_phrase: centralized scheduling systems
+  aliases: []
+  invokes: []
+  notes: Indicates a future need for managing and coordinating resources or sessions
+    within the system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_46ff2413_v1
+  canonical_phrase: advanced analytics dashboards
+  aliases: []
+  invokes: []
+  notes: Highlights the intention to monitor and analyze system performance and user
+    data.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_2b09f282_v1
+  canonical_phrase: research-only instrumentation
+  aliases: []
+  invokes: []
+  notes: Specifies tools and equipment intended solely for scientific investigation
+    and not for standard user experiences.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_03e88b3e_v1
+  canonical_phrase: Minimum Viable Implementation
+  aliases:
+  - MVP
+  invokes: []
+  notes: Represents the initial, core version of the system, defining the scope of
+    early development and deployment.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_3026a1a0_v1
+  canonical_phrase: supervised or semi-supervised operation
+  aliases: []
+  invokes: []
+  notes: Describes the operational model for the MVP, highlighting the need for human
+    oversight.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_101a7533_v1
+  canonical_phrase: wellness or experiential system
+  aliases:
+  - experiential system
+  invokes: []
+  notes: Describes the current intended classification of the MVP, differentiating
+    it from medical devices.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c4442673_v1
+  canonical_phrase: therapeutic product
+  aliases:
+  - therapeutic claims
+  invokes: []
+  notes: Defines what the MVP is *not* intended to be, clarifying the scope of its
+    application.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_27231bdc_v1
+  canonical_phrase: scope discipline
+  aliases: []
+  invokes: []
+  notes: Refers to the adherence to defined boundaries and limitations within the
+    MVP's design and development.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_bc7af5f4_v1
+  canonical_phrase: conceptual clarity
+  aliases: []
+  invokes: []
+  notes: Represents a state of complete and understandable design, essential before
+    commercial release.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_04899567_v1
+  canonical_phrase: financial envelope
+  aliases:
+  - cost structure
+  - financial framework
+  invokes: []
+  notes: Refers to the overall financial parameters and limitations for the MVP deployment,
+    a key constraint for development.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_f493878c_v1
+  canonical_phrase: single-pod MVP
+  aliases:
+  - Minimum Viable Implementation
+  invokes: []
+  notes: Refers to the initial, limited scope of the project for cost estimation and
+    early deployment.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c903cb3e_v1
+  canonical_phrase: vendor optimisation
+  aliases: []
+  invokes: []
+  notes: Represents a potential avenue for cost reduction through negotiation and
+    improved processes.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_efb304d1_v1
+  canonical_phrase: cost scope
+  aliases: []
+  invokes: []
+  notes: Defines the boundaries of what is included and excluded in the project's
+    budget.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_62e08b49_v1
+  canonical_phrase: sealed wet chamber shell
+  aliases: []
+  invokes: []
+  notes: Refers to the primary physical enclosure for the sensory experience; a core
+    architectural element of the MVP.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_09053675_v1
+  canonical_phrase: access features
+  aliases: []
+  invokes: []
+  notes: Indicates consideration for usability and inclusivity in the design.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_04623ec9_v1
+  canonical_phrase: acoustic isolation
+  aliases:
+  - acoustic and vibration isolation
+  invokes: []
+  notes: A critical technical requirement for the system, demanding specialized materials
+    and construction techniques.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_274113d4_v1
+  canonical_phrase: custom geometry
+  aliases: []
+  invokes: []
+  notes: Refers to the non-standard shapes and forms required for the system, impacting
+    manufacturing and assembly costs.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_5e90edb1_v1
+  canonical_phrase: finish quality
+  aliases: []
+  invokes: []
+  notes: Represents the level of refinement and aesthetics applied to the system's
+    surfaces and components, influencing material and labor costs.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_efbc88ec_v1
+  canonical_phrase: indoor waterproofing standards
+  aliases:
+  - indoor waterproofing
+  invokes: []
+  notes: Specifies the level of protection against water ingress required within the
+    system, impacting material selection and construction methods.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_55406225_v1
+  canonical_phrase: UV and/or ozone sanitation
+  aliases:
+  - UV sanitation
+  - ozone sanitation
+  invokes: []
+  notes: Describes the sanitation method used during reset cycles, important for hygiene
+    and safety.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_2e29b87c_v1
+  canonical_phrase: circulation pumps
+  aliases: []
+  invokes: []
+  notes: Essential mechanical components for water movement within the pod's systems.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_15e9fccc_v1
+  canonical_phrase: plumbing manifolds
+  aliases: []
+  invokes: []
+  notes: Refers to the distribution network for water within the pod.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_6170d301_v1
+  canonical_phrase: redundancy
+  aliases: []
+  invokes: []
+  notes: Refers to the inclusion of backup systems and components to ensure reliability,
+    a key cost driver.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_e56bc651_v1
+  canonical_phrase: noise isolation
+  aliases: []
+  invokes: []
+  notes: A specific requirement impacting design and materials, contributing to the
+    overall cost.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c40fb175_v1
+  canonical_phrase: sanitation rigor
+  aliases:
+  - sanitation protocols
+  invokes: []
+  notes: Highlights the stringent sanitation requirements, a significant cost factor.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_8c2b47ff_v1
+  canonical_phrase: hydraulic complexity
+  aliases: []
+  invokes: []
+  notes: Indicates that the hydraulic systems are intricate, contributing to increased
+    costs.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_e7e9c01c_v1
+  canonical_phrase: wet chamber air handling
+  aliases:
+  - wet chamber HVAC
+  invokes: []
+  notes: Refers to the specific air handling requirements within the sealed wet chamber
+    shell, a critical component of the facility's design.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_2670cf11_v1
+  canonical_phrase: dry transition chamber air handling
+  aliases:
+  - dry chamber HVAC
+  invokes: []
+  notes: Describes the air handling system for the transition area between the wet
+    chamber and external environment.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_99a82deb_v1
+  canonical_phrase: filtration and humidity control
+  aliases:
+  - air quality control
+  invokes: []
+  notes: Essential components of the air handling system, ensuring a controlled environment.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_af749cd2_v1
+  canonical_phrase: thermal control
+  aliases:
+  - temperature regulation
+  invokes: []
+  notes: Refers to the systems used to maintain a stable temperature within the facility.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_a89d7c78_v1
+  canonical_phrase: dehumidification performance
+  aliases:
+  - humidity control
+  invokes: []
+  notes: Refers to the system's ability to maintain a specific humidity level, a key
+    operational parameter and cost factor.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_5d7bf990_v1
+  canonical_phrase: reset time targets
+  aliases:
+  - reset time
+  invokes: []
+  notes: Specifies a performance goal related to the time required for the system
+    to return to operational status, impacting design and cost.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c7d04e18_v1
+  canonical_phrase: scent reservoirs
+  aliases:
+  - fragrance storage
+  invokes: []
+  notes: Containers for holding the scent compounds; a key element of the scent delivery
+    system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_a38b97db_v1
+  canonical_phrase: air-only delivery hardware
+  aliases:
+  - scent delivery system
+  invokes: []
+  notes: The mechanism used to distribute the scents through the air; a critical component
+    of the system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c4b66cc9_v1
+  canonical_phrase: bounded dispersion controls
+  aliases:
+  - scent containment
+  invokes: []
+  notes: Mechanisms to limit the spread of scents, ensuring targeted delivery and
+    preventing unwanted odors.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_e4ccb333_v1
+  canonical_phrase: hygiene isolation requirements
+  aliases: []
+  invokes: []
+  notes: Specifies the necessary measures to maintain hygiene within the system, impacting
+    design and material choices.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_5146ff8e_v1
+  canonical_phrase: material selection
+  aliases:
+  - material choices
+  invokes: []
+  notes: The process of choosing appropriate materials, which significantly affects
+    the overall cost and performance.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_970266a9_v1
+  canonical_phrase: isolation dampers
+  aliases: []
+  invokes: []
+  notes: Components used to control and isolate airflow, crucial for system precision.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_5e9229ed_v1
+  canonical_phrase: diffuser quality
+  aliases:
+  - diffuser performance
+  invokes: []
+  notes: Refers to the specific characteristics of the diffusers that impact cost,
+    a key technical consideration.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c5057396_v1
+  canonical_phrase: physical separation
+  aliases: []
+  invokes: []
+  notes: Describes the architectural and engineering requirements for isolating the
+    air handling system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_5ecdb343_v1
+  canonical_phrase: waterproof lighting fixtures
+  aliases:
+  - wet-rated lighting
+  invokes: []
+  notes: Specifies a critical requirement for lighting in potentially wet environments,
+    distinguishing it from standard fixtures.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_b0a16193_v1
+  canonical_phrase: emergency lighting
+  aliases:
+  - backup lighting
+  invokes: []
+  notes: A critical safety feature providing illumination during power failures.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_2eed4271_v1
+  canonical_phrase: electrical isolation
+  aliases:
+  - electrical separation
+  invokes: []
+  notes: A safety and performance requirement, ensuring the electrical systems do
+    not interfere with other components or pose a hazard.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_18a9fec2_v1
+  canonical_phrase: control interface
+  aliases:
+  - system control
+  invokes: []
+  notes: Represents the user interaction point for the sound system, a key element
+    of usability.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_0d15c630_v1
+  canonical_phrase: industrial controller
+  aliases:
+  - PLC
+  - programmable logic controller
+  invokes: []
+  notes: A core component of the control system, responsible for automated operations.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_999079b2_v1
+  canonical_phrase: safety interlocks
+  aliases: []
+  invokes: []
+  notes: Critical for ensuring operational safety and preventing hazards within the
+    system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c123651e_v1
+  canonical_phrase: UI hardware
+  aliases:
+  - user interface hardware
+  invokes: []
+  notes: Provides a means for human interaction and monitoring of the control system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_22250ca5_v1
+  canonical_phrase: safety requirements
+  aliases: []
+  invokes: []
+  notes: A crucial factor influencing cost, indicating adherence to specific protocols
+    and regulations.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_808ef1cc_v1
+  canonical_phrase: modularity
+  aliases: []
+  invokes: []
+  notes: Refers to the design's modularity, which likely impacts manufacturing and
+    assembly costs.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c6e02ffb_v1
+  canonical_phrase: documentation and validation
+  aliases: []
+  invokes: []
+  notes: Highlights the importance of thorough documentation and validation processes,
+    which are essential for quality assurance and regulatory compliance.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_f8f32488_v1
+  canonical_phrase: acoustic validation
+  aliases: []
+  invokes: []
+  notes: Refers to the process of verifying acoustic isolation and sound performance.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_e17a6afd_v1
+  canonical_phrase: reset-cycle validation
+  aliases: []
+  invokes: []
+  notes: Describes the process of ensuring the system recovers correctly from interruptions.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_cc05bd9b_v1
+  canonical_phrase: initial calibration
+  aliases: []
+  invokes: []
+  notes: Refers to the process of establishing baseline performance parameters for
+    the system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_47d47519_v1
+  canonical_phrase: acoustic isolation quality
+  aliases:
+  - acoustic isolation
+  - isolation quality
+  invokes: []
+  notes: A critical factor impacting both performance and cost, and likely to be a
+    recurring design consideration.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_abe8de0e_v1
+  canonical_phrase: water sanitation rigor
+  aliases: []
+  invokes: []
+  notes: Refers to the level of detail and stringency applied to water purification
+    processes, a key operational requirement.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_6b2d311e_v1
+  canonical_phrase: control system sophistication
+  aliases:
+  - control system
+  invokes: []
+  notes: Highlights the complexity and capabilities of the system managing pod operations,
+    directly impacting cost.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_304329f0_v1
+  canonical_phrase: wet-surface material choices
+  aliases:
+  - wet surface materials
+  invokes: []
+  notes: Specifies the materials used in areas exposed to water, a significant cost
+    consideration due to performance and durability requirements.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_2433e3be_v1
+  canonical_phrase: lighting
+  aliases:
+  - waterproof lighting fixtures
+  invokes: []
+  notes: A standard project component, but noted as a smaller cost lever.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_0a5abf3f_v1
+  canonical_phrase: water treatment consumables
+  aliases: []
+  invokes: []
+  notes: Represents a recurring operational expense related to water sanitation.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_ae7fff77_v1
+  canonical_phrase: commercial-grade components
+  aliases: []
+  invokes: []
+  notes: Specifies the quality level of the materials used, impacting cost and performance.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_ae788d15_v1
+  canonical_phrase: low production volume
+  aliases: []
+  invokes: []
+  notes: Highlights a factor influencing the cost per unit, as economies of scale
+    are not being leveraged.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_d77de23c_v1
+  canonical_phrase: Capex
+  aliases:
+  - capital expenditure
+  invokes: []
+  notes: A key financial metric discussed throughout the document, representing the
+    initial investment costs.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_33cda45d_v1
+  canonical_phrase: AUD
+  aliases: []
+  invokes: []
+  notes: Currency used for cost estimations.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_73aaa374_v1
+  canonical_phrase: indoor concrete/composite pool
+  aliases:
+  - custom indoor pools
+  invokes: []
+  notes: A significant feature requiring substantial investment and specialized construction
+    techniques.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_28689454_v1
+  canonical_phrase: pool circulation pumps
+  aliases:
+  - feature pumps
+  invokes: []
+  notes: Specific type of pump used in pool systems; referenced for cost estimation.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_aefa309b_v1
+  canonical_phrase: UV sanitation units
+  aliases: []
+  invokes: []
+  notes: A water sanitation technology; referenced for cost estimation and flow rate
+    requirements.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_41a9f3a1_v1
+  canonical_phrase: ozone generators
+  aliases: []
+  invokes: []
+  notes: Another water sanitation technology; referenced for cost estimation and varying
+    system sizes.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_7c3f68b0_v1
+  canonical_phrase: pool heat pumps
+  aliases: []
+  invokes: []
+  notes: Heating system for pools; referenced for cost estimation and capacity considerations.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_5e6542c0_v1
+  canonical_phrase: manifolds
+  aliases: []
+  invokes: []
+  notes: A specific component of the water system architecture.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_7ed94391_v1
+  canonical_phrase: natatorium dehumidification systems
+  aliases:
+  - pool dehumidification systems
+  invokes: []
+  notes: Specific type of HVAC system relevant to the indoor pool environment; a recurring
+    cost factor.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_565a7de6_v1
+  canonical_phrase: inverter dehumidifiers
+  aliases: []
+  invokes: []
+  notes: A type of dehumidifier, highlighting a potential but insufficient alternative.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_8b877858_v1
+  canonical_phrase: acoustic suppression
+  aliases:
+  - acoustic isolation
+  invokes: []
+  notes: A necessary feature to manage noise levels within the pod environment.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_0345e505_v1
+  canonical_phrase: purge capability
+  aliases: []
+  invokes: []
+  notes: A specific operational requirement for the pod, implying a process of cleaning
+    or resetting.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_d3eac304_v1
+  canonical_phrase: multi-scent delivery systems
+  aliases:
+  - scent systems
+  invokes: []
+  notes: A specific technology used in experiential environments, referenced for cost
+    and implementation.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_5b37e581_v1
+  canonical_phrase: scent adsorption
+  aliases:
+  - scent absorption
+  invokes: []
+  notes: A technical challenge impacting the design and cost of the scent system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_e22aadb1_v1
+  canonical_phrase: scent compounds
+  aliases: []
+  invokes: []
+  notes: The raw materials used to create the scents; a key element of the scent system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_f8305cf5_v1
+  canonical_phrase: hygiene protocols
+  aliases:
+  - hygiene
+  invokes: []
+  notes: Essential for maintaining scent purity and preventing contamination within
+    the system.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_e00046e1_v1
+  canonical_phrase: diffusers
+  aliases: []
+  invokes: []
+  notes: HVAC component used for distributing airflow.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_ebb5fb74_v1
+  canonical_phrase: dampers
+  aliases: []
+  invokes: []
+  notes: HVAC component used for controlling airflow.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_7d732552_v1
+  canonical_phrase: silencers
+  aliases: []
+  invokes: []
+  notes: HVAC component used for reducing noise.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c512dfb9_v1
+  canonical_phrase: ducting
+  aliases: []
+  invokes: []
+  notes: HVAC component used for channeling airflow.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_4ab2a8a5_v1
+  canonical_phrase: wind
+  aliases:
+  - wind system
+  invokes: []
+  notes: A specific system being discussed, requiring definition and further exploration
+    of its components and cost implications.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_1a3848c1_v1
+  canonical_phrase: commercial audio components
+  aliases: []
+  invokes: []
+  notes: Refers to the hardware used in the sound system, differentiating between
+    consumer and professional grades.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_a2915f04_v1
+  canonical_phrase: PLCs
+  aliases:
+  - Programmable Logic Controllers
+  invokes: []
+  notes: Programmable Logic Controllers are a standard component of industrial automation
+    systems, used for controlling various processes.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c2762d09_v1
+  canonical_phrase: HMIs
+  aliases:
+  - Human-Machine Interfaces
+  invokes: []
+  notes: Human-Machine Interfaces provide a user interface for interacting with and
+    monitoring automated systems.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_e57e47fb_v1
+  canonical_phrase: commissioning
+  aliases: []
+  invokes: []
+  notes: The process of verifying and validating a system's performance, a necessary
+    step in industrial automation and a cost driver.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_cccd3164_v1
+  canonical_phrase: external anchors
+  aliases: []
+  invokes: []
+  notes: Refers to the dependencies and integrations required for custom systems.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_dceba322_v1
+  canonical_phrase: mechanical tuning
+  aliases: []
+  invokes: []
+  notes: A specific type of system adjustment required for custom installations.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_f1125320_v1
+  canonical_phrase: hydraulic tuning
+  aliases: []
+  invokes: []
+  notes: A specific type of system adjustment required for custom installations.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_19b9cea3_v1
+  canonical_phrase: acoustic tuning
+  aliases: []
+  invokes: []
+  notes: A specific type of system adjustment required for custom installations.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c8c9010f_v1
+  canonical_phrase: control tuning
+  aliases: []
+  invokes: []
+  notes: A specific type of system adjustment required for custom installations.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_b3da8236_v1
+  canonical_phrase: capex ranges
+  aliases:
+  - capital expenditure
+  invokes: []
+  notes: Refers to the estimated costs for equipment and infrastructure, a recurring
+    theme in the document.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_0e615270_v1
+  canonical_phrase: methodological boundaries
+  aliases:
+  - ethical boundaries
+  invokes: []
+  notes: Represents the constraints and guidelines that will govern the research process,
+    ensuring responsible development.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_e93737e9_v1
+  canonical_phrase: multisensory environment
+  aliases:
+  - sensory environment
+  invokes: []
+  notes: Describes the core design principle of the system, emphasizing its interactive
+    and customizable nature.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_105e3570_v1
+  canonical_phrase: therapeutic interpretation
+  aliases:
+  - therapeutic efficacy
+  invokes: []
+  notes: Highlights the potential for therapeutic outcomes, but clarifies that these
+    are derived from research, not inherent system claims.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_c883b036_v1
+  canonical_phrase: self-selected sensory configurations
+  aliases: []
+  invokes: []
+  notes: Refers to a key research variable, representing user agency in shaping their
+    sensory experience.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_cd4de97e_v1
+  canonical_phrase: sensory engagement
+  aliases: []
+  invokes: []
+  notes: A core concept describing the interaction between the user and the sensory
+    environment.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_1cff365f_v1
+  canonical_phrase: subjective reports
+  aliases:
+  - user feedback
+  invokes: []
+  notes: Represents user-generated data, crucial for understanding the platform's
+    impact.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_0d56560c_v1
+  canonical_phrase: environmental parameters
+  aliases:
+  - environmental data
+  invokes: []
+  notes: Specifies the types of data that *may* be collected if data capture is enabled.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_a90239a7_v1
+  canonical_phrase: biometric inference
+  aliases: []
+  invokes: []
+  notes: Refers to the exclusion of data collection related to biological characteristics
+    and their interpretation.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_ed2739e4_v1
+  canonical_phrase: bounded, repeatable reset behavior
+  aliases:
+  - repeatable resets
+  - reset functionality
+  invokes: []
+  notes: Describes a specific system feature important for iterative testing and pilot
+    studies.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_190b928f_v1
+  canonical_phrase: participant agency
+  aliases:
+  - participant control
+  invokes: []
+  notes: A core design principle ensuring user autonomy and ethical operation.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_241bd63a_v1
+  canonical_phrase: informed consent
+  aliases: []
+  invokes: []
+  notes: A standard ethical requirement for research involving human participants.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_38bd3bf8_v1
+  canonical_phrase: therapeutic efficacy
+  aliases:
+  - efficacy
+  invokes: []
+  notes: A core claim regarding the system's potential impact; requires independent
+    verification.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_2211dd9b_v1
+  canonical_phrase: peer review
+  aliases: []
+  invokes: []
+  notes: Standard process for validating scientific claims; essential for establishing
+    credibility.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_d0f989ae_v1
+  canonical_phrase: ethical oversight
+  aliases:
+  - ethical protocols
+  invokes: []
+  notes: Highlights the commitment to responsible research practices and adherence
+    to ethical guidelines.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_3e791f19_v1
+  canonical_phrase: neutral baselines
+  aliases: []
+  invokes: []
+  notes: Essential for establishing a valid comparison point in the research, ensuring
+    that any observed effects are attributable to the intervention.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_6af3669d_v1
+  canonical_phrase: neurodivergent user
+  aliases:
+  - neurodivergent individual
+  invokes: []
+  notes: Specifies the target user group for the system, a crucial design constraint.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_99f0f757_v1
+  canonical_phrase: stillness as the baseline
+  aliases:
+  - neutral baselines
+  - global calm
+  invokes: []
+  notes: Represents a core design principle for establishing a stable and predictable
+    starting point for sensory experiences.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_6fa25844_v1
+  canonical_phrase: reset as a first-class concern
+  aliases:
+  - bounded, repeatable reset behavior
+  invokes: []
+  notes: Emphasizes the importance of predictable and controlled system resets for
+    safety and experimental repeatability.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_ee26b6ef_v1
+  canonical_phrase: neutral defaults
+  aliases:
+  - neutral baselines
+  invokes: []
+  notes: Specifies the baseline settings used during the pilot protocol, essential
+    for controlled experimentation.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_07968d11_v1
+  canonical_phrase: failure modes
+  aliases: []
+  invokes: []
+  notes: A technical term describing potential points of system failure, crucial for
+    safety review.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+- id: mined_anchor_1be72157_v1
+  canonical_phrase: AUD (Single-Pod MVP)
+  aliases:
+  - Single-Pod MVP
+  invokes: []
+  notes: Refers to the initial, limited-scope version of the system, a key distinction
+    for development and deployment.
+  lifecycle_status: ACTIVE
+  match_policy:
+    gate_required: true
+    allowed_functions:
+    - context_compression
+    format_gate: null
+    min_confidence_exact: 0.7
+    min_confidence_fuzzy: 0.9
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
