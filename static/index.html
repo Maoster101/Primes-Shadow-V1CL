@@ -3915,13 +3915,21 @@ async function _loadClusterView(){
       type: 'bundle',
       status: cluster._is_misc?'tentative':'corpus',
       active: false,
+      // Position + semantic target. cPhysics reads semX/semY/semZ (camelCase,
+      // NOT sem_x) to pull nodes toward a stable position; velocity fields
+      // (vx/vy/vz) must be initialized to 0 or physics produces NaN coords
+      // on first frame and nothing renders.
       x: x, y: y, z: z,
-      sem_x: x, sem_y: y, sem_z: z,
+      vx: 0, vy: 0, vz: 0,
+      semX: x, semY: y, semZ: z,
       temp: 0.35+sizeFactor*0.5,       // bigger cluster = warmer glow
       salience_now: sizeFactor,
       salience_smoothed: sizeFactor,
       structural_weight: sizeFactor,
       rejected: false,
+      lifecycle_status: 'ACTIVE',
+      hitCount: 0,
+      depends_on: [],
       // Cluster-specific metadata for click-handling + tooltip
       _isCluster: true,
       _clusterPath: pathKey,
