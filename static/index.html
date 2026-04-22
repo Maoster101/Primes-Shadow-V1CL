@@ -352,7 +352,7 @@
             <button id="corpus-mode-nodes" onclick="_setCorpusMode('nodes')" style="background:rgba(255,255,255,0.08);border:none;border-right:1px solid var(--border);color:var(--text);padding:2px 8px;cursor:pointer;font-family:inherit;font-size:10px">Nodes</button>
             <button id="corpus-mode-clusters" onclick="_setCorpusMode('clusters')" style="background:transparent;border:none;color:var(--text-dim);padding:2px 8px;cursor:pointer;font-family:inherit;font-size:10px">Clusters</button>
           </span>
-          <span id="corpus-breadcrumb" style="display:none;font-size:10px;color:#ff8c00;font-family:'JetBrains Mono',monospace;cursor:pointer" onclick="_exitDrilledCluster()" title="Back to clusters overview"></span>
+          <span id="corpus-breadcrumb" style="display:none;font-size:10px;color:#ff8c00;font-family:'JetBrains Mono',monospace;cursor:pointer;background:rgba(255,140,0,0.08);border:1px solid rgba(255,140,0,0.35);border-radius:4px;padding:2px 8px" onclick="_exitDrilledCluster()" title="Click to exit drilled cluster and return to overview"></span>
           <span id="corpus-filter-stats" style="font-size:9px;color:var(--text-dim);margin-left:auto"></span>
         </div>
         <canvas id="corpus-canvas"></canvas>
@@ -3815,6 +3815,19 @@ let _drilledCluster=null;  // {scope, path, label, members}
 let _communitiesCache={};  // {scope: payload} — tiny client-side cache
 
 async function _setCorpusMode(mode){
+  // Same-mode click: usually a no-op, but if we're drilled inside a
+  // cluster AND the user re-clicks the Clusters button, treat it as
+  // "exit drill, return to overview" — gives a prominent second exit
+  // path in case the breadcrumb is missed.
+  if(mode===_corpusViewMode){
+    if(mode==='clusters' && _drilledCluster){
+      _drilledCluster=null;
+      _updateCorpusBreadcrumb();
+      corpusLoaded=false;
+      await loadCorpusGraph();
+    }
+    return;
+  }
   if(mode!==_corpusViewMode){
     _corpusViewMode=mode;
     _drilledCluster=null;  // exit any drill state when mode changes
