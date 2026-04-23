@@ -4760,7 +4760,7 @@ cCanvas.addEventListener('mousemove',e=>{
         const bonds=cEdges.filter(e=>e.from===n.id||e.to===n.id).length;
         tooltipEl.innerHTML=`<div style="color:#ff8c00;font-size:12px;font-weight:500;margin-bottom:4px">${_esc(n._clusterLabel)}</div>`
           +`<div style="color:var(--text-dim)">cluster · ${mc} nodes · ${bonds} inter-cluster edges</div>`
-          +`<div style="color:#7fb3ff;font-size:10px;margin-top:4px">scroll in (or click) to drill · scroll out past limit to exit</div>`;
+          +`<div style="color:#7fb3ff;font-size:10px;margin-top:4px">zoom in (or click) to drill · zoom out past limit to exit</div>`;
       }else{
         const bonds=cEdges.filter(e=>e.from===n.id||e.to===n.id).length;
         const deps=(n.depends_on||[]).length?` deps:${n.depends_on.length}`:'';
@@ -4808,14 +4808,23 @@ cCanvas.addEventListener('wheel',e=>{e.preventDefault();
 
   // ── Semantic zoom: scroll-past-limit triggers drill in/out ──
   // Google-Maps-style navigation. In clusters mode:
-  //   • Zooming in past min-cam-distance → drill into cluster at cursor
-  //   • While drilled, zooming out past max-cam-distance → exit drill
+  //   • Zooming IN past max-cam-distance (>1200) → drill into cluster
+  //   • While drilled, zooming OUT past min-cam-distance (<15) → exit drill
+  //
+  // NOTE on zoom direction in this codebase: cProject uses
+  //   p = dist / (dist + z2 + 300)
+  // so LARGER dist = p closer to 1 = nodes appear BIGGER = "zoomed in".
+  // This is inverted from standard 3D camera conventions. The wheel
+  // handler's cCam.dist + e.deltaY*.8 means scroll DOWN (deltaY>0)
+  // INCREASES dist = zoom IN visually, scroll UP = zoom OUT.
+  // Drill-in fires on zoom-PAST-MAX, not zoom-PAST-MIN.
+  //
   // Camera distance is reset on transitions so the new view renders
   // at a sensible scale regardless of where the user was zoomed before.
   // Click-to-drill still works (backup interaction); scroll is primary.
   if(_corpusViewMode==='clusters'){
-    if(rawNewDist<15 && !_drilledCluster){
-      // Drill in on cursor target
+    if(rawNewDist>1200 && !_drilledCluster){
+      // Zoomed IN past limit → drill into cluster at cursor
       const rect=cCanvas.getBoundingClientRect();
       const mx=e.clientX-rect.left;
       const my=e.clientY-rect.top;
@@ -4837,8 +4846,8 @@ cCanvas.addEventListener('wheel',e=>{e.preventDefault();
         return;
       }
       // No cluster under cursor: clamp and fall through to normal zoom
-    }else if(rawNewDist>1200 && _drilledCluster){
-      // Drill out: exit current drill, return to cluster overview
+    }else if(rawNewDist<15 && _drilledCluster){
+      // Zoomed OUT past limit while drilled → exit drill
       cCam.dist=480;cCam.panX=0;cCam.panY=0;
       tooltipEl.style.display='none';
       _exitDrilledCluster();
