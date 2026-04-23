@@ -4755,12 +4755,12 @@ cCanvas.addEventListener('mousemove',e=>{
     const n=cHitTest(e.clientX-rect.left,e.clientY-rect.top);
     if(n){
       if(n._isCluster){
-        // Cluster tooltip: label + member count + hint to drill
+        // Cluster tooltip: label + member count + drill affordance
         const mc=(n._clusterMembers||[]).length;
         const bonds=cEdges.filter(e=>e.from===n.id||e.to===n.id).length;
         tooltipEl.innerHTML=`<div style="color:#ff8c00;font-size:12px;font-weight:500;margin-bottom:4px">${_esc(n._clusterLabel)}</div>`
           +`<div style="color:var(--text-dim)">cluster · ${mc} nodes · ${bonds} inter-cluster edges</div>`
-          +`<div style="color:#7fb3ff;font-size:10px;margin-top:4px">click to drill into cluster</div>`;
+          +`<div style="color:#7fb3ff;font-size:10px;margin-top:4px">scroll in (or click) to drill · scroll out past limit to exit</div>`;
       }else{
         const bonds=cEdges.filter(e=>e.from===n.id||e.to===n.id).length;
         const deps=(n.depends_on||[]).length?` deps:${n.depends_on.length}`:'';
@@ -4803,7 +4803,51 @@ cCanvas.addEventListener('mouseup',e=>{
   cDrag=null;_corpusDragging=false;
 });
 cCanvas.addEventListener('wheel',e=>{e.preventDefault();
-  const old=cCam.dist;cCam.dist=Math.max(15,Math.min(1200,cCam.dist+e.deltaY*.8));
+  const old=cCam.dist;
+  const rawNewDist=old+e.deltaY*.8;
+
+  // ── Semantic zoom: scroll-past-limit triggers drill in/out ──
+  // Google-Maps-style navigation. In clusters mode:
+  //   • Zooming in past min-cam-distance → drill into cluster at cursor
+  //   • While drilled, zooming out past max-cam-distance → exit drill
+  // Camera distance is reset on transitions so the new view renders
+  // at a sensible scale regardless of where the user was zoomed before.
+  // Click-to-drill still works (backup interaction); scroll is primary.
+  if(_corpusViewMode==='clusters'){
+    if(rawNewDist<15 && !_drilledCluster){
+      // Drill in on cursor target
+      const rect=cCanvas.getBoundingClientRect();
+      const mx=e.clientX-rect.left;
+      const my=e.clientY-rect.top;
+      const n=cHitTest(mx,my);
+      if(n&&n._isCluster){
+        _drilledCluster={
+          scope:n._clusterScope,
+          path:n._clusterPath,
+          label:n._clusterLabel,
+          members:n._clusterMembers||[],
+        };
+        // Reset camera for the new view's node scale — drilled-member
+        // positions span ~500u, not the cluster circles' 180-300u radius.
+        cCam.dist=480;cCam.panX=0;cCam.panY=0;
+        _updateCorpusBreadcrumb();
+        tooltipEl.style.display='none';
+        corpusLoaded=false;
+        loadCorpusGraph();
+        return;
+      }
+      // No cluster under cursor: clamp and fall through to normal zoom
+    }else if(rawNewDist>1200 && _drilledCluster){
+      // Drill out: exit current drill, return to cluster overview
+      cCam.dist=480;cCam.panX=0;cCam.panY=0;
+      tooltipEl.style.display='none';
+      _exitDrilledCluster();
+      return;
+    }
+  }
+
+  // Normal camera zoom (with zoom-to-cursor pan compensation)
+  cCam.dist=Math.max(15,Math.min(1200,rawNewDist));
   const rect=cCanvas.getBoundingClientRect();
   const mx=e.clientX-rect.left-cCanvas.width/2-cCam.panX;
   const my=e.clientY-rect.top-cCanvas.height/2-cCam.panY;
