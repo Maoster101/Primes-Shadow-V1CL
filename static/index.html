@@ -2842,21 +2842,44 @@ async function _inspDraftAction(action){
   }catch(e){alert(e.message)}
 }
 
+// Ensure currentSessionId is populated for the mining UI without paying for
+// LLM inference. Three-step recovery: keep the existing session if any,
+// otherwise hydrate from the current chat (post-reload case), otherwise
+// create a scratch session (no SSE, no inference). Returns true on success.
+async function _ensureMiningSession(statusEl){
+  if(currentSessionId) return true;
+  if(currentChatId){
+    if(statusEl) statusEl.textContent='Recovering session for current chat...';
+    try{
+      const r=await fetch(`${API}/chats/${currentChatId}`);
+      if(r.ok){
+        const info=await r.json();
+        if(info.session_id){currentSessionId=info.session_id;return true}
+      }
+    }catch(e){/* fall through to scratch */}
+  }
+  if(statusEl) statusEl.innerHTML='<span style="color:var(--text-dim)">Creating mining session...</span>';
+  try{
+    const scratchRes=await fetch(`${API}/sessions/scratch`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({title:'AI Mine Session',collection_id:(document.getElementById('mine-collection')?.value||'default')})
+    });
+    if(!scratchRes.ok)throw new Error('Failed to create scratch session');
+    const scratch=await scratchRes.json();
+    currentChatId=scratch.chat_id;
+    currentSessionId=scratch.session_id;
+    return true;
+  }catch(e){
+    alert('Could not create mining session: '+e.message);
+    return false;
+  }
+}
+
 async function _minePushOne(){
   if(!_inspTarget||_inspTarget.mode!=='mine-proposal')return;
   const item=_mineResults.proposals[_inspTarget.idx];
   if(!item)return;
-  if(!currentSessionId){
-    try{
-      const chatRes=await fetch(`${API}/chats`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'AI Mine Session',collection_id:(document.getElementById('mine-collection')?.value||'default')})});
-      const chat=await chatRes.json();currentChatId=chat.id;
-      const msgRes=await fetch(`${API}/chats/${chat.id}/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:'[Mining session]',oli_mode:'OFF',web_mode:'off'})});
-      if(msgRes.ok){const reader=msgRes.body.getReader();while(true){const{done}=await reader.read();if(done)break}}
-      const infoRes=await fetch(`${API}/chats/${chat.id}`);
-      if(infoRes.ok){const info=await infoRes.json();currentSessionId=info.session_id}
-      if(!currentSessionId){alert('Could not create mining session');return}
-    }catch(e){alert('Could not create mining session: '+e.message);return}
-  }
+  if(!await _ensureMiningSession())return;
   const targetCollection=document.getElementById('mine-collection')?.value||'default';
   try{
     const res=await fetch(`${API}/sessions/${currentSessionId}/push-mined`,{
@@ -2878,31 +2901,7 @@ function _mineToggleEdit(){_inspToggleEdit()}
 async function _minePushSelected(){
   if(!_mineResults){alert('No mining results');return}
   const statusEl=document.getElementById('mine-push-status');
-  // If we already have a chat but no session handle, try to recover its
-  // active session before falling back to creating a brand-new one.
-  // This is the common case after an app reload where the chat survives
-  // but the frontend's currentSessionId never got hydrated.
-  if(!currentSessionId && currentChatId){
-    if(statusEl)statusEl.textContent='Recovering session for current chat...';
-    try{
-      const r=await fetch(`${API}/chats/${currentChatId}`);
-      if(r.ok){
-        const info=await r.json();
-        if(info.session_id) currentSessionId=info.session_id;
-      }
-    }catch(e){/* fall through to auto-create */}
-  }
-  // Auto-create a mining session if still no active session
-  if(!currentSessionId){
-    if(statusEl)statusEl.innerHTML='<span style="color:var(--text-dim)">Creating mining session...</span>';
-    try{
-      const scratchRes=await fetch(`${API}/sessions/scratch`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'AI Mine Session',collection_id:(document.getElementById('mine-collection')?.value||'default')})});
-      if(!scratchRes.ok)throw new Error('Failed to create scratch session');
-      const scratch=await scratchRes.json();
-      currentChatId=scratch.chat_id;
-      currentSessionId=scratch.session_id;
-    }catch(e){alert('Could not create mining session: '+e.message);return}
-  }
+  if(!await _ensureMiningSession(statusEl))return;
   const sel=[];
   document.querySelectorAll('.mine-sel:checked').forEach(el=>{
     sel.push(parseInt(el.dataset.idx));

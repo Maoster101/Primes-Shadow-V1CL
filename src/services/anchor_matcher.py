@@ -969,8 +969,8 @@ class AnchorMatcher:
             except Exception:
                 logger.warning("Pass D: anchor embedding failed for %d uncached phrases", len(uncached_phrases))
 
-        print(f"[Pass D] {len(anchors)} anchors to sweep, "
-              f"{len(cached_pairs)} cached pairs, {len(uncached_phrases)} uncached")
+        logger.debug("[Pass D] %d anchors to sweep, %d cached pairs, %d uncached",
+                     len(anchors), len(cached_pairs), len(uncached_phrases))
 
         # Find best similarity per anchor
         best_per_anchor: dict[str, tuple[float, str]] = {}
@@ -983,9 +983,11 @@ class AnchorMatcher:
             if prev is None or sim > prev[0]:
                 best_per_anchor[anchor_id] = (sim, phrase)
 
-        # Debug: show all similarities
-        for aid, (sim, phrase) in sorted(best_per_anchor.items(), key=lambda x: -x[1][0]):
-            print(f"[Pass D]   {aid}: {sim:.4f} ({phrase[:50]})")
+        # Debug: per-anchor similarities. Cheap-skip when DEBUG isn't enabled
+        # so we don't burn the sort + format on every turn at INFO level.
+        if logger.isEnabledFor(logging.DEBUG):
+            for aid, (sim, phrase) in sorted(best_per_anchor.items(), key=lambda x: -x[1][0]):
+                logger.debug("[Pass D]   %s: %.4f (%s)", aid, sim, phrase[:50])
 
         # Tier the results
         # Thresholds tuned for nomic-embed-text 768-dim cosine similarity.

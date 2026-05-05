@@ -298,7 +298,14 @@ def test_multiple_errors_all_reported():
 # ── 10. Base set query ──────────────────────────────────────────
 
 def test_base_set_filters_by_type_and_lifecycle():
-    """base_set_slabs returns only ACTIVE CONSTITUTIONAL/CANONICAL slabs."""
+    """base_set_slabs filtering rules.
+
+    Default (include_reference=True): CONSTITUTIONAL + CANONICAL + REFERENCE
+    are all in the base set. INVARIANT and DEPRECATED are always excluded.
+
+    With include_reference=False: legacy filter — only CONSTITUTIONAL +
+    CANONICAL pass.
+    """
     store = _fresh_store()
     store.slabs = {
         "slab_const_v1": _make_slab("slab_const_v1", type=SlabType.CONSTITUTIONAL),
@@ -308,13 +315,22 @@ def test_base_set_filters_by_type_and_lifecycle():
         "slab_dead_v1": _make_slab("slab_dead_v1", type=SlabType.CANONICAL,
                                     lifecycle_status=SlabLifecycleStatus.DEPRECATED),
     }
+    # Default behaviour: REFERENCE included
     result = store.base_set_slabs(OLIMode.OFF)
     ids = {s.id for s in result}
     _assert("slab_const_v1" in ids, "CONSTITUTIONAL in base set")
     _assert("slab_canon_v1" in ids, "CANONICAL in base set")
     _assert("slab_invar_v1" not in ids, "INVARIANT excluded from base set")
-    _assert("slab_ref_v1" not in ids, "REFERENCE excluded from base set")
+    _assert("slab_ref_v1" in ids, "REFERENCE in base set (default)")
     _assert("slab_dead_v1" not in ids, "DEPRECATED excluded from base set")
+
+    # Legacy / opt-out behaviour: REFERENCE excluded
+    legacy = store.base_set_slabs(OLIMode.OFF, include_reference=False)
+    legacy_ids = {s.id for s in legacy}
+    _assert("slab_const_v1" in legacy_ids, "CONSTITUTIONAL in legacy base set")
+    _assert("slab_canon_v1" in legacy_ids, "CANONICAL in legacy base set")
+    _assert("slab_ref_v1" not in legacy_ids,
+            "REFERENCE excluded when include_reference=False")
 
 
 def test_base_set_oli_mode_gating():

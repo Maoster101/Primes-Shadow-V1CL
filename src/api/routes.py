@@ -358,7 +358,8 @@ async def upload_file(file: UploadFile = File(...)):
 @router.get("/events/{log_name}")
 async def get_events(log_name: str, last_n: int = 50):
     valid_logs = [
-        "gate_events.jsonl", "push_events.jsonl", "degradation_flags.jsonl",
+        "gate_events.jsonl", "push_events.jsonl", "push_resolutions.jsonl",
+        "degradation_flags.jsonl",
         "verification_log.jsonl", "drift_events.jsonl",
         "match_events.jsonl", "frame_events.jsonl", "proposal_events.jsonl",
     ]

@@ -510,22 +510,36 @@ class UpdateNodeRequest(BaseModel):
 
 
 def _find_corpus_node(node_id: str):
-    """Locate a node across all corpus object types. Returns (obj, type_name)."""
-    if node_id in deps.corpus.anchors:
-        return deps.corpus.anchors[node_id], "anchor"
-    if node_id in deps.corpus.slabs:
-        return deps.corpus.slabs[node_id], "slab"
-    if node_id in deps.corpus.bundles:
-        return deps.corpus.bundles[node_id], "bundle"
-    if node_id in deps.corpus.gates:
-        return deps.corpus.gates[node_id], "gate"
-    return None, None
+    """Locate a node + its owning collection store.
+
+    Returns ``(obj, type_name, owning_store)``. The store is the
+    on-disk-backed ``CorpusStore`` for the collection that owns this
+    node; callers should mutate it and call ``.save()`` on the owning
+    store, NOT on ``deps.corpus`` — the latter is the merged virtual
+    view whose ``root`` falls back to the legacy ``app/corpus/`` path,
+    so saving through it would write to a phantom directory and skip
+    the real collection on disk. Returns ``(None, None, None)`` if not
+    found.
+    """
+    for cid in sorted(deps.registry.active_ids):
+        store = deps.registry.get_store(cid)
+        if store is None:
+            continue
+        if node_id in store.anchors:
+            return store.anchors[node_id], "anchor", store
+        if node_id in store.slabs:
+            return store.slabs[node_id], "slab", store
+        if node_id in store.bundles:
+            return store.bundles[node_id], "bundle", store
+        if node_id in store.gates:
+            return store.gates[node_id], "gate", store
+    return None, None, None
 
 
 @router.get("/corpus/nodes/{node_id}/deps")
 async def get_node_deps(node_id: str):
     """Return everything that depends on or references this node."""
-    node, ntype = _find_corpus_node(node_id)
+    node, ntype, _store = _find_corpus_node(node_id)
     if not node:
         raise HTTPException(404, f"Node '{node_id}' not found in corpus")
 
@@ -549,7 +563,7 @@ async def get_node_deps(node_id: str):
 async def update_node_lifecycle(node_id: str, req: UpdateLifecycleRequest):
     """Set lifecycle status on any corpus node (anchor, slab, bundle)."""
     from ..models.enums import SlabLifecycleStatus
-    node, ntype = _find_corpus_node(node_id)
+    node, ntype, owning_store = _find_corpus_node(node_id)
     if not node:
         raise HTTPException(404, f"Node '{node_id}' not found in corpus")
     try:
@@ -557,15 +571,20 @@ async def update_node_lifecycle(node_id: str, req: UpdateLifecycleRequest):
     except ValueError:
         raise HTTPException(400, f"Invalid status '{req.lifecycle_status}'. Must be ACTIVE, DORMANT, or DEPRECATED.")
 
+    # Merged view shares the object by reference, so the in-place mutation
+    # propagates without extra dict syncing. Save through the owning store
+    # so the right collection's YAML is rewritten; mark the merged cache
+    # dirty so the next access recomputes from current member data.
     node.lifecycle_status = new_status
-    deps.corpus.save()
+    owning_store.save()
+    deps.registry._merged_dirty = True
     return {"node_id": node_id, "type": ntype, "lifecycle_status": new_status.value}
 
 
 @router.patch("/corpus/nodes/{node_id}")
 async def update_node_fields(node_id: str, req: UpdateNodeRequest):
     """Edit fields on a corpus node."""
-    node, ntype = _find_corpus_node(node_id)
+    node, ntype, owning_store = _find_corpus_node(node_id)
     if not node:
         raise HTTPException(404, f"Node '{node_id}' not found in corpus")
 
@@ -589,14 +608,15 @@ async def update_node_fields(node_id: str, req: UpdateNodeRequest):
     if not updated:
         raise HTTPException(400, "No applicable fields to update on this node type.")
 
-    deps.corpus.save()
+    owning_store.save()
+    deps.registry._merged_dirty = True
     return {"node_id": node_id, "type": ntype, "updated_fields": updated}
 
 
 @router.delete("/corpus/nodes/{node_id}")
 async def delete_node(node_id: str):
     """Hard-delete a node from the corpus. Checks dependencies first."""
-    node, ntype = _find_corpus_node(node_id)
+    node, ntype, owning_store = _find_corpus_node(node_id)
     if not node:
         raise HTTPException(404, f"Node '{node_id}' not found in corpus")
 
@@ -608,23 +628,45 @@ async def delete_node(node_id: str):
             "Deprecate it instead, or remove the dependencies first."
         )
 
-    # Remove from the appropriate dict
+    # Remove from BOTH the owning collection's dict (so the on-disk save
+    # actually drops the node) AND the live merged view (so subsequent
+    # reads on this process see the deletion before the merged cache is
+    # next rebuilt).
     if ntype == "anchor":
-        del deps.corpus.anchors[node_id]
+        owning_store.anchors.pop(node_id, None)
+        deps.corpus.anchors.pop(node_id, None)
     elif ntype == "slab":
-        del deps.corpus.slabs[node_id]
+        owning_store.slabs.pop(node_id, None)
+        deps.corpus.slabs.pop(node_id, None)
     elif ntype == "bundle":
-        del deps.corpus.bundles[node_id]
+        owning_store.bundles.pop(node_id, None)
+        deps.corpus.bundles.pop(node_id, None)
     elif ntype == "gate":
-        del deps.corpus.gates[node_id]
+        owning_store.gates.pop(node_id, None)
+        deps.corpus.gates.pop(node_id, None)
 
-    # Remove edges that reference this node
+    # Edges referencing this node may live in any active collection — a
+    # mining pass can produce cross-collection edges where the edge file
+    # owner differs from either endpoint's owner. Locate each affected
+    # edge in its owning store, remove it there + in the merged view,
+    # and save every store we touched.
     dead_edges = [eid for eid, e in deps.corpus.edges.items()
                   if e.from_node == node_id or e.to_node == node_id]
+    touched_stores: list = [owning_store]
     for eid in dead_edges:
-        del deps.corpus.edges[eid]
+        deps.corpus.edges.pop(eid, None)
+        for cid in sorted(deps.registry.active_ids):
+            s = deps.registry.get_store(cid)
+            if s and eid in s.edges:
+                del s.edges[eid]
+                if s not in touched_stores:
+                    touched_stores.append(s)
+                break
 
-    deps.corpus.save()
+    for s in touched_stores:
+        s.save()
+    deps.registry._merged_dirty = True
+
     return {"deleted": node_id, "type": ntype, "edges_removed": len(dead_edges)}
 
 

@@ -561,11 +561,10 @@ async def process_turn(
         for e in frame_manager.corpus.edges.values():
             if e.from_node in seed_ids or e.to_node in seed_ids:
                 edge_touching_seeds += 1
-        print(
-            f"[RAG-DIAG] subspace empty despite {len(seed_ids)} seeds; "
-            f"{edge_touching_seeds} edges touch any seed. "
-            f"seeds (first 5)={sorted(seed_ids)[:5]}",
-            flush=True,
+        logger.info(
+            "[RAG-DIAG] subspace empty despite %d seeds; %d edges touch any seed. "
+            "seeds (first 5)=%s",
+            len(seed_ids), edge_touching_seeds, sorted(seed_ids)[:5],
         )
 
     # ── 4. Rank (hybrid: cosine + PPR + global PR) ──
@@ -678,10 +677,9 @@ async def process_turn(
             collection_by_id = _deps.registry.slab_collection_map()
         except Exception:
             collection_by_id = {}
-    print(
-        f"[RAG] slabs: full_text={len(full_text_slabs)} (ref={reference_count}) "
-        f"catalog={len(catalog_slabs)} signals={signal_counts}",
-        flush=True,
+    logger.debug(
+        "[RAG] slabs: full_text=%d (ref=%d) catalog=%d signals=%s",
+        len(full_text_slabs), reference_count, len(catalog_slabs), signal_counts,
     )
 
     # ── Step 4: Runtime header + system prompt (instant) ──────────
