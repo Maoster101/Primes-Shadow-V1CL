@@ -3798,20 +3798,228 @@ async function _corpusFilterChanged(){
   _corpusFilterCollection=sel.value;
   // Changing collection always exits any drilled state — new collection
   // has a different cluster space. Mode preference is preserved.
-  _drilledCluster=null;
+  _drillStack=[];
+  _drillTransition=null;
   corpusLoaded=false;
   _updateCorpusBreadcrumb();
   await loadCorpusGraph();
 }
 
+// Top of the drill stack (or null if at top level). Most existing
+// call-sites only care "is the user inside *some* drill" rather than
+// the full hierarchy, so this adapter keeps their shape unchanged.
+// Stack writers (push / pop / clear) operate on _drillStack directly.
+function _currentDrill(){
+  return _drillStack.length ? _drillStack[_drillStack.length-1] : null;
+}
+
+// ── Smooth zoom-driven drill orchestration ──────────────────────
+// _beginDrillIn pushes a new level onto the stack, captures the
+// outgoing node set + the target cluster's screen-space anchor
+// position, kicks off the data load for the new level, then arms
+// _drillTransition so corpusLoop can render the cross-fade. The
+// transition state machine ensures cPhysics is paused for the 400ms
+// fade and that the camera resets only after the new content is
+// composited in. _beginDrillOut is the symmetric pop.
+
+// Snapshot enough of the current cluster scene to render it as the
+// "outgoing" layer during the cross-fade. We need positions in world
+// coords (so cProject can place them with the new camera) plus the
+// shape/colour metadata cDraw uses to render a cluster node.
+function _snapshotCurrentScene(targetClusterId){
+  const snap={
+    nodes: cNodes.map(n=>({
+      id:n.id, label:n.label, struct:n.struct, status:n.status,
+      x:n.x, y:n.y, z:n.z, temp:n.temp,
+      lifecycle_status:n.lifecycle_status,
+      hitCount:n.hitCount||0,
+      _isCluster:!!n._isCluster, _isTarget:n.id===targetClusterId,
+      _isSubgraph:!!n.isSubgraph,
+    })),
+    edges: cEdges.map(e=>({from:e.from, to:e.to, type:e.type, strength:e.strength})),
+  };
+  return snap;
+}
+
+// Drill INTO a cluster: push a new level, load the appropriate child
+// view (sub-clusters if available, otherwise leaf members), and arm
+// the cross-fade transition.
+async function _beginDrillIn(clusterNode){
+  if(_drillTransition)return;            // Coalesce: ignore concurrent triggers
+  if(!clusterNode||!clusterNode._isCluster)return;
+
+  const cur=_currentDrill();
+  // Build the new drill level. If the target has children we'll show
+  // sub-clusters at this path; if it's terminal we go to leaf-mode.
+  const newLevel={
+    scope: clusterNode._clusterScope,
+    path: clusterNode._clusterPath,
+    label: clusterNode._clusterLabel,
+    members: clusterNode._clusterMembers || [],
+    hasChildren: !!clusterNode._clusterHasChildren,
+    isLeaf: !clusterNode._clusterHasChildren,  // no children → leaf member view
+  };
+
+  // Snapshot the outgoing view BEFORE we mutate cNodes/cEdges. The
+  // target cluster's current world position becomes the visual anchor
+  // for the new level — the eye sees the new content emerging from
+  // exactly where the cluster was, rather than a hard cut.
+  const fromSnapshot=_snapshotCurrentScene(clusterNode.id);
+  const targetWorld={x:clusterNode.x, y:clusterNode.y, z:clusterNode.z};
+
+  // Push onto the stack and load the new level. _drillStack drives
+  // loadCorpusGraph's dispatch; once it returns, cNodes/cEdges hold
+  // the incoming layer.
+  _drillStack.push(newLevel);
+  corpusLoaded=false;
+  await loadCorpusGraph();
+
+  // Arm the transition. corpusLoop reads _drillTransition each frame
+  // and advances .t over DRILL_TRANSITION_MS, then commits.
+  _drillTransition={
+    direction:'in',
+    fromNodes: fromSnapshot.nodes,
+    fromEdges: fromSnapshot.edges,
+    targetWorld,
+    startTime: performance.now(),
+    durationMs: DRILL_TRANSITION_MS,
+    t: 0,
+    // Camera at the moment the transition starts. We freeze it for
+    // the duration so the outgoing snapshot doesn't drift around.
+    camStart: {dist:cCam.dist, theta:cCam.theta, phi:cCam.phi, panX:cCam.panX, panY:cCam.panY},
+    // Camera the new level should settle on by t=1. Default framing
+    // for any cluster level.
+    camEnd: {dist:480, theta:cCam.theta, phi:cCam.phi, panX:0, panY:0},
+  };
+  _updateCorpusBreadcrumb();
+  // Defensive: if the rAF loop happened to stop (e.g. user briefly
+  // switched tabs while drilling), kick it off again so the
+  // transition actually advances and renders.
+  if(typeof corpusAnimId!=='undefined' && !corpusAnimId && corpusTab==='corpus') corpusLoop();
+}
+
+// Drill OUT one level: pop, load the parent view, arm a reverse
+// transition. Symmetric with drill-in — the new (parent-level) target
+// position becomes the anchor.
+async function _beginDrillOut(){
+  if(_drillTransition)return;
+  if(!_drillStack.length)return;
+
+  // The level we're leaving — its label tells us which cluster in the
+  // parent view will be our "anchor" for the cross-fade.
+  const leaving=_drillStack[_drillStack.length-1];
+  const fromSnapshot=_snapshotCurrentScene(null);
+
+  _drillStack.pop();
+  corpusLoaded=false;
+  await loadCorpusGraph();
+
+  // After loading the parent level, find the cluster node that
+  // matches the path we just left. Its position becomes the anchor.
+  const targetNode=cNodes.find(n=>n._clusterPath===leaving.path);
+  const targetWorld=targetNode?{x:targetNode.x, y:targetNode.y, z:targetNode.z}:{x:0,y:0,z:0};
+
+  _drillTransition={
+    direction:'out',
+    fromNodes: fromSnapshot.nodes,
+    fromEdges: fromSnapshot.edges,
+    targetWorld,
+    startTime: performance.now(),
+    durationMs: DRILL_TRANSITION_MS,
+    t: 0,
+    camStart: {dist:cCam.dist, theta:cCam.theta, phi:cCam.phi, panX:cCam.panX, panY:cCam.panY},
+    camEnd: {dist:480, theta:cCam.theta, phi:cCam.phi, panX:0, panY:0},
+  };
+  _updateCorpusBreadcrumb();
+  if(typeof corpusAnimId!=='undefined' && !corpusAnimId && corpusTab==='corpus') corpusLoop();
+}
+
+// Advance the transition clock + interpolate camera. Called from
+// corpusLoop every frame while _drillTransition is non-null. Returns
+// true if the transition completed this tick (caller should resume
+// physics + clear state).
+function _advanceDrillTransition(now){
+  if(!_drillTransition)return false;
+  const dt=Math.min(1, (now-_drillTransition.startTime)/_drillTransition.durationMs);
+  _drillTransition.t=dt;
+  // Interpolate camera so the eye sees a smooth zoom rather than a snap.
+  const e=_easeInOutCubic(dt);
+  const a=_drillTransition.camStart, b=_drillTransition.camEnd;
+  cCam.dist = a.dist + (b.dist-a.dist)*e;
+  cCam.panX = a.panX + (b.panX-a.panX)*e;
+  cCam.panY = a.panY + (b.panY-a.panY)*e;
+  if(dt>=1){
+    _drillTransition=null;
+    return true;
+  }
+  return false;
+}
+
 // ── Cluster view state ──
 // Mode: 'nodes' = existing full-graph view; 'clusters' = meta-graph
-// (top-level cluster circles from Leiden). Drilled state layers on top:
-// when _drilledCluster is set, we're inside a specific cluster seeing
-// its members only.
+// (top-level cluster circles from Leiden).
+//
+// Drill stack semantics: each entry is a level the user has descended
+// into. An empty stack means "showing top-level clusters". A non-empty
+// stack with the top entry's _isLeaf=false means "showing sub-clusters
+// at this path"; with _isLeaf=true means "showing the cluster's leaf
+// member nodes" (terminal level — same as the legacy drilled view).
+//
+// Path strings are comma-separated indices that match the backend's
+// label keys: '0' = top-level cluster 0, '0,3' = sub-cluster 3 of
+// cluster 0, etc. (See compute_hierarchical_communities + the labels
+// dict in graph_communities.py for how these are generated.)
 let _corpusViewMode='nodes';
-let _drilledCluster=null;  // {scope, path, label, members}
+let _drillStack=[];        // [{scope, path, label, members, hasChildren, isLeaf}]
 let _communitiesCache={};  // {scope: payload} — tiny client-side cache
+
+// Smooth-zoom drill transition state. Non-null while a 400ms cross-fade
+// is in progress between two cluster levels. cDraw renders both the
+// outgoing and incoming node sets with interpolated opacity, and
+// cPhysics is paused so positions don't jitter mid-fade. corpusLoop
+// advances `t` based on wall clock and commits the transition when
+// `t>=1`.
+let _drillTransition=null;
+const DRILL_TRANSITION_MS=400;
+
+// Easing: easeInOutCubic feels closer to Google-Maps zoom than linear.
+// Symmetric S-curve — slow at start + end, accelerated through middle.
+function _easeInOutCubic(t){
+  return t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2;
+}
+
+// Tree walk: descend into a cached communities payload along ``path``
+// (e.g. "0,3,1") and return that level's children list. Returns null
+// if the path is invalid or terminates early (which means we're at a
+// leaf and should switch to member rendering, not cluster rendering).
+function _walkClusterTree(payload,path){
+  if(!payload||!payload.tree)return null;
+  if(!path)return payload.tree; // empty path = top level
+  const segs=String(path).split(',').map(Number);
+  let level=payload.tree;
+  for(const s of segs){
+    if(!Array.isArray(level)||s<0||s>=level.length)return null;
+    const node=level[s];
+    if(!node.children||!node.children.length)return null; // leaf
+    level=node.children;
+  }
+  return level;
+}
+
+// Fetch the cluster object at exactly this path (not its children).
+// Used for things like "what's the label/member-count of this drill
+// destination" before deciding whether to push it onto the stack.
+function _clusterAtPath(payload,path){
+  if(!payload||!payload.tree||!path)return null;
+  const segs=String(path).split(',').map(Number);
+  let level=payload.tree, node=null;
+  for(const s of segs){
+    if(!Array.isArray(level)||s<0||s>=level.length)return null;
+    node=level[s];
+    level=node.children||[];
+  }
+  return node;
+}
 
 async function _setCorpusMode(mode){
   // Same-mode click: usually a no-op, but if we're drilled inside a
@@ -3819,8 +4027,10 @@ async function _setCorpusMode(mode){
   // "exit drill, return to overview" — gives a prominent second exit
   // path in case the breadcrumb is missed.
   if(mode===_corpusViewMode){
-    if(mode==='clusters' && _drilledCluster){
-      _drilledCluster=null;
+    if(mode==='clusters' && _drillStack.length){
+      // Same-mode click while drilled = pop entire stack and return to overview
+      _drillStack=[];
+      _drillTransition=null;
       _updateCorpusBreadcrumb();
       corpusLoaded=false;
       await loadCorpusGraph();
@@ -3829,7 +4039,8 @@ async function _setCorpusMode(mode){
   }
   if(mode!==_corpusViewMode){
     _corpusViewMode=mode;
-    _drilledCluster=null;  // exit any drill state when mode changes
+    _drillStack=[];           // exit any drill state when mode changes
+    _drillTransition=null;
     // Update toggle button styling
     const nb=document.getElementById('corpus-mode-nodes');
     const cb=document.getElementById('corpus-mode-clusters');
@@ -3845,24 +4056,55 @@ async function _setCorpusMode(mode){
   }
 }
 
-function _exitDrilledCluster(){
-  if(_drilledCluster){
-    _drilledCluster=null;
-    _updateCorpusBreadcrumb();
-    corpusLoaded=false;
-    loadCorpusGraph();
-  }
+// Pop the drill stack by ``depth`` levels (1 = back one, Infinity = home).
+// Used by both the breadcrumb chunks (per-level pop) and the legacy
+// "exit drill" entry points (full clear).
+function _exitDrilledCluster(depth=Infinity){
+  if(!_drillStack.length)return;
+  const target=Math.max(0, _drillStack.length-depth);
+  _drillStack=_drillStack.slice(0,target);
+  _drillTransition=null;
+  _updateCorpusBreadcrumb();
+  corpusLoaded=false;
+  loadCorpusGraph();
 }
 
 function _updateCorpusBreadcrumb(){
   const bc=document.getElementById('corpus-breadcrumb');
   if(!bc)return;
-  if(_drilledCluster){
-    bc.style.display='inline';
-    bc.textContent=`← ${_drilledCluster.label} (${(_drilledCluster.members||[]).length} nodes)`;
-  }else{
+  if(!_drillStack.length){
     bc.style.display='none';
+    bc.textContent='';
+    bc.onclick=null;
+    return;
   }
+  bc.style.display='inline';
+  // Render the path as ``Home › Cluster › Sub › ...`` with each chunk
+  // clickable to pop directly to that depth. The leading "Home" element
+  // pops everything; chunk i pops to depth i+1 (showing levels 0..i).
+  // We stitch the spans inline since the breadcrumb element doesn't
+  // own a structured child-list elsewhere.
+  const chunks=[`<span data-pop="all" style="cursor:pointer;text-decoration:underline">⌂</span>`];
+  _drillStack.forEach((level,i)=>{
+    const isLast=i===_drillStack.length-1;
+    const memberCount=(level.members||[]).length;
+    const tail=isLast?` (${memberCount} ${level.isLeaf?'nodes':'sub-clusters'})`:'';
+    chunks.push(`<span style="opacity:0.6;margin:0 4px">›</span>`);
+    if(isLast){
+      chunks.push(`<span style="font-weight:600">${_esc(level.label)}${tail}</span>`);
+    }else{
+      chunks.push(`<span data-pop="${i+1}" style="cursor:pointer;text-decoration:underline">${_esc(level.label)}</span>`);
+    }
+  });
+  bc.innerHTML=chunks.join('');
+  bc.onclick=(ev)=>{
+    const pop=ev.target&&ev.target.getAttribute&&ev.target.getAttribute('data-pop');
+    if(pop==='all'){_exitDrilledCluster(Infinity)}
+    else if(pop){
+      const targetDepth=parseInt(pop,10);
+      _exitDrilledCluster(_drillStack.length-targetDepth);
+    }
+  };
 }
 
 function _currentCommunityScope(){
@@ -3872,42 +4114,71 @@ function _currentCommunityScope(){
   return _corpusFilterCollection==='__all__' ? '__merged__' : _corpusFilterCollection;
 }
 
-async function _loadClusterView(){
-  // Fetch cluster tree + labels for the current scope, synthesize
-  // cluster nodes and meta-edges for the existing renderer to draw.
+// Fetch (or read from cache) the communities payload for the current
+// scope. Pulled out of _loadClusterView so click/scroll drill paths
+// can peek at the tree to decide whether the target cluster has
+// children before they commit to a transition.
+async function _ensureCommunitiesPayload(){
   const scope=_currentCommunityScope();
   let payload=_communitiesCache[scope];
+  if(payload)return {scope,payload};
+  try{
+    const res=await fetch(`${API}/corpus/communities?scope=${encodeURIComponent(scope)}`);
+    if(!res.ok)throw new Error(`communities API returned ${res.status}`);
+    payload=await res.json();
+    _communitiesCache[scope]=payload;
+    return {scope,payload};
+  }catch(err){
+    console.warn('cluster fetch failed:',err);
+    const statsEl=document.getElementById('corpus-filter-stats');
+    if(statsEl)statsEl.textContent=`cluster load failed: ${err.message}`;
+    return {scope,payload:null};
+  }
+}
+
+// Render the cluster level identified by ``parentPath`` (empty string =
+// top of tree). Synthesizes one cluster node per child of that level
+// in the cached communities tree. Returns the number of nodes
+// rendered, or 0 if the path leads nowhere (caller should fall back
+// to leaf-member view).
+async function _loadClusterView(parentPath=''){
+  const {scope,payload}=await _ensureCommunitiesPayload();
   if(!payload){
-    try{
-      const res=await fetch(`${API}/corpus/communities?scope=${encodeURIComponent(scope)}`);
-      if(!res.ok)throw new Error(`communities API returned ${res.status}`);
-      payload=await res.json();
-      _communitiesCache[scope]=payload;
-    }catch(err){
-      console.warn('cluster fetch failed:',err);
-      const statsEl=document.getElementById('corpus-filter-stats');
-      if(statsEl)statsEl.textContent=`cluster load failed: ${err.message}`;
-      cNodes=[];cEdges=[];cAffinityPairs=[];cImplicitEdges=[];
-      return;
+    cNodes=[];cEdges=[];cAffinityPairs=[];cImplicitEdges=[];
+    return 0;
+  }
+
+  // Walk to the requested level. ``levelClusters`` is an array of
+  // sibling cluster dicts at this depth — top-level if path empty,
+  // otherwise the .children list of the parent.
+  let levelClusters;
+  if(!parentPath){
+    levelClusters=payload.tree||[];
+  }else{
+    levelClusters=_walkClusterTree(payload,parentPath);
+    if(!levelClusters||!levelClusters.length){
+      // Parent has no children — caller should switch to leaf rendering.
+      return 0;
     }
   }
 
-  const tree=payload.tree||[];
   const labels=payload.labels||{};
-  const metaEdges=payload.meta_edges||[];
+  const metaEdges=parentPath ? [] : (payload.meta_edges||[]);
 
-  // Build synthetic nodes: one per top-level cluster.
+  // Build synthetic nodes: one per cluster at this level.
   // - struct: 'bundle' so the existing renderer picks a distinct shape
   // - temp: scales with member count for visual weight (bigger cluster = warmer)
   // - label/canonical_phrase: the LLM-generated label
   // A simple radial/cloud layout; we're only rendering ~15-25 items so
   // we don't need the flow/spine logic.
-  const N=tree.length;
-  const maxMembers=Math.max(1,...tree.map(c=>(c.members||[]).length));
+  const N=levelClusters.length;
+  const maxMembers=Math.max(1,...levelClusters.map(c=>(c.members||[]).length));
   const nodes=[], idToIdx={};
-  tree.forEach((cluster,i)=>{
-    const pathKey=String(i);
-    const label=labels[pathKey]||(cluster._is_misc?'Miscellaneous':`Cluster ${i}`);
+  levelClusters.forEach((cluster,i)=>{
+    // Build the path key relative to the tree root so the label key
+    // matches the backend's flatten_tree_to_assignments format.
+    const pathKey=parentPath?`${parentPath},${i}`:String(i);
+    const label=labels[pathKey]||(cluster._is_misc?'Miscellaneous':`Cluster ${pathKey}`);
     const memberCount=(cluster.members||[]).length;
     const sizeFactor=Math.min(1,memberCount/maxMembers);
     // Radial layout: golden-angle spiral for pleasing distribution at any count
@@ -3918,11 +4189,12 @@ async function _loadClusterView(){
     const z=sizeFactor*80-40;
     const syntheticId=`__cluster__:${scope}:${pathKey}`;
     idToIdx[pathKey]=syntheticId;
+    const hasChildren=Array.isArray(cluster.children)&&cluster.children.length>0;
     nodes.push({
       id: syntheticId,
       label: label,
       canonical_phrase: label,
-      title: `${label} · ${memberCount} nodes`,
+      title: `${label} · ${memberCount} nodes${hasChildren?' · drillable':''}`,
       struct: cluster._is_misc?'concept':'bundle',
       type: 'bundle',
       status: cluster._is_misc?'tentative':'corpus',
@@ -3948,10 +4220,14 @@ async function _loadClusterView(){
       _clusterMembers: cluster.members||[],
       _clusterLabel: label,
       _clusterScope: scope,
+      _clusterHasChildren: hasChildren,
     });
   });
 
-  // Meta-edges: weighted inter-cluster connections.
+  // Meta-edges: only meaningful at the top level (the backend
+  // currently only ships them for the top partition). Sub-cluster
+  // levels render with no meta-edges, which is fine — the inter-
+  // sub-cluster relationships aren't computed yet.
   const edges=metaEdges.map(me=>({
     from: idToIdx[String(me.from)],
     to: idToIdx[String(me.to)],
@@ -3970,16 +4246,21 @@ async function _loadClusterView(){
   const statsEl=document.getElementById('corpus-filter-stats');
   if(statsEl){
     const clusterLabel=scope==='__merged__'?'all collections':scope;
-    statsEl.textContent=`${N} clusters · ${metaEdges.length} inter-cluster edges · ${clusterLabel}`;
+    const depthHint=parentPath?` (depth ${parentPath.split(',').length})`:'';
+    statsEl.textContent=`${N} clusters${depthHint} · ${edges.length} inter-cluster edges · ${clusterLabel}`;
   }
+  return N;
 }
 
 async function _loadDrilledView(){
   // We're inside a specific cluster — render only its member nodes
   // as a filtered sub-view of the full corpus. Uses the same data
   // source as the default Nodes mode but restricts to known members.
-  if(!_drilledCluster||!_drilledCluster.members)return;
-  const memberSet=new Set(_drilledCluster.members);
+  // The current drill is the deepest level pushed onto the stack;
+  // its .members come from the leaf cluster the user landed on.
+  const cur=_currentDrill();
+  if(!cur||!cur.members)return;
+  const memberSet=new Set(cur.members);
   // We still fetch the full corpus (with the collection filter) and
   // filter client-side — server doesn't have a "nodes by id list"
   // endpoint, and the size is fine since we already cache /corpus/full.
@@ -4022,19 +4303,32 @@ async function loadCorpusGraph(){
   // Populate filter dropdown
   await _populateCorpusFilter();
 
-  // ── Dispatch by view mode ──
-  //   clusters    → render the meta-graph from /api/corpus/communities
-  //   nodes       → render all nodes from /api/corpus/full (default)
-  //   drilled     → render only the drilled cluster's members (filtered /corpus/full)
+  // ── Dispatch by drill stack + mode ──
+  //   clusters mode, empty stack          → top-level cluster meta-graph
+  //   clusters mode, top non-leaf level   → sub-cluster meta-graph at that path
+  //   clusters mode, top is leaf level    → leaf member nodes (legacy drilled view)
+  //   nodes mode                          → full /corpus/full (no clustering)
   // Drilled state wins over mode because it's a more specific sub-view.
-  if(_corpusViewMode==='clusters' && !_drilledCluster){
-    await _loadClusterView();
+  const cur=_currentDrill();
+  if(_corpusViewMode==='clusters' && !cur){
+    await _loadClusterView('');
     corpusLoaded=true;
     return;
   }
+  if(_corpusViewMode==='clusters' && cur && !cur.isLeaf){
+    // Render the children of the current drill path as cluster nodes.
+    const rendered=await _loadClusterView(cur.path);
+    if(rendered>0){
+      corpusLoaded=true;
+      return;
+    }
+    // Children turned out empty — promote this level to leaf semantics
+    // so the next branch picks up.
+    cur.isLeaf=true;
+  }
 
   let data;
-  if(_drilledCluster){
+  if(cur){
     data=await _loadDrilledView();
     if(!data){corpusLoaded=true;return;}
   }else{
@@ -4046,7 +4340,7 @@ async function loadCorpusGraph(){
   const statsEl=document.getElementById('corpus-filter-stats');
   if(statsEl){
     const ac=(data.anchors||[]).length, sc=(data.slabs||[]).length, bc=(data.bundles||[]).length, ec=(data.edges||[]).length;
-    const prefix=_drilledCluster?`[${_drilledCluster.label}] `:'';
+    const prefix=cur?`[${cur.label}] `:'';
     statsEl.textContent=`${prefix}${ac} anchors · ${sc} slabs · ${bc} bundles · ${ec} edges`;
   }
   cNodes=[];cEdges=[];cAffinityPairs=[];cImplicitEdges=[];
@@ -4314,6 +4608,66 @@ function cPhysics(){
   });
 }
 
+// Paint a snapshot of the previous level's cluster nodes during the
+// drill cross-fade. Stripped-down render compared to cDraw — just
+// coloured discs + labels + faint edges — because the snapshot is
+// only on screen for ~400ms and full glow/pulse machinery would be
+// wasted compute on a layer that's actively fading out anyway.
+function _renderTransitionSnapshot(W,H,snapNodes,snapEdges,alpha,direction,easedT){
+  if(!snapNodes||!snapNodes.length)return;
+  // For drill-IN: outgoing layer scales UP and fades (eye reads "old
+  // view flying past as we zoom in"). For drill-OUT: outgoing scales
+  // DOWN and fades (eye reads "we're pulling back, that detail is
+  // shrinking back into the parent").
+  const outScale = direction==='in' ? 1.0 + 0.6*easedT : 1.0 - 0.35*easedT;
+  cCx.save();
+  cCx.globalAlpha=alpha;
+  cCx.translate(W/2,H/2);
+  cCx.scale(outScale,outScale);
+  cCx.translate(-W/2,-H/2);
+
+  // Project all snapshot nodes once.
+  const proj=snapNodes.map(n=>cProject(n.x,n.y,n.z));
+
+  // Faint edges first (under the discs)
+  if(snapEdges&&snapEdges.length){
+    const idx={};
+    snapNodes.forEach((n,i)=>{idx[n.id]=i});
+    cCx.lineWidth=1;
+    cCx.strokeStyle='rgba(150,170,200,0.30)';
+    for(const ed of snapEdges){
+      const ai=idx[ed.from], bi=idx[ed.to];
+      if(ai==null||bi==null)continue;
+      const pa=proj[ai], pb=proj[bi];
+      if(pa.scale<=0.01||pb.scale<=0.01)continue;
+      cCx.beginPath();cCx.moveTo(pa.sx,pa.sy);cCx.lineTo(pb.sx,pb.sy);cCx.stroke();
+    }
+  }
+
+  // Coloured discs + labels
+  for(let i=0;i<snapNodes.length;i++){
+    const n=snapNodes[i];
+    const p=proj[i];
+    if(p.scale<=0.01)continue;
+    const col=TYPE_RGB[n.struct]||TYPE_RGB.concept;
+    const st=STRUCT[n.struct]||STRUCT.concept;
+    const r=Math.max(0.5,st.baseR*p.scale*1.4);
+    cCx.beginPath();cCx.arc(p.sx,p.sy,r,0,Math.PI*2);
+    cCx.fillStyle=`rgba(${col.r},${col.g},${col.b},0.55)`;
+    cCx.fill();
+    if(n._isCluster&&p.scale>0.3){
+      const fs=Math.round(14*p.scale+5);
+      cCx.font=`${fs}px JetBrains Mono,monospace`;
+      cCx.fillStyle=`rgba(${col.r},${col.g},${col.b},0.7)`;
+      cCx.textAlign='center';
+      const lbl=n.label.length>25?n.label.slice(0,23)+'..':n.label;
+      cCx.fillText(lbl,p.sx,p.sy+r+10*p.scale);
+    }
+  }
+
+  cCx.restore();
+}
+
 function cDraw(){
   if(corpusTab!=='corpus')return;
   const W=cCanvas.width,H=cCanvas.height;
@@ -4329,6 +4683,31 @@ function cDraw(){
 
   // ── Layer 1: Ambient neural particles (brain matter dust) ──
   _drawNeuralParticles(cCx,W,H);
+
+  // ── Drill cross-fade composition ──
+  // When _drillTransition is active, render the OUTGOING level as a
+  // simple snapshot first (under), then wrap the regular render in
+  // a save() with globalAlpha + a center-anchored scale so the
+  // INCOMING level appears to expand into view. The whole effect is
+  // bounded by DRILL_TRANSITION_MS (~400ms).
+  let _txEnded=false;
+  if(_drillTransition){
+    const easedT=_easeInOutCubic(_drillTransition.t);
+    const dir=_drillTransition.direction;
+    const outAlpha=1-easedT;
+    _renderTransitionSnapshot(W,H,_drillTransition.fromNodes,_drillTransition.fromEdges,outAlpha,dir,easedT);
+    cCx.save();
+    cCx.globalAlpha=easedT;
+    // Incoming scale: drill-IN starts at 0.55× and grows to 1.0×
+    // (new content rushes forward from where the parent cluster was).
+    // drill-OUT starts at 1.4× and shrinks to 1.0× (we pull back to
+    // see the wider parent context).
+    const inScale = dir==='in' ? 0.55 + 0.45*easedT : 1.4 - 0.4*easedT;
+    cCx.translate(W/2,H/2);
+    cCx.scale(inScale,inScale);
+    cCx.translate(-W/2,-H/2);
+    _txEnded=easedT>=1;
+  }
 
   const proj=cNodes.map(n=>({n,p:cProject(n.x,n.y,n.z)})).sort((a,b)=>a.p.depth-b.p.depth);
   const nMap={};cNodes.forEach(n=>nMap[n.id]=n);
@@ -4717,6 +5096,14 @@ function cDraw(){
     cCx.restore(); // back to normal compositing
   }
 
+  // Close the drill-transition save() that wrapped the incoming render.
+  // Pairs with the cCx.save() near the top of cDraw — restore here so
+  // subsequent frames (or the snapshot painter on the next frame)
+  // start with a clean cCx state.
+  if(_drillTransition){
+    cCx.restore();
+  }
+
   cCanvas._proj=proj;
 }
 
@@ -4780,17 +5167,12 @@ cCanvas.addEventListener('mouseup',e=>{
     const n=cHitTest(e.clientX-rect.left,e.clientY-rect.top);
     if(n){
       if(n._isCluster){
-        // Drill into cluster: show its members in Nodes view with breadcrumb back.
-        _drilledCluster={
-          scope: n._clusterScope,
-          path: n._clusterPath,
-          label: n._clusterLabel,
-          members: n._clusterMembers||[],
-        };
-        _updateCorpusBreadcrumb();
+        // Click is the FALLBACK drill path — scroll-zoom is primary
+        // (see wheel handler below). Click triggers the same smooth
+        // cross-fade transition rather than the legacy hard cut, so
+        // accessibility users get the same polished feel.
         tooltipEl.style.display='none';
-        corpusLoaded=false;
-        loadCorpusGraph();
+        _beginDrillIn(n);
       }else{
         // Full deep inspect — same as main canvas, with corpus backend data
         const wrapped={...n, temp:0.15, restTemp:0.15, status:'corpus', rejected:false,
@@ -4802,54 +5184,53 @@ cCanvas.addEventListener('mouseup',e=>{
   cDrag=null;_corpusDragging=false;
 });
 cCanvas.addEventListener('wheel',e=>{e.preventDefault();
+  // Coalesce wheel events while a transition is animating — the user
+  // gets one smooth fade per scroll, not a backlog of half-completed
+  // drills if they kept spinning the wheel. Matches Google Maps:
+  // mid-zoom-tween, additional wheel input is absorbed.
+  if(_drillTransition){return}
+
   const old=cCam.dist;
   const rawNewDist=old+e.deltaY*.8;
 
   // ── Semantic zoom: scroll-past-limit triggers drill in/out ──
-  // Google-Maps-style navigation. In clusters mode:
-  //   • Zooming IN past max-cam-distance (>1200) → drill into cluster
-  //   • While drilled, zooming OUT past min-cam-distance (<15) → exit drill
+  //
+  // The model is a continuous zoom that "punches through" level
+  // boundaries. While we're not yet rendering a fractional-zoom
+  // continuum (top + sub levels visible together at fractional zoom),
+  // the cross-fade transition gives the same feel: continuing to
+  // scroll past the max distance carries the eye smoothly into the
+  // next level's content rather than snapping. Click-to-drill is the
+  // accessibility fallback (it triggers the same _beginDrillIn).
   //
   // NOTE on zoom direction in this codebase: cProject uses
   //   p = dist / (dist + z2 + 300)
   // so LARGER dist = p closer to 1 = nodes appear BIGGER = "zoomed in".
-  // This is inverted from standard 3D camera conventions. The wheel
-  // handler's cCam.dist + e.deltaY*.8 means scroll DOWN (deltaY>0)
-  // INCREASES dist = zoom IN visually, scroll UP = zoom OUT.
-  // Drill-in fires on zoom-PAST-MAX, not zoom-PAST-MIN.
-  //
-  // Camera distance is reset on transitions so the new view renders
-  // at a sensible scale regardless of where the user was zoomed before.
-  // Click-to-drill still works (backup interaction); scroll is primary.
+  // This is inverted from standard 3D camera conventions. Drill-in
+  // therefore fires on zoom-PAST-MAX (rawNewDist > 1200), not min.
   if(_corpusViewMode==='clusters'){
-    if(rawNewDist>1200 && !_drilledCluster){
-      // Zoomed IN past limit → drill into cluster at cursor
+    const cur=_currentDrill();
+    // Zoom-IN past upper limit → drill into cluster under cursor.
+    // Works at every level (top → sub-cluster → leaf), as long as
+    // the targeted cluster has somewhere to descend into. cur===null
+    // is the top level; cur && !cur.isLeaf is a sub-cluster level.
+    if(rawNewDist>1200 && (cur===null||!cur.isLeaf)){
       const rect=cCanvas.getBoundingClientRect();
       const mx=e.clientX-rect.left;
       const my=e.clientY-rect.top;
       const n=cHitTest(mx,my);
       if(n&&n._isCluster){
-        _drilledCluster={
-          scope:n._clusterScope,
-          path:n._clusterPath,
-          label:n._clusterLabel,
-          members:n._clusterMembers||[],
-        };
-        // Reset camera for the new view's node scale — drilled-member
-        // positions span ~500u, not the cluster circles' 180-300u radius.
-        cCam.dist=480;cCam.panX=0;cCam.panY=0;
-        _updateCorpusBreadcrumb();
         tooltipEl.style.display='none';
-        corpusLoaded=false;
-        loadCorpusGraph();
+        _beginDrillIn(n);
         return;
       }
       // No cluster under cursor: clamp and fall through to normal zoom
-    }else if(rawNewDist<15 && _drilledCluster){
-      // Zoomed OUT past limit while drilled → exit drill
-      cCam.dist=480;cCam.panX=0;cCam.panY=0;
+    }else if(rawNewDist<15 && cur){
+      // Zoom-OUT past lower limit while drilled → pop one level.
+      // Stack-based: each scroll-past-min pops one, eventually
+      // returning to the top-level overview.
       tooltipEl.style.display='none';
-      _exitDrilledCluster();
+      _beginDrillOut();
       return;
     }
   }
@@ -5412,14 +5793,26 @@ function _cycleTrailMode(){
 function corpusLoop(){
   if(corpusTab!=='corpus'){corpusAnimId=null;return}
 
-  // Orbital drift — slow auto-rotation when not dragging
-  if(!_corpusDragging && !cDrag){
-    cCam.theta+=_corpusOrbitSpeed;
-    // Gentle vertical oscillation for organic feel
-    cCam.phi+=Math.sin(Date.now()*0.0003)*0.00008;
+  const transitioning=!!_drillTransition;
+
+  // While a drill cross-fade is animating, freeze the orbital drift +
+  // physics. Both would otherwise jitter the outgoing snapshot or the
+  // incoming nodes mid-fade and ruin the illusion of a smooth zoom.
+  if(!transitioning){
+    // Orbital drift — slow auto-rotation when not dragging
+    if(!_corpusDragging && !cDrag){
+      cCam.theta+=_corpusOrbitSpeed;
+      // Gentle vertical oscillation for organic feel
+      cCam.phi+=Math.sin(Date.now()*0.0003)*0.00008;
+    }
+    cPhysics();
+  }else{
+    // Advance the transition clock first so cDraw sees the latest
+    // .t value when it composites the cross-fade.
+    _advanceDrillTransition(performance.now());
   }
 
-  cPhysics();cDraw();
+  cDraw();
   corpusAnimId=requestAnimationFrame(corpusLoop);
 }
 
