@@ -23,8 +23,10 @@ Output shape is intentionally identical to ConversationMiner.mine() so the
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,6 +39,14 @@ from .convo_miner import (
 from . import ollama
 
 logger = logging.getLogger(__name__)
+
+# ─── Pass concurrency ────────────────────────────────────────────────────
+# Match the daemon's OLLAMA_NUM_PARALLEL — running more concurrent in-flight
+# requests than Ollama has slots just queues them client-side without
+# improving throughput. Default 2 is safe on a 16GB card with gemma3:12b.
+# Set higher if you've configured a larger NUM_PARALLEL on the daemon.
+import os as _os
+_PASS_PARALLEL = int(_os.environ.get("PS_MINING_PARALLEL", "2"))
 
 
 # ─── Segmentation ────────────────────────────────────────────────────────
@@ -438,14 +448,564 @@ def build_cooccurrence_edges(proposals: list[MiningProposal]) -> list[EdgePropos
     return edges
 
 
+# ─── Three-pass extraction architecture ──────────────────────────────────
+#
+# The narrative miner runs three independent passes over the segments:
+#
+#   Pass 1 — anchor-only extraction, parallel across all segments.
+#            Produces named entities + distinctive phrases. No slabs,
+#            no bundles. Tight prompt, fast generation.
+#   Pass 2 — bundle synthesis, deterministic. Cluster anchors by
+#            embedding similarity + segment co-occurrence in pure
+#            Python. One batched LLM call to label the resulting
+#            clusters.
+#   Pass 3 — slab extraction with anchor context, parallel across all
+#            segments. Each segment receives the canonical anchor list
+#            scoped to anchors that surface in its text. Slabs come
+#            back with explicit references_anchors links, which we
+#            convert to LINKS edges in the existing EdgeProposal shape.
+#            Slabs may add new_anchors (Pass 1 misses) which are
+#            reconciled into the canonical list.
+#
+# Why three passes instead of one: Pass 1 is fully parallel (no
+# inter-segment dependency), Pass 2 needs the full anchor list (so
+# runs once after Pass 1), Pass 3 is fully parallel given the anchor
+# list. Total latency = 3 rounds × per-round-with-parallelism cost,
+# vs N rounds for the legacy single-pass architecture. With
+# OLLAMA_NUM_PARALLEL=2 and 16 segments, that's ~3 × 8s = 24s
+# instead of 16 × 8s = 128s.
+
+PASS1_ANCHOR_SYSTEM = """You are extracting NAMED ENTITIES and DISTINCTIVE PHRASES from a text segment for a knowledge corpus called Prime's Shadow.
+
+Inputs vary widely: conversation transcripts, scientific papers, news articles, technical documentation, research notes, fiction, etc. The same extraction rules apply across all of them.
+
+What to extract (anchors):
+  - Named entities — specific people, places, organizations, technologies, characters, products, datasets, projects, papers, theorems, etc.
+  - Distinctive terms — words or phrases the text defines, coins, or returns to repeatedly. Includes jargon, acronyms, technical terms, slang, coined metaphors.
+  - Recurring distinctive concepts — phrases the text uses as handles, even if not formally defined.
+
+What NOT to extract:
+  - Multi-step processes, methodologies, protocols, algorithms, narrative beats, arcs, or any content that needs more than a phrase to capture. Slab pass.
+  - Extended arguments, hypotheses, findings, principles, claims expressed in 3+ sentences. Slab pass.
+  - Single common words ("energy", "voice", "system") unless distinctively coined or used in a specific technical sense.
+  - Surface mentions that don't have a clear referent (e.g. a passing "they said" without a named subject).
+
+Granularity rules:
+  - Prefer ONE longer phrase over two shorter phrases when the longer phrase carries the concept.
+  - Include aliases for surface variants the text actually uses (acronyms, abbreviations, name variants, alt spellings).
+  - If a concept feels like an explanation rather than a name, skip it — slab pass picks it up.
+
+Density:
+  - Match the segment's information density. A compressed paragraph with many distinct named concepts may yield many anchors; a sparse segment may yield one or none.
+  - Don't manufacture anchors to hit a target. Don't suppress real ones to stay terse.
+
+Confidence — categories first, numbers as scaffold:
+  - HIGH (~0.85+) = explicitly named, defined, or distinctively coined in the text
+  - MEDIUM (~0.7)  = strongly implied recurring concept
+  - LOW (~0.55)    = tentative — only include if you're confident it's a real anchor
+
+Output ONLY valid JSON:
+{
+  "anchors": [
+    {
+      "canonical_phrase": "exact phrase as used (or canonical form when the text varies it)",
+      "aliases": ["variant1", "variant2"],
+      "justification": "what makes this an anchor",
+      "confidence": 0.0-1.0
+    }
+  ]
+}
+"""
+
+
+PASS3_SLAB_SYSTEM = """You are extracting SLABS — multi-sentence canonical descriptions of structured content — from a text segment for a knowledge corpus called Prime's Shadow.
+
+Inputs vary widely: conversation transcripts, scientific papers, news articles, technical documentation, research notes, fiction, etc. Slabs work the same way across all of them.
+
+A slab captures something that takes MORE THAN A NAME to express. The shape varies by genre:
+
+  - Multi-step process — a chain (A → B → C → D), a methodology, an algorithm, a protocol, a recipe
+  - Argument or claim — a hypothesis with reasoning, a thesis, a position with support, a finding
+  - Result or outcome — an experimental result, an event with consequences, a state-change
+  - Beat or arc moment — a narrative beat, a scene, a turning point, an event description
+  - Principle or rule — a worldbuilding rule, a design principle, a thematic statement, a definition
+  - Relationship or dynamic — a character dynamic, an interaction pattern, a structural relationship
+  - Definition or explanation — a multi-sentence definition of a complex concept
+
+The genre of the input doesn't change the rule: slabs are multi-sentence canonical content with internal structure.
+
+Slab format:
+  - title: short and specific (typically 3-7 words; use what fits the content)
+  - canonical_text: complete sentences capturing the slab's content. Length follows the content — punchy beats may be 2-3 sentences; complex processes may be 8-10. Never truncate mid-thought.
+  - references_anchors: anchor canonical_phrases from the supplied list that this slab involves. Match EXACTLY (case-insensitive ok).
+  - new_anchors: any concepts the slab references that AREN'T in the supplied list. Use {phrase, aliases} format. Add only when the concept is clearly a named entity or distinctive term Pass 1 missed — not for things that already feel slab-shaped.
+
+Rules:
+  - Multi-step processes / methodologies / protocols get ONE slab for the whole chain, not separate slabs per step.
+  - Beats, scenes, or events get ONE slab each.
+  - A finding plus its supporting argument is usually ONE slab.
+  - Don't slab plain entities — those are already anchors.
+
+Density:
+  - Match the segment's slab-worthy content. A dense paragraph may yield many slabs; a single-line vignette may yield one. A purely descriptive transition may yield none.
+
+Confidence:
+  - HIGH (~0.85+) = explicit in the text
+  - MEDIUM (~0.7) = implied or reconstructed from context
+  - LOW (~0.55)   = tentative
+
+Output ONLY valid JSON:
+{
+  "slabs": [
+    {
+      "title": "...",
+      "canonical_text": "...",
+      "references_anchors": ["..."],
+      "new_anchors": [{"canonical_phrase": "...", "aliases": [...]}],
+      "confidence": 0.0-1.0,
+      "justification": "..."
+    }
+  ]
+}
+"""
+
+
+BUNDLE_LABEL_SYSTEM = """You are labelling thematic groups of related concepts for a knowledge corpus.
+
+For each group below, produce ONE short label (typically 2-4 words; use what fits) that captures what the members have in common — a theme, a topic, a domain, a function, a relationship, or whatever connective tissue the group exhibits.
+
+Output ONLY valid JSON:
+{
+  "labels": [
+    { "group_id": 0, "label": "...", "justification": "..." },
+    { "group_id": 1, "label": "...", "justification": "..." }
+  ]
+}
+"""
+
+
+# ─── Anchor canonicalization ─────────────────────────────────────────────
+
+
+_MARKDOWN_EMPHASIS_RE = re.compile(r"[*_`]+")
+
+
+def _strip_markup(s: str) -> str:
+    """Remove markdown emphasis chars from a phrase. Pure cleanup of model
+    output — `fusion *juice*` should land as canonical_phrase ``fusion juice``,
+    not retain the asterisks.
+    """
+    return _MARKDOWN_EMPHASIS_RE.sub("", s).strip()
+
+
+def _normalize_phrase(s: str) -> str:
+    """Lowercase + strip non-alphanumerics for fuzzy match keying."""
+    s = re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
+    return re.sub(r"\s+", " ", s)
+
+
+# ─── Pass 1 — anchor-only extraction (parallel) ──────────────────────────
+
+
+def _parse_pass1_response(resp, segment_order: int) -> list[MiningProposal]:
+    """Convert Pass 1's JSON response into MiningProposal anchors.
+
+    Resilient to the model emitting code fences or comment cruft —
+    structured_extract already handles fence-stripping, but we still
+    defensively parse non-dict shapes.
+    """
+    if isinstance(resp, dict):
+        raw = resp.get("anchors", [])
+    else:
+        return []
+    out: list[MiningProposal] = []
+    for r in raw:
+        if not isinstance(r, dict):
+            continue
+        phrase = _strip_markup((r.get("canonical_phrase") or "").strip())
+        if not phrase:
+            continue
+        aliases = [
+            _strip_markup(str(a).strip())
+            for a in (r.get("aliases") or [])
+        ]
+        aliases = [a for a in aliases if a and _normalize_phrase(a) != _normalize_phrase(phrase)][:5]
+        try:
+            conf = float(r.get("confidence", 0.5))
+        except Exception:
+            conf = 0.5
+        out.append(MiningProposal(
+            proposal_type="anchor",
+            canonical_phrase=phrase,
+            aliases=aliases,
+            source_topic="narrative",
+            confidence=conf,
+            source_pairs=[segment_order],
+            justification=(r.get("justification") or "").strip(),
+        ))
+    return out
+
+
+async def extract_anchors_pass1(segment: NarrativeSegment) -> list[MiningProposal]:
+    """Pass 1: extract anchors only from a single segment.
+
+    Genre-agnostic prompt + system/user split so the daemon's prompt
+    cache reuses the (~600 token) system prefix across every parallel
+    call in this pass. Fully independent — no inter-segment context.
+    """
+    user = f"Text segment:\n{segment.text}"
+    try:
+        resp = await ollama.structured_extract(user, system=PASS1_ANCHOR_SYSTEM)
+    except Exception as exc:
+        logger.warning(
+            "Pass 1 (anchors) failed on segment %d (%s): %r",
+            segment.order, type(exc).__name__, exc,
+        )
+        return []
+    return _parse_pass1_response(resp, segment.order)
+
+
+# ─── Pass 2 — bundle synthesis (Python clustering + batched LLM labels) ──
+
+
+def _segment_membership_for_anchors(
+    segments: list[NarrativeSegment], anchors: list[MiningProposal]
+) -> dict[str, set[int]]:
+    """For each anchor, find which segment indices its phrase or aliases
+    appear in. Returns ``{anchor_canonical_phrase: {segment_order, ...}}``.
+    Used by Pass 2's co-occurrence affinity term and by Pass 3's
+    per-segment anchor scoping.
+    """
+    out: dict[str, set[int]] = {}
+    # Pre-strip markdown from segment text so anchors that surface as
+    # `*foo*` in the source still match.
+    seg_haystacks = [
+        (s.order, _MARKDOWN_EMPHASIS_RE.sub("", s.text).lower())
+        for s in segments
+    ]
+    for a in anchors:
+        forms = {_normalize_phrase(a.canonical_phrase)}
+        for al in a.aliases:
+            forms.add(_normalize_phrase(al))
+        forms.discard("")
+        if not forms:
+            continue
+        seg_set: set[int] = set()
+        for seg_order, hay in seg_haystacks:
+            # Cheap substring after normalization — true word-bounded
+            # matching would be more accurate but this is the same
+            # heuristic build_cooccurrence_edges has been using.
+            norm_hay = re.sub(r"[^a-z0-9 ]+", " ", hay).strip()
+            for f in forms:
+                if f and f in norm_hay:
+                    seg_set.add(seg_order)
+                    break
+        out[a.canonical_phrase] = seg_set
+    return out
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    """Plain float-list cosine — no numpy dependency for Pass 2."""
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(y * y for y in b))
+    if na == 0 or nb == 0:
+        return 0.0
+    return dot / (na * nb)
+
+
+def _jaccard(a: set, b: set) -> float:
+    if not a and not b:
+        return 0.0
+    inter = len(a & b)
+    union = len(a | b)
+    return inter / union if union else 0.0
+
+
+def _connected_components(edges: list[tuple[int, int]], n: int) -> list[list[int]]:
+    """Union-find to extract connected components from an edge list.
+    Returns list of node-index lists, sorted by size descending.
+    """
+    parent = list(range(n))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(x, y):
+        rx, ry = find(x), find(y)
+        if rx != ry:
+            parent[rx] = ry
+
+    for a, b in edges:
+        union(a, b)
+
+    groups: dict[int, list[int]] = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+    return sorted(groups.values(), key=len, reverse=True)
+
+
+async def synthesize_bundles(
+    anchors: list[MiningProposal],
+    segments: list[NarrativeSegment],
+    *,
+    cosine_weight: float = 0.4,
+    cooccur_weight: float = 0.6,
+    affinity_threshold: float = 0.35,
+    min_bundle_size: int = 3,
+) -> list[MiningProposal]:
+    """Pass 2: cluster Pass 1 anchors into thematic bundles.
+
+    Affinity = α·cosine(embedding) + β·jaccard(segment_membership). Two
+    anchors that semantically resemble each other AND co-occur in the
+    same segments form a strong edge; either signal alone is weaker.
+    Connected components above the threshold form bundles; clusters of
+    size < min_bundle_size are dropped (singletons / pairs aren't
+    bundles, just noise).
+
+    Cluster labels come from a single batched LLM call. Embedding fetches
+    are batched into one ``ollama.embed()`` call regardless of corpus
+    size. So the entire pass is dominated by ONE LLM round-trip plus a
+    handful of millisecond-scale numpy-free Python.
+    """
+    if len(anchors) < min_bundle_size:
+        return []
+
+    phrases = [a.canonical_phrase for a in anchors]
+
+    # Embeddings — one batched call for all phrases. Cheap (~50ms for
+    # 50 phrases on nomic-embed-text on a warm GPU).
+    try:
+        embeddings = await ollama.embed(phrases)
+    except Exception as exc:
+        logger.warning(
+            "Pass 2 (bundles) embedding failed: %s. Skipping bundles.",
+            exc,
+        )
+        return []
+
+    # Segment membership for jaccard. Re-uses Pass 1 anchors' source_pairs
+    # plus a phrase-in-segment scan for better recall (an anchor may have
+    # been extracted from segment 3 but ALSO appear in segments 1 and 5).
+    membership = _segment_membership_for_anchors(segments, anchors)
+
+    # Build affinity edge list above threshold. O(N²) — fine for N < 200.
+    n = len(anchors)
+    edges: list[tuple[int, int]] = []
+    for i in range(n):
+        ai_phrase = anchors[i].canonical_phrase
+        ai_segs = membership.get(ai_phrase, set())
+        for j in range(i + 1, n):
+            aj_phrase = anchors[j].canonical_phrase
+            aj_segs = membership.get(aj_phrase, set())
+            cos = _cosine(embeddings[i], embeddings[j])
+            cooc = _jaccard(ai_segs, aj_segs)
+            aff = cosine_weight * cos + cooccur_weight * cooc
+            if aff >= affinity_threshold:
+                edges.append((i, j))
+
+    if not edges:
+        return []
+
+    components = _connected_components(edges, n)
+    clusters = [comp for comp in components if len(comp) >= min_bundle_size]
+    if not clusters:
+        return []
+
+    # Generate bundle labels via one batched LLM call.
+    user_lines = []
+    for gid, comp in enumerate(clusters):
+        members = [anchors[i].canonical_phrase for i in comp]
+        user_lines.append(f"Group {gid}: {members}")
+    user = "Groups:\n" + "\n".join(user_lines)
+
+    labels: dict[int, str] = {}
+    label_justifications: dict[int, str] = {}
+    try:
+        resp = await ollama.structured_extract(user, system=BUNDLE_LABEL_SYSTEM)
+        if isinstance(resp, dict):
+            for entry in resp.get("labels") or []:
+                if not isinstance(entry, dict):
+                    continue
+                gid = entry.get("group_id")
+                lbl = (entry.get("label") or "").strip()
+                if isinstance(gid, int) and lbl:
+                    labels[gid] = _strip_markup(lbl)
+                    label_justifications[gid] = (entry.get("justification") or "").strip()
+    except Exception as exc:
+        logger.warning("Pass 2 (bundles) labelling failed: %s. Using fallback labels.", exc)
+
+    bundles: list[MiningProposal] = []
+    for gid, comp in enumerate(clusters):
+        members = [anchors[i].canonical_phrase for i in comp]
+        # Aggregate confidence: mean of member confidences, slightly
+        # discounted because bundle membership is heuristic-derived.
+        member_confs = [anchors[i].confidence for i in comp]
+        conf = (sum(member_confs) / len(member_confs)) * 0.85 if member_confs else 0.6
+        # Use the union of source segments so the bundle is anchored
+        # to the spread of segments its members touch.
+        source_pairs: set[int] = set()
+        for i in comp:
+            source_pairs.update(anchors[i].source_pairs or [])
+        label = labels.get(gid) or f"Cluster {gid}"
+        justification = label_justifications.get(gid) or (
+            f"{len(comp)} anchors clustered by embedding+co-occurrence affinity"
+        )
+        bundles.append(MiningProposal(
+            proposal_type="bundle",
+            label=label,
+            aliases=members,  # convo_miner convention: members live in aliases
+            source_topic="narrative",
+            confidence=conf,
+            source_pairs=sorted(source_pairs),
+            justification=justification,
+        ))
+    return bundles
+
+
+# ─── Pass 3 — slab extraction with anchor context (parallel) ─────────────
+
+
+def _format_anchor_list_for_pass3(anchors: list[MiningProposal]) -> str:
+    if not anchors:
+        return "(none)"
+    lines = []
+    for a in anchors:
+        suffix = f"  (aliases: {', '.join(a.aliases)})" if a.aliases else ""
+        lines.append(f"  - {a.canonical_phrase}{suffix}")
+    return "\n".join(lines)
+
+
+def _parse_pass3_response(resp, segment_order: int) -> tuple[list[MiningProposal], list[MiningProposal], list[EdgeProposal]]:
+    """Parse Pass 3 JSON into (slabs, new_anchors, links_edges).
+
+    The slab proposal stays in the existing MiningProposal shape (no
+    schema change). The references_anchors list is converted into
+    LINKS EdgeProposals, replacing the heuristic build_cooccurrence_edges
+    output for this segment. new_anchors get materialised as MiningProposal
+    anchors and reconciled into the canonical list by mine().
+    """
+    slabs: list[MiningProposal] = []
+    new_anchors: list[MiningProposal] = []
+    edges: list[EdgeProposal] = []
+
+    if not isinstance(resp, dict):
+        return slabs, new_anchors, edges
+    raw_slabs = resp.get("slabs") or []
+    if not isinstance(raw_slabs, list):
+        return slabs, new_anchors, edges
+
+    for s in raw_slabs:
+        if not isinstance(s, dict):
+            continue
+        title = (s.get("title") or "").strip()
+        text = (s.get("canonical_text") or "").strip()
+        if not text:
+            continue
+        try:
+            conf = float(s.get("confidence", 0.5))
+        except Exception:
+            conf = 0.5
+
+        slabs.append(MiningProposal(
+            proposal_type="slab",
+            canonical_text=text,
+            title=title or f"Beat {segment_order}",
+            source_topic="narrative",
+            confidence=conf,
+            source_pairs=[segment_order],
+            justification=(s.get("justification") or "").strip(),
+        ))
+
+        # references_anchors → LINKS edges, deduped per-slab so a model
+        # that lists the same anchor 3× doesn't yield 3 identical edges.
+        slab_label = title or text[:40]
+        seen_refs: set[str] = set()
+        for ref in (s.get("references_anchors") or []):
+            ref_str = _strip_markup(str(ref).strip())
+            if not ref_str:
+                continue
+            key = _normalize_phrase(ref_str)
+            if key in seen_refs:
+                continue
+            seen_refs.add(key)
+            edges.append(EdgeProposal(
+                edge_type="LINKS",
+                from_label=slab_label,
+                to_label=ref_str,
+                confidence=conf,  # inherit slab confidence — the LLM said this slab references this anchor
+                justification=f"Slab '{slab_label}' references anchor '{ref_str}' (Pass 3 structural link)",
+            ))
+
+        # new_anchors — the safety net for anchors Pass 1 missed.
+        for na in (s.get("new_anchors") or []):
+            if not isinstance(na, dict):
+                continue
+            phrase = _strip_markup((na.get("canonical_phrase") or "").strip())
+            if not phrase:
+                continue
+            aliases = [
+                _strip_markup(str(a).strip())
+                for a in (na.get("aliases") or [])
+            ]
+            aliases = [a for a in aliases if a and _normalize_phrase(a) != _normalize_phrase(phrase)][:5]
+            new_anchors.append(MiningProposal(
+                proposal_type="anchor",
+                canonical_phrase=phrase,
+                aliases=aliases,
+                source_topic="narrative",
+                # Inherit slab confidence — the LLM's confidence in the
+                # slab is the strongest signal we have for the anchor's
+                # plausibility, since the anchor was extracted as part
+                # of producing this slab.
+                confidence=conf,
+                source_pairs=[segment_order],
+                justification=f"new_anchor from Pass 3 slab '{slab_label}' (Pass 1 miss)",
+            ))
+
+    return slabs, new_anchors, edges
+
+
+async def extract_slabs_pass3(
+    segment: NarrativeSegment,
+    segment_anchors: list[MiningProposal],
+) -> tuple[list[MiningProposal], list[MiningProposal], list[EdgeProposal]]:
+    """Pass 3: extract slabs from a segment with the canonical anchor
+    list (filtered to this segment) as context.
+
+    Returns three lists: (slabs, new_anchors_safety_net, links_edges).
+    """
+    user = (
+        f"Anchors already extracted from this segment "
+        f"(use these in references_anchors when relevant):\n"
+        f"{_format_anchor_list_for_pass3(segment_anchors)}\n\n"
+        f"Text segment:\n{segment.text}"
+    )
+    try:
+        resp = await ollama.structured_extract(user, system=PASS3_SLAB_SYSTEM)
+    except Exception as exc:
+        logger.warning(
+            "Pass 3 (slabs) failed on segment %d (%s): %r",
+            segment.order, type(exc).__name__, exc,
+        )
+        return [], [], []
+    return _parse_pass3_response(resp, segment.order)
+
+
 # ─── Miner class ─────────────────────────────────────────────────────────
 
 
 class NarrativeMiner:
     """Mine cohesive narrative/document text for corpus proposals.
 
-    Output dict shape matches ConversationMiner.mine() so /push-mined and the
-    dreaming pass work unchanged.
+    Three-pass architecture (anchors → bundles → slabs) with intra-pass
+    parallelism. Output dict shape matches ConversationMiner.mine() so
+    /push-mined and the dreaming pass work unchanged.
     """
 
     def __init__(self, corpus):
@@ -468,44 +1028,81 @@ class NarrativeMiner:
                 "error": "No content found after segmentation",
             }
 
-        # Existing anchors in target corpus (for prompt continuity)
-        existing_phrases = [a.canonical_phrase for a in self.corpus.anchors.values()]
+        sem = asyncio.Semaphore(_PASS_PARALLEL)
 
-        all_proposals: list[MiningProposal] = []
-        seen_slab_titles: list[str] = []
-        seen_anchor_phrases: list[str] = list(existing_phrases)
+        # ── Pass 1 — anchors per segment, parallel ───────────────────
+        async def _p1(seg: NarrativeSegment) -> list[MiningProposal]:
+            async with sem:
+                return await extract_anchors_pass1(seg)
 
-        for seg in segments:
-            seg_proposals = await extract_from_segment(
-                seg,
-                prior_anchor_phrases=seen_anchor_phrases,
-                prior_slab_titles=seen_slab_titles,
-            )
-            for p in seg_proposals:
-                all_proposals.append(p)
-                if p.proposal_type == "anchor" and p.canonical_phrase:
-                    seen_anchor_phrases.append(p.canonical_phrase)
-                elif p.proposal_type == "slab" and p.title:
-                    seen_slab_titles.append(p.title)
+        pass1_results = await asyncio.gather(*[_p1(s) for s in segments])
+        all_anchors: list[MiningProposal] = []
+        for sub in pass1_results:
+            all_anchors.extend(sub)
 
-        # Deduplicate (shared helper)
+        # Reconcile: same entity across segments should dedupe to one
+        # canonical entry with the merged confidence (deduplicate_proposals
+        # keeps the highest-confidence variant).
+        canonical_anchors = deduplicate_proposals(all_anchors)
+        canonical_anchors = [a for a in canonical_anchors if a.proposal_type == "anchor"]
+
+        # ── Pass 2 — bundle synthesis (Python clustering + 1 LLM call) ─
+        bundle_proposals = await synthesize_bundles(canonical_anchors, segments)
+
+        # ── Pass 3 — slabs per segment with anchor context, parallel ───
+        # Build the per-segment scoped anchor list once. Each segment's
+        # Pass 3 prompt only sees anchors that surface in its text — this
+        # mirrors the harness behaviour and keeps the slab prompt focused.
+        membership = _segment_membership_for_anchors(segments, canonical_anchors)
+        anchors_by_segment: dict[int, list[MiningProposal]] = {s.order: [] for s in segments}
+        for anchor in canonical_anchors:
+            for seg_idx in membership.get(anchor.canonical_phrase, set()):
+                anchors_by_segment.setdefault(seg_idx, []).append(anchor)
+
+        async def _p3(seg: NarrativeSegment):
+            async with sem:
+                return await extract_slabs_pass3(
+                    seg, anchors_by_segment.get(seg.order, []),
+                )
+
+        pass3_results = await asyncio.gather(*[_p3(s) for s in segments])
+        all_slabs: list[MiningProposal] = []
+        all_new_anchors: list[MiningProposal] = []
+        all_links_edges: list[EdgeProposal] = []
+        for slabs, new_anchors, links in pass3_results:
+            all_slabs.extend(slabs)
+            all_new_anchors.extend(new_anchors)
+            all_links_edges.extend(links)
+
+        # Reconcile new_anchors back into the canonical list.
+        if all_new_anchors:
+            canonical_anchors = deduplicate_proposals(canonical_anchors + all_new_anchors)
+            canonical_anchors = [a for a in canonical_anchors if a.proposal_type == "anchor"]
+
+        # ── Combine + filter + sort ──────────────────────────────────
+        all_proposals: list[MiningProposal] = (
+            canonical_anchors + bundle_proposals + all_slabs
+        )
         all_proposals = deduplicate_proposals(all_proposals)
         all_proposals = [p for p in all_proposals if p.confidence >= min_confidence]
+        # Source order first (segment), confidence second, type third for
+        # display stability when source_pairs ties.
+        all_proposals.sort(key=lambda p: (
+            p.source_pairs[0] if p.source_pairs else 999,
+            -p.confidence,
+            p.proposal_type,
+        ))
 
-        # Keep source order (by segment), then confidence as tiebreaker
-        all_proposals.sort(key=lambda p: (p.source_pairs[0] if p.source_pairs else 999, -p.confidence))
-
-        # SEQUENCE edges — slab-to-slab narrative spine
+        # ── SEQUENCE edges from slabs (existing helper, still useful) ─
         seq_edges = build_sequence_edges(all_proposals)
         seq_edges = [e for e in seq_edges if e.confidence >= min_confidence]
 
-        # LINKS edges — slab-to-anchor co-occurrence, so anchors aren't
-        # orphaned from the narrative spine (they attach to the slabs
-        # that elaborate them, via phrase match or segment co-occurrence).
-        cooc_edges = build_cooccurrence_edges(all_proposals)
-        cooc_edges = [e for e in cooc_edges if e.confidence >= min_confidence]
+        # LINKS edges from Pass 3 (replaces the heuristic
+        # build_cooccurrence_edges — Pass 3's structural references are
+        # higher signal than phrase-match heuristics).
+        links_edges = [e for e in all_links_edges if e.confidence >= min_confidence]
 
-        all_edges = seq_edges + cooc_edges
+        all_edges = seq_edges + links_edges
 
         return {
             "format": "narrative",

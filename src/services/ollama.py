@@ -37,7 +37,7 @@ EMBED_MODEL = os.environ.get("PS_EMBED_MODEL", "nomic-embed-text")
 #   OLLAMA_NUM_PARALLEL=2     — Concurrent request slots
 
 _NUM_CTX = int(os.environ.get("PS_NUM_CTX", "16384"))  # Chat context. Default halved from 32k -> 16k so 26B models leave VRAM headroom for embeddings + KV overhead. Set PS_NUM_CTX=32768 to restore the older larger window on smaller models.
-_EXTRACT_NUM_CTX = int(os.environ.get("PS_EXTRACT_NUM_CTX", "8192"))  # Structured extraction (mining, proposals, concept detection) — short prompts, small budget.
+_EXTRACT_NUM_CTX = int(os.environ.get("PS_EXTRACT_NUM_CTX", "4096"))  # Structured extraction (mining, proposals, concept detection). Lowered from 8192 — mining segments cap at ~1800 chars (~450 tokens), so 4096 is generous and halves the per-slot KV cache cost. With OLLAMA_NUM_PARALLEL=2 this leaves enough VRAM headroom for the chat model on a 16GB card.
 
 # num_gpu: layers offloaded to GPU.
 #   99  = "offload as many layers as fit in VRAM" (Ollama's convention)
