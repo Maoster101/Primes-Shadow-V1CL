@@ -688,11 +688,55 @@ class DreamingPass:
                 "audit": audit_result,
             }
 
+        # === Identity lock — parser-level enforcement ===
+        # Mining captures canonical_phrase (anchors) and title (slabs)
+        # from source surface; the corpus depends on identity stability
+        # for existing LINKS edges and references to resolve. The prompt
+        # asks the model to preserve these, but compliance is best-effort
+        # — a CONFABULATED audit verdict can override prompt rules.
+        # Enforce here at the parser layer so the rule is absolute.
+        # If the model attempted a rename, log it so the prompt can be
+        # sharpened over time, but always restore the original.
+        identity_lock_blocked: list[str] = []
+        if isinstance(rewritten, dict):
+            if draft_type == "anchor":
+                original_phrase = (inline.get("canonical_phrase") or "").strip()
+                rewritten_phrase = (rewritten.get("canonical_phrase") or "").strip()
+                if original_phrase and rewritten_phrase and rewritten_phrase != original_phrase:
+                    print(
+                        f"[DREAM] Identity lock blocked canonical_phrase rename "
+                        f"for {draft_id} ({grounding_mode} mode, verdict={verdict}): "
+                        f"{original_phrase!r} -> {rewritten_phrase!r} — preserving original",
+                        flush=True,
+                    )
+                    identity_lock_blocked.append(
+                        f"canonical_phrase: {original_phrase!r} (model tried: {rewritten_phrase!r})"
+                    )
+                    rewritten["canonical_phrase"] = original_phrase
+            elif draft_type == "slab":
+                original_title = (inline.get("title") or "").strip()
+                rewritten_title = (rewritten.get("title") or "").strip()
+                if original_title and rewritten_title and rewritten_title != original_title:
+                    print(
+                        f"[DREAM] Identity lock blocked title rename "
+                        f"for {draft_id} ({grounding_mode} mode, verdict={verdict}): "
+                        f"{original_title!r} -> {rewritten_title!r} — preserving original",
+                        flush=True,
+                    )
+                    identity_lock_blocked.append(
+                        f"title: {original_title!r} (model tried: {rewritten_title!r})"
+                    )
+                    rewritten["title"] = original_title
+
         # --- Build enriched packet ---
         enriched = packet.model_dump(mode="json")
+        lock_note = (
+            f" Identity lock blocked: {'; '.join(identity_lock_blocked)}."
+            if identity_lock_blocked else ""
+        )
         enriched["justification"] = (
             f"Rewritten by dreaming pass ({grounding_mode} mode). "
-            f"Audit verdict: {verdict}. "
+            f"Audit verdict: {verdict}.{lock_note} "
             f"See {draft_id}.dream_log.md for details."
         )
 
