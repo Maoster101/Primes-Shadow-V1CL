@@ -682,6 +682,97 @@ async def process_turn(
         len(full_text_slabs), reference_count, len(catalog_slabs), signal_counts,
     )
 
+    # ── Step 3.9: Synthesis intent detection + routing ───────────
+    # When the user's message looks like a "tell me about X" / "compare X
+    # with Y" / "explain my view on X" query AND the corpus has graph
+    # structure to walk, route through the synthesis pipeline. The
+    # synthesis result becomes an *additional* system message layered on
+    # top of the standard one — Mirror's OLI / claim-gate / anti-self-
+    # sealing layers still enforce honesty against the curated content.
+    #
+    # Heuristic gate (no LLM call) — see synthesis_intent.py for design.
+    # Failures here never block the turn: synthesis is additive context,
+    # not infrastructure. Any exception falls through to standard RAG.
+    synthesis_prompt: Optional[str] = None
+    synthesis_meta: Optional[dict] = None
+    try:
+        from .synthesis_intent import detect_synthesis_intent
+        # Count distinct anchors fired by the matcher this turn. Both
+        # auto_activate (high-confidence) and candidates (lower) count
+        # toward intent — even ambiguous matches signal topic focus.
+        _anchor_count = 0
+        if match_result is not None:
+            _seen_anchors: set[str] = set()
+            for _m in (
+                list(getattr(match_result, "auto_activate", []) or [])
+                + list(getattr(match_result, "candidates", []) or [])
+            ):
+                aid = getattr(_m, "anchor_id", None)
+                if aid and aid not in _seen_anchors:
+                    _seen_anchors.add(aid)
+                    _anchor_count += 1
+
+        intent = detect_synthesis_intent(
+            user_text, anchor_match_count=_anchor_count,
+        )
+        if intent.triggered and frame_manager:
+            from .synthesis import synthesize
+            from .synthesis_compose import compose_synthesis_prompt
+            synth_result = await synthesize(user_text, frame_manager.corpus)
+            # Only inject the synthesis prompt if selection actually
+            # surfaced *something*. An empty walk (cold corpus, no
+            # embedding match) falls back gracefully to standard RAG.
+            _has_content = bool(
+                synth_result.seeds
+                or synth_result.tier1_supported
+                or synth_result.tier1_conflicts
+                or synth_result.tier2_supports
+                or synth_result.tier2_divergent
+            )
+            if _has_content:
+                synthesis_prompt = compose_synthesis_prompt(
+                    synth_result, include_citations=intent.include_citations,
+                )
+                synthesis_meta = {
+                    "triggered": True,
+                    "include_citations": intent.include_citations,
+                    "pattern_hit": intent.pattern_hit,
+                    "anchor_signal": intent.anchor_signal,
+                    "anchor_count": _anchor_count,
+                    "seeds": len(synth_result.seeds),
+                    "tier1_supported": len(synth_result.tier1_supported),
+                    "tier1_conflicts": len(synth_result.tier1_conflicts),
+                    "tier2_supports": len(synth_result.tier2_supports),
+                    "tier2_divergent": len(synth_result.tier2_divergent),
+                    "budget_used_tokens": synth_result.budget_used_tokens,
+                    "budget_tokens": synth_result.budget_tokens,
+                    "prompt_chars": len(synthesis_prompt),
+                }
+                logger.info(
+                    "[SYNTH] routed turn %d through synthesis "
+                    "(pattern=%s anchors=%d cite=%s | seeds=%d t1sup=%d "
+                    "t1conf=%d t2sup=%d t2div=%d | %d/%d tokens)",
+                    turn, intent.pattern_hit, _anchor_count,
+                    intent.include_citations,
+                    len(synth_result.seeds), len(synth_result.tier1_supported),
+                    len(synth_result.tier1_conflicts),
+                    len(synth_result.tier2_supports),
+                    len(synth_result.tier2_divergent),
+                    synth_result.budget_used_tokens,
+                    synth_result.budget_tokens,
+                )
+            else:
+                logger.debug(
+                    "[SYNTH] intent triggered but selection empty "
+                    "(anchors=%d) — falling back to standard RAG",
+                    _anchor_count,
+                )
+    except Exception as exc:
+        logger.warning(
+            "synthesis routing failed (falling back to standard RAG): %r",
+            exc,
+        )
+
     # ── Step 4: Runtime header + system prompt (instant) ──────────
     header = build_runtime_header(
         oli_mode, default_classification, frame_state, default_drift,
@@ -697,6 +788,14 @@ async def process_turn(
     )
 
     messages = build_messages(system_prompt, chat_messages, frame_state)
+    # Layer the synthesis prompt as a SECOND system message after the
+    # standard one. Order matters: standard prompt has runtime header,
+    # OLI directives, base-set slabs; synthesis prompt has the curated,
+    # dialectic-aware view of corpus content for *this query*. Putting
+    # synthesis last means it's the most-recent system instruction the
+    # model sees before the user turn — closest to the response.
+    if synthesis_prompt:
+        messages.append({"role": "system", "content": synthesis_prompt})
     messages.append({"role": "user", "content": user_text})
 
     # Estimate context usage (chars → tokens) for status bar display
@@ -850,6 +949,13 @@ async def process_turn(
                 "retrieved_count": len(retrieved_ids),
                 "signals": signal_counts,
             }
+            if synthesis_meta:
+                # Surface synthesis routing to the frontend so the chat
+                # UI can display a "synthesis-grounded response" badge
+                # and (optionally) show what tiers were surfaced. Mirror
+                # already enforces honesty during generation; this is
+                # purely diagnostic for the user.
+                meta["synthesis"] = synthesis_meta
             if frame_state:
                 meta["frame_summary"] = {
                     "active_nodes": frame_state.active_nodes[:12],
