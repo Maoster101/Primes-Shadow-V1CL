@@ -572,6 +572,14 @@ class MiningProposal:
     confidence: float = 0.0
     source_pairs: list[int] = field(default_factory=list)  # pair indices
     justification: str = ""
+    # Position of this proposal WITHIN its segment, in emission order.
+    # Used as a tiebreaker for SEQUENCE-edge derivation: when a single
+    # segment produces multiple slabs (common when the source has long
+    # un-headed passages), source_pairs[0] alone collapses them all to
+    # the same beat, and a stable sort can't recover narrative order.
+    # Tracking the per-segment emission index gives the SEQUENCE pass
+    # something to sort within a tie. Defaults to 0 for back-compat.
+    intra_segment_order: int = 0
 
 
 EXTRACTION_PROMPT = """You are a corpus extraction specialist for Prime's Shadow, a neuro-symbolic personal knowledge system.

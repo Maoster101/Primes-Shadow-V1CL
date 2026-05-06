@@ -267,6 +267,12 @@ async def extract_from_segment(
 
     raw_proposals = data.get("proposals", []) if isinstance(data, dict) else []
     out: list[MiningProposal] = []
+    # Slab counter for intra_segment_order — increments only when a slab
+    # is actually emitted, so the index is contiguous across emitted
+    # slabs even if anchors/bundles are interleaved in the model output.
+    # SEQUENCE-edge derivation uses this as a tiebreaker when a segment
+    # yields multiple slabs.
+    slab_idx = 0
     for rp in raw_proposals:
         if not isinstance(rp, dict):
             continue
@@ -305,8 +311,10 @@ async def extract_from_segment(
                 source_topic=source_topic,
                 confidence=conf,
                 source_pairs=[segment.order],
+                intra_segment_order=slab_idx,
                 justification=rp.get("justification", ""),
             ))
+            slab_idx += 1
         elif ptype == "bundle":
             label = (rp.get("label") or "").strip()
             members = [str(m).strip() for m in (rp.get("members") or []) if str(m).strip()]
@@ -331,12 +339,26 @@ async def extract_from_segment(
 def build_sequence_edges(proposals: list[MiningProposal]) -> list[EdgeProposal]:
     """Emit NARRATIVE_PRECEDES (stored as SEQUENCE) edges between consecutive slabs.
 
-    Walks proposals in (segment_order, list_order) and connects each slab to
-    the next slab it sees. Edge weight is higher if the two slabs share an
-    anchor/entity (continuity signal), lower otherwise (pure ordering).
+    Walks proposals in (segment_order, intra_segment_order) and connects
+    each slab to the next slab it sees. Edge weight is higher if the two
+    slabs share an anchor/entity (continuity signal), lower otherwise
+    (pure ordering).
+
+    Why two-key sort: ``source_pairs[0]`` alone collapses every slab from
+    the same segment into a single sort bucket. When the source has long
+    un-headed passages (e.g. a vin diesel skit where only the post-credits
+    portion has explicit beat headings), one segment can yield 5+ slabs.
+    Without ``intra_segment_order`` as the second key, Python's stable
+    sort preserves whatever order the LLM emitted those slabs in, which
+    is not guaranteed to match the source-text order — and the resulting
+    SEQUENCE chain is structurally wrong (the bug that produced
+    "Concluding Reflection" as slab #2 of 8 in the v1 vin diesel mine).
     """
     slabs = [p for p in proposals if p.proposal_type == "slab"]
-    slabs.sort(key=lambda p: (p.source_pairs[0] if p.source_pairs else 0,))
+    slabs.sort(key=lambda p: (
+        p.source_pairs[0] if p.source_pairs else 0,
+        p.intra_segment_order,
+    ))
     edges: list[EdgeProposal] = []
     for i in range(len(slabs) - 1):
         a, b = slabs[i], slabs[i + 1]
@@ -347,13 +369,25 @@ def build_sequence_edges(proposals: list[MiningProposal]) -> list[EdgeProposal]:
         b_tokens = set(re.findall(r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?", b.canonical_text))
         shared = len(a_tokens & b_tokens)
         weight = min(0.55 + 0.1 * shared, 0.95)
+        # Justification format: include intra-segment positions when
+        # they're non-zero so the chain ordering is fully transparent
+        # in proposed_edges.json. "beat 0/2 → beat 0/3" reads as
+        # "segment 0 slab #2 → segment 0 slab #3" — diagnoses sort
+        # ties at a glance without needing to cross-reference the
+        # source data.
+        a_seg, b_seg = a.source_pairs[0], b.source_pairs[0]
+        a_pos, b_pos = a.intra_segment_order, b.intra_segment_order
+        if a_pos or b_pos:
+            ordering_str = f"beat {a_seg}/{a_pos} → beat {b_seg}/{b_pos}"
+        else:
+            ordering_str = f"beat {a_seg} → beat {b_seg}"
         edges.append(EdgeProposal(
             edge_type="SEQUENCE",
             from_label=a_label,
             to_label=b_label,
             confidence=weight,
             justification=(
-                f"Narrative ordering: beat {a.source_pairs[0]} → beat {b.source_pairs[0]}"
+                f"Narrative ordering: {ordering_str}"
                 + (f" (shared entities: {shared})" if shared else "")
             ),
         ))
@@ -900,7 +934,13 @@ def _parse_pass3_response(resp, segment_order: int) -> tuple[list[MiningProposal
     if not isinstance(raw_slabs, list):
         return slabs, new_anchors, edges
 
-    for s in raw_slabs:
+    # enumerate gives intra_segment_order — when a single segment yields
+    # multiple slabs (common for long un-headed passages), this is the
+    # only signal that lets SEQUENCE-edge derivation recover narrative
+    # order within the segment. Skipped/invalid slabs still increment
+    # the index, which is fine: relative order of EMITTED slabs is all
+    # the SEQUENCE pass needs.
+    for slab_idx, s in enumerate(raw_slabs):
         if not isinstance(s, dict):
             continue
         title = (s.get("title") or "").strip()
@@ -919,6 +959,7 @@ def _parse_pass3_response(resp, segment_order: int) -> tuple[list[MiningProposal
             source_topic="narrative",
             confidence=conf,
             source_pairs=[segment_order],
+            intra_segment_order=slab_idx,
             justification=(s.get("justification") or "").strip(),
         ))
 
