@@ -62,6 +62,7 @@ Output ONLY raw JSON:
   "verdict": "GROUNDED" | "PARTIALLY_GROUNDED" | "CONFABULATED",
   "grounded_claims": ["list of claims that are verified or well-supported"],
   "confabulated_claims": ["list of claims that are wrong, vague, or unsupported"],
+  "ungrounded_references": ["anchor canonical_phrase that's referenced (in slab.references_anchors or anchor.invokes) but isn't supported by the source chat turns or reference material"],
   "real_terms": {
     "inaccurate_term": "corrected_term",
     ...
@@ -93,23 +94,37 @@ Mark as GROUNDED only if the draft accurately reflects the code."""
 MODE_INSTRUCTIONS_DOMAIN = """\
 This draft captures **domain knowledge** from a natural conversation — \
 it's about an external topic, not about the system's own codebase. \
-Your job: assess the quality and accuracy of the extracted knowledge.
+Your job: assess whether the extraction is *grounded* in what the source \
+chat actually said.
+
+Important context: the mining pipeline already handles surface-quality \
+concerns at extraction time — alias capture, generic-phrase filtering, \
+markdown stripping, and anchor-slab structural links. Don't re-litigate \
+those. Your job is the deeper grounding question only you have access \
+to: did the miner's claims actually come from the source turns, or did \
+the model extrapolate beyond them?
 
 For each claim, check:
-1. Is this a coherent, well-formed statement of knowledge? Or is it \
-   a vague paraphrase that lost meaning during extraction?
-2. Does the conversation actually support this claim, or did the miner \
-   hallucinate connections that aren't in the source turns?
-3. Are key details, caveats, or qualifications missing that were present \
-   in the original conversation?
-4. Does an existing corpus node already cover this concept? (check redundancy)
-5. Is the canonical_phrase/title specific enough to be useful as a \
-   retrieval handle, or is it too generic?
+1. Does the canonical_text or notes assert anything that goes BEYOND \
+   what the source turns explicitly said or clearly implied? Mining can \
+   produce over-confident summarisations — flag claims that aren't \
+   chat-supported as confabulated.
+2. **For each anchor referenced** (in slab.references_anchors or \
+   anchor.invokes), does that anchor's concept actually appear in or \
+   get clearly implied by the source turns? An anchor reference the \
+   chat doesn't support is an invented structural link — list it in \
+   `ungrounded_references`.
+3. Does the conversation provide details, caveats, or qualifications \
+   that the extraction lost? Recoverable nuance counts as \
+   PARTIALLY_GROUNDED — the rewrite stage will fill them back in.
+4. Does an existing corpus node already cover this concept? (check \
+   redundancy — list duplicate node IDs in `redundant_with`)
 
-Mark as CONFABULATED if the conversation doesn't support the claim. \
-Mark as PARTIALLY_GROUNDED if the concept is real but extraction lost \
-important nuance, specificity, or context. \
-Mark as GROUNDED if the draft faithfully captures the conversational insight."""
+Mark as CONFABULATED if the chat doesn't support the core claim. \
+Mark as PARTIALLY_GROUNDED if the concept is real but key details, \
+nuance, or anchor references are not chat-supported. \
+Mark as GROUNDED if every claim and every anchor reference traces \
+to something the source turns said."""
 
 # ---------------------------------------------------------------------------
 # Stage 2: Content rewrite
@@ -125,22 +140,35 @@ Mark as GROUNDED if the draft faithfully captures the conversational insight."""
 
 REWRITE_PROMPT = """\
 You are a corpus content rewriter. A grounding audit found that a draft \
-{$DRAFT_TYPE} needs revision. Your job: rewrite the content fields to be \
-accurate, specific, and well-grounded.
+{$DRAFT_TYPE} needs revision. Your job: revise ONLY the fields the audit \
+flagged. Preserve everything else verbatim.
 
 **Grounding mode: $GROUNDING_MODE**
 
 $MODE_REWRITE_INSTRUCTIONS
 
 ## General rules
+
+The mining pipeline already produces structurally good output: aliases \
+captured from source surface, anchor-slab links, bundle membership, \
+canonical phrase forms with markdown stripped. **Don't re-derive what \
+mining already produced.** Your job is narrowly scoped to what the \
+audit specifically flagged.
+
 - Preserve the draft ID exactly: $DRAFT_ID
-- Preserve structural fields (id, version, meta) — only rewrite CONTENT fields
-- For anchors: rewrite canonical_phrase, aliases, notes, invokes
-- For slabs: rewrite title, canonical_text, links.anchors (if companions exist)
-- Keep aliases broad: include both corrected terms AND the original terms \
-  (so the matcher still resolves old references to this node)
-- If a companion draft exists that this draft should link to, include \
-  its ID in links.anchors (for slabs) or invokes (for anchors)
+- Preserve structural fields (id, version, meta) — never rewrite these
+- **Where the audit was silent on a field, preserve it verbatim from the draft.**
+- **Aliases**: only ADD aliases the audit explicitly identified in source \
+  turns. Preserve mining-produced aliases unless the audit flagged them \
+  as confabulated. Do not speculatively broaden the alias list.
+- **Anchor references** (slab.links.anchors / slab.references_anchors / \
+  anchor.invokes): only REMOVE references that appear in the audit's \
+  `ungrounded_references` list. Don't generally re-derive these — Pass 3 \
+  produced them with structural intent. ADD a reference only if the \
+  audit explicitly identified a missing one.
+- If a companion draft exists that this draft should link to AND the \
+  audit flagged the missing link, include the companion's ID in the \
+  appropriate field.
 
 ## Grounding audit result
 ```json
@@ -179,13 +207,32 @@ This is a CODE-mode rewrite. The draft references system internals.
   about the mechanism (e.g., "EWA with alpha=0.30" not "smoothing")"""
 
 MODE_REWRITE_DOMAIN = """\
-This is a DOMAIN-mode rewrite. The draft captures external knowledge.
-- Recover any nuance, caveats, or specificity that the miner lost
-- Make the canonical_text a clear, self-contained statement of knowledge \
-  that would be useful to someone who hasn't read the original conversation
-- If the conversation cited specific numbers, dates, constraints, or \
-  references, include them
-- Make the title/canonical_phrase specific enough to be a useful retrieval \
-  handle — avoid generic phrases like "important concept" or "key idea"
-- If the draft is about a process or procedure, capture the steps
-- If the draft is about a distinction or comparison, make both sides explicit"""
+This is a DOMAIN-mode rewrite. Mining produced the structural fields \
+already (canonical_phrase, aliases, references_anchors). Your scope is \
+narrow: fix only what the audit flagged.
+
+Focus on:
+- **canonical_text accuracy** (slabs): if the audit flagged claims as \
+  going beyond the source turns, tighten the text to what the chat \
+  actually supports. Recover nuance, caveats, numbers, dates, or \
+  qualifications the miner missed.
+- **notes** (anchors): mining doesn't populate this. If the source \
+  turns give context — origin, scope, or limitations of the term — \
+  fill it in.
+- **invokes** (anchors): if the audit flagged a missing bundle link \
+  AND a related bundle exists in companions or corpus, add it.
+- **redundancy resolution**: if the audit found redundancy with an \
+  existing corpus node (in `redundant_with`), prefer to enrich the \
+  existing node rather than creating a duplicate — make this explicit \
+  in the notes / canonical_text.
+- **ungrounded references**: remove any anchor reference the audit \
+  listed in `ungrounded_references` from invokes / links.anchors.
+
+Do NOT rewrite (mining already handled these well):
+- canonical_phrase / title: mining's negative-space rules filtered \
+  generic phrases at extraction time.
+- aliases: mining captures variants from source surface. Only add \
+  aliases the audit explicitly identified in the chat.
+- references_anchors / links.anchors: Pass 3 produced these as \
+  structural intent. Only remove items the audit listed in \
+  `ungrounded_references`."""

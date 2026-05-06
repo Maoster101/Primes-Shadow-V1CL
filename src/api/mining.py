@@ -257,17 +257,17 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
         except Exception as e:
             print(f"[PUSH-MINED] Edge resolution failed: {e}", flush=True)
 
-    # Auto-trigger dreaming on pushed drafts (background)
+    # Auto-trigger dreaming on pushed drafts (background).
+    # Uses dream_all_pending so the concurrent path (PS_DREAMING_PARALLEL)
+    # applies — a 5-draft push gets ~3 effective rounds at parallel=2
+    # rather than 5 serial calls.
     if created_packets:
         async def _dream_pushed():
             try:
-                from ..services.dreaming import DreamingPass
-                dreamer = DreamingPass(deps.corpus, session_store, chat_store)
-                for pkt in created_packets:
-                    try:
-                        await dreamer.dream(session_id, pkt.id)
-                    except Exception as e:
-                        print(f"[DREAM] Error dreaming {pkt.id}: {e}", flush=True)
+                from ..services.dreaming import dream_all_pending
+                await dream_all_pending(
+                    deps.corpus, session_store, chat_store, session_id,
+                )
             except Exception as e:
                 print(f"[DREAM] Dreaming pass failed: {e}", flush=True)
         asyncio.create_task(_dream_pushed())

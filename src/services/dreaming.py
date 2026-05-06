@@ -64,6 +64,16 @@ from . import ollama
 import os as _os
 DREAM_MODEL: Optional[str] = _os.environ.get("PS_DREAM_MODEL", "llama3.2:latest") or None
 
+# Dreaming prompts (audit + rewrite) are STRUCTURALLY LARGER than mining
+# prompts — they pack draft content + audit result + reference material
+# (chat turns or code chunks) + corpus context + companion drafts. The
+# rewrite prompt typically runs 4-7K tokens before output. The mining-
+# tuned _EXTRACT_NUM_CTX=4096 truncates these and surfaces as "Rewrite
+# model call failed" with no visible cause. 8192 is generous enough for
+# most sessions; PS_DREAM_NUM_CTX env var lets users tune it (e.g.
+# 12288 for sessions with 50+ companion drafts).
+_DREAM_NUM_CTX = int(_os.environ.get("PS_DREAM_NUM_CTX", "8192"))
+
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -617,7 +627,14 @@ class DreamingPass:
               + (f" [model={DREAM_MODEL}]" if DREAM_MODEL else "")
               + "...")
         try:
-            audit_result = await ollama.structured_extract(audit_prompt, model=DREAM_MODEL)
+            # Dreaming prompts pack audit_result + draft + reference material
+            # (chat turns or code chunks) + corpus context + companion drafts.
+            # That can run 4-7K tokens, well beyond the mining-tuned default
+            # _EXTRACT_NUM_CTX=4096. Use a larger ctx specifically for
+            # dreaming so the prompt doesn't get truncated mid-grounding.
+            audit_result = await ollama.structured_extract(
+                audit_prompt, model=DREAM_MODEL, num_ctx=_DREAM_NUM_CTX,
+            )
         except Exception as e:
             return {"status": "error", "error": f"Audit model call failed: {e}"}
 
@@ -657,7 +674,13 @@ class DreamingPass:
               + (f" [model={DREAM_MODEL}]" if DREAM_MODEL else "")
               + "...")
         try:
-            rewritten = await ollama.structured_extract(rewrite_prompt, model=DREAM_MODEL)
+            # Same num_ctx bump as the audit call — the rewrite prompt is
+            # actually LARGER (it appends the audit_result on top of
+            # everything the audit prompt already had), so 4096 reliably
+            # truncates and surfaces as "Rewrite model call failed".
+            rewritten = await ollama.structured_extract(
+                rewrite_prompt, model=DREAM_MODEL, num_ctx=_DREAM_NUM_CTX,
+            )
         except Exception as e:
             return {
                 "status": "error",
@@ -803,29 +826,45 @@ async def dream_all_pending(
 
     Convenience function for batch processing. Returns a list of
     result dicts, one per draft.
+
+    Drafts run concurrently bounded by PS_DREAMING_PARALLEL (default 2).
+    Each in-flight dream consumes one Ollama slot — match the daemon's
+    OLLAMA_NUM_PARALLEL (or stay below it). On a 16GB card running
+    gemma3:12b alongside llama3.2:latest, NUM_PARALLEL=2 fits both
+    models' slot pre-allocation; go higher only if you have headroom
+    or you've routed both passes to the same model
+    (PS_DREAM_MODEL="" falls back to the chat model).
     """
+    import asyncio
+    import os as _os
     dreamer = DreamingPass(corpus, session_store, chat_store, project_root)
     packets = session_store.list_draft_packets(session_id)
-    results = []
 
-    for packet in packets:
+    parallel = max(1, int(_os.environ.get("PS_DREAMING_PARALLEL", "2")))
+    sem = asyncio.Semaphore(parallel)
+
+    async def _run_one(packet):
+        # Filter step (sync) — keep here so the result list preserves
+        # source order from list_draft_packets even when concurrent
+        # tasks finish out-of-order.
         if packet.status.value != "DRAFT_UNAUTHORIZED":
-            continue
-        # Skip if already enriched
+            return None
         enriched_path = (
             session_store.drafts_dir(session_id)
             / f"{packet.id}.enriched.json"
         )
         if enriched_path.exists():
-            results.append({
+            return {
                 "draft_id": packet.id,
                 "status": "skipped",
                 "reason": "enriched file already exists",
-            })
-            continue
-
-        result = await dreamer.dream(session_id, packet.id)
+            }
+        async with sem:
+            result = await dreamer.dream(session_id, packet.id)
         result["draft_id"] = packet.id
-        results.append(result)
+        return result
+
+    raw_results = await asyncio.gather(*[_run_one(p) for p in packets])
+    results = [r for r in raw_results if r is not None]
 
     return results
