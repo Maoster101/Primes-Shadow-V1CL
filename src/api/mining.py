@@ -189,31 +189,42 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
     edges_persisted = 0
     if req.edges:
         try:
-            label_to_id: dict[str, str] = {}
-            def _reg(label: str, nid: str) -> None:
-                if not label: return
-                label_to_id.setdefault(label.strip().lower(), nid)
+            from ..services.label_resolver import (
+                build_index, resolve_label,
+            )
 
+            # Build (label, id) pairs for all known endpoints, then index
+            # them. Pairs are emitted in priority order — just-pushed
+            # drafts first (so newly-mined endpoints win on collision),
+            # then existing corpus anchors / slabs / bundles.
+            entries: list[tuple[str, str]] = []
             for pkt in created_packets:
                 if pkt.anchor:
-                    _reg(pkt.anchor.get("canonical_phrase", ""), pkt.id)
+                    entries.append((pkt.anchor.get("canonical_phrase", "") or "", pkt.id))
                     for al in pkt.anchor.get("aliases") or []:
-                        _reg(al, pkt.id)
+                        entries.append((al, pkt.id))
                 if pkt.slab:
-                    _reg(pkt.slab.get("title", ""), pkt.id)
+                    entries.append((pkt.slab.get("title", "") or "", pkt.id))
                 if pkt.bundle:
-                    _reg(pkt.bundle.get("id", ""), pkt.id)
+                    entries.append((pkt.bundle.get("id", "") or "", pkt.id))
 
-            # Corpus endpoints (use target collection's store for consistency with
-            # how dedup was run during mining).
+            # Existing corpus endpoints (use target collection's store
+            # for consistency with how dedup ran during mining).
             tgt_store = registry.get_store(req.target_collection) or deps.corpus
             for a in tgt_store.anchors.values():
-                _reg(a.canonical_phrase, a.id)
+                entries.append((a.canonical_phrase, a.id))
                 for al in a.aliases or []:
-                    _reg(al, a.id)
+                    entries.append((al, a.id))
             for s in tgt_store.slabs.values():
                 if getattr(s, "title", ""):
-                    _reg(s.title, s.id)
+                    entries.append((s.title, s.id))
+
+            label_to_id = build_index(entries)
+
+            # Track fuzzy-match attribution for diagnostics — surface
+            # which strategy resolved each edge so we can spot whether
+            # the corpus is drifting toward "exact almost never works".
+            fuzzy_hits = {"exact": 0, "substring": 0, "ratio": 0, "miss": 0}
 
             resolved: list = []
             chat_id_for_edges = meta.get("chat_id", session_id)
@@ -228,14 +239,22 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
                 to_label = (spec.get("to_label") or spec.get("to") or "").strip()
                 if not from_label or not to_label:
                     continue
-                from_id = label_to_id.get(from_label.lower())
-                to_id = label_to_id.get(to_label.lower())
+                from_id, from_strategy = resolve_label(from_label, label_to_id)
+                to_id, to_strategy = resolve_label(to_label, label_to_id)
+                fuzzy_hits[from_strategy] = fuzzy_hits.get(from_strategy, 0) + 1
+                fuzzy_hits[to_strategy] = fuzzy_hits.get(to_strategy, 0) + 1
                 if not from_id or not to_id or from_id == to_id:
                     if not from_id:
                         print(f"[PUSH-MINED] Edge dropped: from_label={from_label!r} not in label index ({len(label_to_id)} entries)", flush=True)
                     if not to_id:
                         print(f"[PUSH-MINED] Edge dropped: to_label={to_label!r} not in label index", flush=True)
                     continue
+                # Log when fuzzy strategies fired — useful for spotting
+                # systematic label-emission issues over time.
+                if from_strategy != "exact" and from_strategy != "miss":
+                    print(f"[PUSH-MINED] Fuzzy resolved from={from_label!r} via {from_strategy}", flush=True)
+                if to_strategy != "exact" and to_strategy != "miss":
+                    print(f"[PUSH-MINED] Fuzzy resolved to={to_label!r} via {to_strategy}", flush=True)
                 try:
                     confidence = float(spec.get("confidence", 0.5))
                 except Exception:
@@ -254,6 +273,14 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
             if resolved:
                 session_store.append_proposed_edges(session_id, resolved)
                 edges_persisted = len(resolved)
+            # Aggregate diagnostic — useful for spotting systematic
+            # label-emission drift if the model starts producing labels
+            # that exact-match never works on. Prints once per push.
+            print(
+                f"[PUSH-MINED] Edge label resolution: {fuzzy_hits} "
+                f"({edges_persisted}/{len(req.edges)} edges persisted)",
+                flush=True,
+            )
         except Exception as e:
             print(f"[PUSH-MINED] Edge resolution failed: {e}", flush=True)
 

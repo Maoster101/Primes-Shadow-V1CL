@@ -26,6 +26,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from src.services.convo_miner import ConversationMiner
 from src.services.corpus import CorpusStore
+from src.services.label_resolver import build_index, resolve_label
 from src.services.synthesis import synthesize, SynthesisResult
 from src.models.schemas import Anchor, Slab, KeyBundle, Edge, AnchorMatchPolicy, BundlePayload, AnchorMeta
 from src.models.enums import EdgeType, SlabType
@@ -44,18 +45,16 @@ def _load_proposals_into_corpus(corpus: CorpusStore, mined: dict) -> tuple[int, 
     proposals = mined.get("proposals", [])
     edges = mined.get("edges", [])
 
-    label_to_id: dict[str, str] = {}
-
-    def _norm(s: str) -> str:
-        return s.lower().strip()
-
+    # Materialise proposals first so we can build a label index over
+    # everything (canonical_phrase + aliases + slab titles + bundle
+    # labels) before resolving edges.
+    label_entries: list[tuple[str, str]] = []
     n_a = n_s = n_b = 0
     for p in proposals:
         ptype = p.get("type", "")
         text = (p.get("canonical_phrase") or p.get("title") or p.get("label") or "").strip()
         if not text:
             continue
-        # Stable id from a hash-ish — collision-resistant for our scale
         nid = f"mined_{ptype}_{uuid.uuid4().hex[:8]}_v1"
         if ptype == "anchor":
             phrase = p.get("canonical_phrase", "").strip()
@@ -69,9 +68,9 @@ def _load_proposals_into_corpus(corpus: CorpusStore, mined: dict) -> tuple[int, 
                 match_policy=AnchorMatchPolicy(),
                 meta=AnchorMeta(),
             )
-            label_to_id[_norm(phrase)] = nid
+            label_entries.append((phrase, nid))
             for al in p.get("aliases") or []:
-                label_to_id.setdefault(_norm(al), nid)
+                label_entries.append((al, nid))
             n_a += 1
         elif ptype == "slab":
             title = p.get("title", "").strip() or f"Slab {nid}"
@@ -85,21 +84,25 @@ def _load_proposals_into_corpus(corpus: CorpusStore, mined: dict) -> tuple[int, 
                 canonical_text=ctext,
                 meta=AnchorMeta(),
             )
-            label_to_id[_norm(title)] = nid
+            label_entries.append((title, nid))
             n_s += 1
         elif ptype == "bundle":
             label = p.get("label", "").strip() or f"Bundle {nid}"
-            members = list(p.get("aliases") or [])  # convo miner stashes members in aliases
             corpus.bundles[nid] = KeyBundle(
                 id=nid,
                 payload=BundlePayload(intent=[label] if label else ["(unlabeled)"]),
                 meta=AnchorMeta(),
             )
-            label_to_id[_norm(label)] = nid
+            label_entries.append((label, nid))
             n_b += 1
 
-    # Materialise edges with from/to resolved against the label index.
+    label_to_id = build_index(label_entries)
+
+    # Materialise edges with fuzzy resolution. Track which strategy
+    # resolved each endpoint so we can attribute drops vs recoveries.
+    fuzzy_hits = {"exact": 0, "substring": 0, "ratio": 0, "miss": 0}
     n_e = 0
+    n_dropped = 0
     for e in edges:
         etype_raw = (e.get("type") or "LINKS").upper()
         if etype_raw not in {"INVOKES", "SUPPORTS", "CONFLICTS", "TENSIONS",
@@ -107,10 +110,18 @@ def _load_proposals_into_corpus(corpus: CorpusStore, mined: dict) -> tuple[int, 
             etype_raw = "LINKS"
         from_label = (e.get("from") or e.get("from_label") or "").strip()
         to_label = (e.get("to") or e.get("to_label") or "").strip()
-        from_id = label_to_id.get(_norm(from_label))
-        to_id = label_to_id.get(_norm(to_label))
+        from_id, from_strategy = resolve_label(from_label, label_to_id)
+        to_id, to_strategy = resolve_label(to_label, label_to_id)
+        fuzzy_hits[from_strategy] = fuzzy_hits.get(from_strategy, 0) + 1
+        fuzzy_hits[to_strategy] = fuzzy_hits.get(to_strategy, 0) + 1
         if not from_id or not to_id or from_id == to_id:
+            n_dropped += 1
             continue
+        # Print which fuzzy strategy fired for diagnostic visibility
+        if from_strategy not in ("exact", "miss"):
+            print(f"  [fuzzy] from={from_label!r} resolved via {from_strategy}")
+        if to_strategy not in ("exact", "miss"):
+            print(f"  [fuzzy] to={to_label!r} resolved via {to_strategy}")
         eid = f"mined_edge_{uuid.uuid4().hex[:8]}_v1"
         try:
             corpus.edges[eid] = Edge(
@@ -123,8 +134,10 @@ def _load_proposals_into_corpus(corpus: CorpusStore, mined: dict) -> tuple[int, 
             )
             n_e += 1
         except Exception:
+            n_dropped += 1
             continue
 
+    print(f"  [resolution] strategy counts: {fuzzy_hits} | edges persisted: {n_e}/{len(edges)} | dropped: {n_dropped}")
     return n_a, n_s, n_b, n_e
 
 

@@ -34,6 +34,7 @@ from ..prompts.proposals import (
 from .corpus import CorpusStore
 from .session_store import SessionStore
 from .verification_router import VerificationRouter
+from .label_resolver import resolve_label as _shared_resolve_label
 from . import ollama
 from .event_log import EventLog
 
@@ -61,83 +62,10 @@ def _bundle_label(bundle) -> str:
     return "; ".join(intents[:2])
 
 
-# Minimum lengths to allow fuzzy strategies — below this, matching on
-# short strings is too noisy (common words like "family", "mirror"
-# would match many unrelated catalog entries).
-_FUZZY_MIN_LEN = 5
-# Substring match requires the query to be at least half the length of
-# the catalog entry (or vice versa) so we don't match arbitrary
-# subwords inside long titles.
-_FUZZY_SUBSTR_MIN_RATIO = 0.5
-# difflib.SequenceMatcher ratio threshold. 0.85 is fairly tight —
-# catches plural/missing-punctuation cases but rejects semantically
-# different titles that happen to share a word or two.
-_FUZZY_RATIO_THRESHOLD = 0.85
-
-
-def _fuzzy_resolve_label(
-    label: str,
-    index: dict[str, str],
-) -> tuple[Optional[str], str]:
-    """Resolve ``label`` to a node_id using exact → substring → difflib ratio.
-
-    Strategy priority:
-      1. Exact lowercase match (same as strict resolver).
-      2. Substring containment, both directions, with length-ratio guard:
-         the shorter string must be at least 50% of the longer AND the
-         shorter string must be >= _FUZZY_MIN_LEN chars — otherwise
-         single common words like "family" or "mirror" would match any
-         catalog entry containing them.
-      3. difflib.SequenceMatcher ratio >= 0.85 — catches pluralization
-         differences, missing trailing punctuation, small typos.
-         (Requires query_len >= _FUZZY_MIN_LEN too.)
-
-    Returns ``(node_id, strategy_name)`` — strategy is one of
-    ``"exact"``, ``"substring"``, ``"ratio"``, or ``"miss"`` so callers
-    can log which path resolved.
-    """
-    if not label:
-        return None, "miss"
-    key = label.strip().lower()
-    if not key:
-        return None, "miss"
-    if key in index:
-        return index[key], "exact"
-    if len(key) < _FUZZY_MIN_LEN:
-        # Too short for safe fuzzy; don't risk false positives.
-        return None, "miss"
-
-    # Substring + ratio: scan all catalog entries once, pick best match.
-    best_ratio = 0.0
-    best_id: Optional[str] = None
-    best_strategy = "miss"
-    substring_hit: Optional[tuple[str, str]] = None  # (cat_key, node_id)
-
-    from difflib import SequenceMatcher
-    for cat_key, nid in index.items():
-        if len(cat_key) < _FUZZY_MIN_LEN:
-            continue
-        # Substring, both directions
-        if key in cat_key or cat_key in key:
-            shorter = min(len(key), len(cat_key))
-            longer = max(len(key), len(cat_key))
-            if longer > 0 and shorter / longer >= _FUZZY_SUBSTR_MIN_RATIO:
-                if substring_hit is None or len(cat_key) > len(substring_hit[0]):
-                    # Prefer the LONGER catalog entry when multiple substring-match
-                    # — more specific wins over more general.
-                    substring_hit = (cat_key, nid)
-        # Ratio score
-        r = SequenceMatcher(None, key, cat_key).ratio()
-        if r > best_ratio:
-            best_ratio = r
-            best_id = nid
-            best_strategy = "ratio"
-
-    if substring_hit:
-        return substring_hit[1], "substring"
-    if best_ratio >= _FUZZY_RATIO_THRESHOLD and best_id is not None:
-        return best_id, best_strategy
-    return None, "miss"
+# Fuzzy label resolution lives in src/services/label_resolver.py — kept
+# here as a thin alias so existing call sites (`_fuzzy_resolve_label`)
+# don't break. Behaviour and tuning unchanged.
+_fuzzy_resolve_label = _shared_resolve_label
 
 
 class DraftManager:
