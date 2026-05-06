@@ -205,6 +205,14 @@ class Edge(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0, default=1.0)
     tension: Optional[float] = None
     conditions: Optional[EdgeConditions] = None
+    # Free-text "why this edge exists" reasoning produced at mining
+    # time. Optional + None default for backward-compat with existing
+    # corpus YAML that doesn't have this field. Synthesis surfaces it
+    # alongside CONFLICTS / TENSIONS edges so the LLM has the model's
+    # original justification for the dialectic pair, not just the
+    # bare existence of the edge. Hand-curated edges typically leave
+    # this empty.
+    justification: Optional[str] = None
 
     model_config = {"populate_by_name": True}
 

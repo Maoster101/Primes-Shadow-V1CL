@@ -131,6 +131,11 @@ def _load_proposals_into_corpus(corpus: CorpusStore, mined: dict) -> tuple[int, 
                 to_node=to_id,
                 weight=float(e.get("confidence", 0.5)),
                 confidence=float(e.get("confidence", 0.5)),
+                # Carry mining-time justification through — synthesis
+                # surfaces this alongside CONFLICTS / TENSIONS edges so
+                # the LLM sees the model's original "why this edge
+                # exists" reasoning, not just the bare relationship.
+                justification=(e.get("justification") or "").strip() or None,
             )
             n_e += 1
         except Exception:

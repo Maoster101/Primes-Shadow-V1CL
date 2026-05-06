@@ -112,6 +112,7 @@ def _materialise(corpus: CorpusStore, mined: dict) -> tuple[int, int, int, int]:
                 from_node=from_id, to_node=to_id,
                 weight=float(e.get("confidence", 0.5)),
                 confidence=float(e.get("confidence", 0.5)),
+                justification=(e.get("justification") or "").strip() or None,
             )
             n_e += 1
         except Exception:

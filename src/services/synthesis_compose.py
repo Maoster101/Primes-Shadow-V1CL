@@ -103,14 +103,16 @@ def _compose_conflicts(
         if n.conflicts_with:
             partner_text = partner_lookup.get(n.conflicts_with, "").strip()
             if partner_text:
-                # Cap partner inline display so the section stays scannable
                 if len(partner_text) > 180:
                     partner_text = partner_text[:180] + "..."
                 lines.append(f"      [in opposition to: {partner_text}]")
             else:
-                # Fall back to ID if partner somehow wasn't in the candidate
-                # set (shouldn't happen, but defensive).
                 lines.append(f"      [in opposition to: {n.conflicts_with}]")
+        # Surface the edge's mining-time justification — gives the LLM
+        # the model's original "why this is a conflict" reasoning, not
+        # just the bare existence of the edge.
+        if n.via_edge_justification:
+            lines.append(f"      [why: {n.via_edge_justification.strip()}]")
     return "\n".join(lines)
 
 
@@ -130,6 +132,11 @@ def _compose_tensions(tensions: list[SelectedNode]) -> str:
     ]
     for n in tensions:
         lines.append(_fmt_node(n))
+        # Surface the TENSIONS edge's mining-time justification when
+        # present — gives the LLM the model's original "why these
+        # counterbalance" reasoning.
+        if n.via_edge_justification:
+            lines.append(f"      [why: {n.via_edge_justification.strip()}]")
     return "\n".join(lines)
 
 

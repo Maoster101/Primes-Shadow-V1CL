@@ -116,6 +116,7 @@ class SelectedNode:
     hop_distance: Optional[int] = None  # graph distance from nearest seed
     cos_sim: Optional[float] = None     # cosine vs query (for divergent)
     via_edge: Optional[str] = None      # edge_type that brought it in
+    via_edge_justification: Optional[str] = None  # the edge's mining-time "why this exists" reasoning
     conflicts_with: Optional[str] = None  # set on dialectic-tier nodes
     approx_tokens: int = 0
 
@@ -285,15 +286,19 @@ async def _identify_seeds(
 
 def _build_typed_adjacency(
     corpus: CorpusStore, edge_types: tuple[str, ...]
-) -> dict[str, list[tuple[str, str]]]:
-    """Adjacency list keyed by node_id → [(neighbor_id, edge_type), ...].
+) -> dict[str, list[tuple[str, str, str]]]:
+    """Adjacency list keyed by node_id → [(neighbor_id, edge_type, edge_id), ...].
 
     Only includes edges whose .type matches edge_types. Treats edges
     as undirected for the BFS — synthesis cares about reachability,
     not direction. (Direction matters for SEQUENCE narrative spine
     but synthesis isn't about narrative ordering.)
+
+    Returns edge_id alongside type so callers (BFS) can look up the
+    edge's justification later — needed for the compose layer to
+    surface "why this edge exists" reasoning on TENSIONS partners.
     """
-    adj: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    adj: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
     type_set = set(edge_types)
     for e in corpus.edges.values():
         etype = getattr(e.type, "value", e.type) if hasattr(e, "type") else ""
@@ -304,8 +309,9 @@ def _build_typed_adjacency(
         to_id = e.to_node
         if not from_id or not to_id:
             continue
-        adj[from_id].append((to_id, etype_str))
-        adj[to_id].append((from_id, etype_str))
+        eid = getattr(e, "id", "") or ""
+        adj[from_id].append((to_id, etype_str, eid))
+        adj[to_id].append((from_id, etype_str, eid))
     return adj
 
 
@@ -314,26 +320,35 @@ def _bfs_typed(
     seeds: list[str],
     edge_types: tuple[str, ...],
     max_hops: int,
-) -> dict[str, tuple[int, str]]:
+) -> dict[str, tuple[int, str, str]]:
     """BFS from seeds along edges of given types up to max_hops.
 
-    Returns ``{node_id: (hop_distance, via_edge_type)}`` for every
-    node reachable. Seeds themselves are at hop 0 with no via edge.
+    Returns ``{node_id: (hop_distance, via_edge_type, via_edge_id)}``
+    for every node reachable. Seeds themselves are at hop 0 with no
+    via edge — `via_edge_type` and `via_edge_id` are empty strings
+    for them.
+
+    Edge ID is tracked alongside type so callers can later look up
+    the edge's justification (added in the schema for surfacing
+    dialectic context).
     """
     adj = _build_typed_adjacency(corpus, edge_types)
-    visited: dict[str, tuple[int, str]] = {sid: (0, "") for sid in seeds if sid in corpus.anchors or sid in corpus.slabs or sid in corpus.bundles}
+    visited: dict[str, tuple[int, str, str]] = {
+        sid: (0, "", "") for sid in seeds
+        if sid in corpus.anchors or sid in corpus.slabs or sid in corpus.bundles
+    }
     if max_hops < 1 or not visited:
         return visited
     q: deque[str] = deque(visited.keys())
     while q:
         cur = q.popleft()
-        cur_hops, _ = visited[cur]
+        cur_hops = visited[cur][0]
         if cur_hops >= max_hops:
             continue
-        for neighbor, etype in adj.get(cur, ()):
+        for neighbor, etype, eid in adj.get(cur, ()):
             if neighbor in visited:
                 continue
-            visited[neighbor] = (cur_hops + 1, etype)
+            visited[neighbor] = (cur_hops + 1, etype, eid)
             q.append(neighbor)
     return visited
 
@@ -343,16 +358,16 @@ def _bfs_typed(
 
 def _find_conflicts(
     corpus: CorpusStore, candidate_ids: set[str]
-) -> list[tuple[str, str]]:
+) -> list[tuple[str, str, Optional[str]]]:
     """Find every CONFLICTS edge that touches a candidate.
 
-    Returns ``[(conflict_endpoint_id, anchor_in_set_id), ...]`` — i.e.
-    the ID of the node OUTSIDE candidate_ids that's in a CONFLICTS
-    relationship with one of the candidates. If both endpoints are
-    inside candidate_ids, it's an intra-set tension worth surfacing
-    too — emit both as endpoints.
+    Returns ``[(conflict_endpoint_id, anchor_in_set_id, edge_justification), ...]``
+    where ``edge_justification`` is the mining-time "why this edge
+    exists" reasoning (or None for hand-curated edges that don't
+    carry one). The conflict_endpoint_id is the OUT-of-set side; if
+    both endpoints are inside the candidate set, both are emitted.
     """
-    out: list[tuple[str, str]] = []
+    out: list[tuple[str, str, Optional[str]]] = []
     seen_pairs: set[tuple[str, str]] = set()
     for e in corpus.edges.values():
         etype = str(getattr(e.type, "value", e.type) if hasattr(e, "type") else "")
@@ -361,25 +376,26 @@ def _find_conflicts(
         f, t = e.from_node, e.to_node
         if not f or not t:
             continue
+        just = getattr(e, "justification", None)
         # If either endpoint is in our candidate set, the OTHER
         # endpoint is a conflict surface.
         if f in candidate_ids and t not in candidate_ids:
             key = (t, f)
             if key not in seen_pairs:
-                out.append((t, f))
+                out.append((t, f, just))
                 seen_pairs.add(key)
         elif t in candidate_ids and f not in candidate_ids:
             key = (f, t)
             if key not in seen_pairs:
-                out.append((f, t))
+                out.append((f, t, just))
                 seen_pairs.add(key)
         elif f in candidate_ids and t in candidate_ids:
             # Both inside — surface both ends so the prompt sees the
-            # tension explicitly. Order the pair so we emit it once.
+            # tension explicitly. Same edge justification on both.
             pair_key = (min(f, t), max(f, t))
             if pair_key not in seen_pairs:
-                out.append((f, t))
-                out.append((t, f))
+                out.append((f, t, just))
+                out.append((t, f, just))
                 seen_pairs.add(pair_key)
     return out
 
@@ -489,13 +505,27 @@ async def synthesize(
     structural_reach = _bfs_typed(
         corpus, seed_ids, STRUCTURAL_EDGE_TYPES, max_hops,
     )
-    # tier-1 supported = high-conf, hop_distance >= 1 (seeds already in result.seeds)
+    # tier-1 supported = high-conf, hop_distance >= 1 (seeds already in result.seeds).
+    # When the via-edge is TENSIONS, look up the edge's justification
+    # so the compose layer can surface "why these counterbalance" to
+    # the LLM. Other edge types (SUPPORTS, INVOKES, LINKS, PARENT_OF)
+    # don't carry justifications worth surfacing — they're descriptive
+    # by nature.
     candidates_supported_t1: list[SelectedNode] = []
     candidates_supported_t2: list[SelectedNode] = []
-    for nid, (hop, edge) in structural_reach.items():
+    for nid, (hop, edge, eid) in structural_reach.items():
         if hop == 0:
             continue  # seeds — already separate
-        n = _selected_node(corpus, nid, hop_distance=hop, via_edge=edge)
+        edge_just: Optional[str] = None
+        if edge == "TENSIONS" and eid:
+            e_obj = corpus.edges.get(eid)
+            if e_obj is not None:
+                edge_just = getattr(e_obj, "justification", None)
+        n = _selected_node(
+            corpus, nid,
+            hop_distance=hop, via_edge=edge,
+            via_edge_justification=edge_just,
+        )
         if n is None:
             continue
         if n.confidence >= high_conf_threshold:
@@ -517,12 +547,13 @@ async def synthesize(
     conflict_pairs = _find_conflicts(corpus, in_set)
     candidates_conflict: list[SelectedNode] = []
     seen_conflict_ids: set[str] = set()
-    for endpoint_id, anchor_id in conflict_pairs:
+    for endpoint_id, anchor_id, edge_just in conflict_pairs:
         if endpoint_id in seen_conflict_ids:
             continue
         seen_conflict_ids.add(endpoint_id)
         n = _selected_node(corpus, endpoint_id,
                            via_edge="CONFLICTS",
+                           via_edge_justification=edge_just,
                            conflicts_with=anchor_id)
         if n is not None:
             candidates_conflict.append(n)
