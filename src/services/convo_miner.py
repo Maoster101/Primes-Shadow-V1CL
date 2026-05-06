@@ -17,7 +17,9 @@ Usage:
     proposals = await miner.mine(text_or_path, source_label="claude-export")
 """
 from __future__ import annotations
+import asyncio
 import json
+import os as _os
 import re
 import logging
 from pathlib import Path
@@ -27,6 +29,13 @@ from dataclasses import dataclass, field
 from . import ollama
 
 logger = logging.getLogger(__name__)
+
+# Match the daemon's OLLAMA_NUM_PARALLEL — running more concurrent
+# in-flight requests than Ollama has slots just queues them client-side.
+# Same env var as the narrative miner so a single setting governs both.
+# Convo miner chunks are independent (existing_phrases is fixed before
+# the loop, no per-chunk continuity context), so straight gather works.
+_MINING_PARALLEL = int(_os.environ.get("PS_MINING_PARALLEL", "2"))
 
 
 # ── Format detection & normalization ───────────────────────────
@@ -575,6 +584,15 @@ Given a conversation segment about "{topic}", extract meaningful corpus objects.
 2. **Anchors** — Short canonical phrases (2-8 words) for concepts that DON'T fit into a slab. Only create an anchor if the concept is a standalone hook worth matching independently. Include 1-3 aliases.
    Examples: "grey goo fakeout", "Vin Diesel family meme", "divine disaster class"
 
+   **IMPORTANT — foil / opposing anchors**: When the speaker contrasts their concept with an opposing force, characterization, or default behavior, extract BOTH SIDES as anchors. The speaker's concept AND the foil they're arguing against are equally valid corpus hooks — without both, downstream relationship edges (CONFLICTS, TENSIONS) can't fire.
+
+   Examples of foil-pair extraction:
+   - "fighting a statistical war against the Internet Average" → extract `statistical war` (speaker's framing) AND `Internet Average` (the opposing force)
+   - "Neural Gravity pulls AI away from my Private Logic" → extract `Neural Gravity` (opposing force) AND `Private Logic` (speaker's concept)
+   - "Standard AI treats *sadness* as a feeling, but my logic uses it as a generalized state" → extract both interpretations as separate anchors
+
+   Foil anchors don't need to be named/coined explicitly by the speaker — characterizations like "Probabilistic Engine", "Internet Average", or "Neural Gravity" are valid foils when they appear as the thing being argued against.
+
 3. **Bundles** — Groups of 3+ related anchors that form a conceptual cluster. If you have multiple related anchors, bundle them.
    Examples: "Fusion Energy Chain" grouping [exploding wire, plasma accelerator, fusion reactor, quantum water].
 
@@ -736,8 +754,11 @@ Edge types:
 - **INVOKES** — An anchor invokes/activates a bundle (e.g., saying "grey goo" invokes the "Fusion Energy Chain" bundle)
 - **SEQUENCE** — One concept leads to another in a process chain (e.g., "exploding wire" → "plasma ion cloud" → "fusion")
 - **REGULATES** — A slab/principle governs how an anchor behaves (e.g., "OLI for all" regulates "quantum encoding")
-- **TENSIONS** — Two concepts are in productive tension (e.g., "grey goo fakeout" tensions with "family collab")
+- **CONFLICTS** — Direct opposition: one concept rejects, contradicts, or refutes the other (e.g., "individual sovereignty" CONFLICTS with "central authority mandate"). Use this when the conversation makes a stance that one side is wrong / incompatible / mutually exclusive with the other.
+- **TENSIONS** — Productive tension: two concepts pull against each other but BOTH remain valid; they counterbalance rather than reject (e.g., "mercy" TENSIONS with "justice" — neither cancels the other, both must coexist). Use this for dialectical pairs, ethical counterweights, design tradeoffs where both sides have merit.
 - **SUPPORTS** — One concept reinforces another (e.g., "growing power step" supports "Fusion Power Generation Chain")
+
+CONFLICTS vs TENSIONS distinction: if the speaker says "X is wrong, Y is right" or "X and Y are incompatible" → CONFLICTS. If the speaker says "X and Y are both true and we have to balance them" → TENSIONS.
 
 Proposals:
 {proposals_text}
@@ -760,6 +781,22 @@ Rules:
 - SEQUENCE edges should follow the user's stated progression order
 - Every bundle should have at least one INVOKES edge from a related anchor
 - Maximum 20 edges
+
+Dialectic directive (REQUIRED if applicable):
+Before finalising the edge list, scan the proposals for FOIL PAIRS:
+two anchors where one is the speaker's own concept and the other
+is the opposing force, default behaviour, or characterisation the
+speaker is arguing against. Examples in the proposal list above
+might include pairs like (speaker's coined system / "Standard AI"),
+(speaker's logic / "drift toward the mean"), (speaker's coined
+syntax / "standard English"), (speaker's specific definition /
+"typical use"). For each foil pair, emit a TENSIONS or CONFLICTS
+edge — TENSIONS if both sides have merit and counterbalance
+(e.g. semantic control TENSIONS with knowledge volume), CONFLICTS
+if the speaker positions one as wrong/incompatible with the other.
+
+Skipping dialectic edges when foil pairs exist is a failure mode —
+the corpus depends on these to surface contested topics later.
 """
 
 
@@ -768,16 +805,23 @@ async def extract_edges(proposals: list[MiningProposal]) -> list[EdgeProposal]:
     if len(proposals) < 2:
         return []
 
-    # Build a readable list of proposals for the prompt
+    # Build a readable list of proposals for the prompt.
+    # Include justifications — without them the edge extractor sees only
+    # bare labels and can't tell that "Standard AI" is a FOIL the speaker
+    # is arguing against (vs. just another concept). Justifications are
+    # typically <80 chars and give the model enough signal to spot
+    # CONFLICTS / TENSIONS pairs.
     lines = []
     for p in proposals:
+        just = (p.justification or "").strip()
+        just_str = f"  — {just[:120]}" if just else ""
         if p.proposal_type == "anchor":
-            lines.append(f"  - [anchor] \"{p.canonical_phrase}\"")
+            lines.append(f"  - [anchor] \"{p.canonical_phrase}\"{just_str}")
         elif p.proposal_type == "slab":
-            lines.append(f"  - [slab] \"{p.title}\"")
+            lines.append(f"  - [slab] \"{p.title}\"{just_str}")
         elif p.proposal_type == "bundle":
             members = ", ".join(p.aliases[:5]) if p.aliases else "..."
-            lines.append(f"  - [bundle] \"{p.label}\" (members: {members})")
+            lines.append(f"  - [bundle] \"{p.label}\" (members: {members}){just_str}")
 
     prompt = EDGE_EXTRACTION_PROMPT.format(proposals_text="\n".join(lines))
 
@@ -794,7 +838,7 @@ async def extract_edges(proposals: list[MiningProposal]) -> list[EdgeProposal]:
 
     for raw in raw_edges:
         etype = raw.get("type", "SUPPORTS").upper()
-        if etype not in ("INVOKES", "SEQUENCE", "REGULATES", "TENSIONS", "SUPPORTS"):
+        if etype not in ("INVOKES", "SEQUENCE", "REGULATES", "CONFLICTS", "TENSIONS", "SUPPORTS"):
             etype = "SUPPORTS"
         edges.append(EdgeProposal(
             edge_type=etype,
@@ -866,15 +910,27 @@ class ConversationMiner:
         if not meaningful_chunks:
             meaningful_chunks = chunks[:10]  # cap at 10
 
-        # Step 4: Extract proposals from each chunk
+        # Step 4: Extract proposals from each chunk — parallel.
+        # existing_phrases is computed once and passed unchanged to every
+        # chunk, so chunks have no ordering dependency on each other.
+        # asyncio.gather with a semaphore matched to OLLAMA_NUM_PARALLEL
+        # keeps client-side concurrency in lockstep with daemon slot
+        # count. On a 16-chunk doc with PARALLEL=2, this turns ~16
+        # serial 8-12s calls (~150s) into ~8 rounds (~70s).
         existing_phrases = [
             a.canonical_phrase for a in self.corpus.anchors.values()
         ]
 
-        all_proposals = []
-        for chunk in meaningful_chunks:
-            chunk_proposals = await extract_proposals_from_chunk(chunk, existing_phrases)
-            all_proposals.extend(chunk_proposals)
+        sem = asyncio.Semaphore(_MINING_PARALLEL)
+
+        async def _extract(chunk):
+            async with sem:
+                return await extract_proposals_from_chunk(chunk, existing_phrases)
+
+        chunk_results = await asyncio.gather(
+            *[_extract(c) for c in meaningful_chunks]
+        )
+        all_proposals = [p for sub in chunk_results for p in sub]
 
         # Step 5: Deduplicate and filter
         all_proposals = deduplicate_proposals(all_proposals)

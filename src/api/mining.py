@@ -221,7 +221,7 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
                 if not isinstance(spec, dict):
                     continue
                 etype_raw = (spec.get("type") or "LINKS").upper()
-                if etype_raw not in {"INVOKES", "SUPPORTS", "CONFLICTS", "LINKS", "SEQUENCE", "PARENT_OF"}:
+                if etype_raw not in {"INVOKES", "SUPPORTS", "CONFLICTS", "TENSIONS", "LINKS", "SEQUENCE", "PARENT_OF"}:
                     etype_raw = "LINKS"
                 # Convo miner emits from/to; chat path emits from_label/to_label.
                 from_label = (spec.get("from_label") or spec.get("from") or "").strip()

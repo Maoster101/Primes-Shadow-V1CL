@@ -91,8 +91,15 @@ items added to tier 2. Prevents synthesis from drowning in
 embedding-only matches when the graph is sparse."""
 
 # Edge type sets — keep this in one place so future edge-type changes
-# (e.g. wiring TENSIONS through, currently dead code) only touch here.
-STRUCTURAL_EDGE_TYPES = ("SUPPORTS", "INVOKES", "LINKS", "PARENT_OF")
+# only touch here.
+#
+# TENSIONS lives in STRUCTURAL because both poles of a tension pair
+# should surface together in the synthesis (mercy ↔ justice — picking
+# only one distorts the actual position). The compose layer (Step 2)
+# will need to label TENSIONS edges explicitly to the LLM so it knows
+# to present both sides as counterbalancing rather than collapse them
+# into a single thesis.
+STRUCTURAL_EDGE_TYPES = ("SUPPORTS", "INVOKES", "LINKS", "PARENT_OF", "TENSIONS")
 DIALECTIC_EDGE_TYPES = ("CONFLICTS",)
 
 

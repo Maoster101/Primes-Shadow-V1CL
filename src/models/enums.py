@@ -42,7 +42,8 @@ class NodeStatus(str, Enum):
 class EdgeType(str, Enum):
     INVOKES = "INVOKES"
     SUPPORTS = "SUPPORTS"
-    CONFLICTS = "CONFLICTS"
+    CONFLICTS = "CONFLICTS"   # Direct opposition: A rejects / contradicts B
+    TENSIONS = "TENSIONS"     # Productive tension: A and B counterbalance, both valid (e.g. mercy ↔ justice)
     LINKS = "LINKS"
     PARENT_OF = "PARENT_OF"
     SEQUENCE = "SEQUENCE"  # Narrative ordering — A precedes B in the story spine
