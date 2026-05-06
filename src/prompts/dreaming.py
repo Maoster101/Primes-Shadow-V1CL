@@ -155,6 +155,17 @@ canonical phrase forms with markdown stripped. **Don't re-derive what \
 mining already produced.** Your job is narrowly scoped to what the \
 audit specifically flagged.
 
+**CRITICAL — identity lock:**
+- **NEVER rewrite `canonical_phrase` (anchors) or `title` (slabs).** \
+  Mining captured these from the source surface and the corpus depends \
+  on identity stability — every existing reference to this anchor or \
+  slab uses this exact phrase. Replacing it silently orphans those \
+  references. If the audit flagged the phrase itself as wrong (rare), \
+  surface the concern in `notes` and let the human reviewer decide. \
+  This rule applies in BOTH `CODE` and `DOMAIN` modes regardless of \
+  what the audit says.
+
+**Other preservation rules:**
 - Preserve the draft ID exactly: $DRAFT_ID
 - Preserve structural fields (id, version, meta) — never rewrite these
 - **Where the audit was silent on a field, preserve it verbatim from the draft.**
@@ -200,39 +211,58 @@ Rewritten content: """
 
 MODE_REWRITE_CODE = """\
 This is a CODE-mode rewrite. The draft references system internals.
-- Use REAL function names, field names, config keys from the code
-- Include specific file:line references in notes/canonical_text
-- Replace any confabulated technical terms with the actual code terms
-- If the code implements something the draft describes vaguely, be precise \
-  about the mechanism (e.g., "EWA with alpha=0.30" not "smoothing")"""
+
+Identity lock applies here too: do NOT rewrite the anchor's \
+`canonical_phrase` or the slab's `title`. If the canonical_phrase \
+mismatches the actual code term (e.g., draft says "tempScore" but the \
+code uses "temp_score"), do not silently rename — explain the \
+mismatch in `notes` and let the reviewer decide whether to change \
+the corpus or correct the code reference.
+
+Within those bounds, focus on:
+- **notes / canonical_text accuracy**: when the draft describes code \
+  vaguely or inaccurately, tighten the description using REAL function \
+  names, field names, and config keys from the code. Use specific \
+  file:line references where they help.
+- **Mechanism precision**: if the code implements something the draft \
+  describes vaguely, be precise about the mechanism in the description \
+  (e.g., "EWA with alpha=0.30" not "smoothing"). Put the precise \
+  mechanism in `notes` or `canonical_text`, not by renaming the anchor.
+- **Confabulated technical terms in `aliases`**: if an alias references \
+  a function/field that doesn't exist in the code, drop it. But don't \
+  add new aliases speculatively — only what's grounded."""
 
 MODE_REWRITE_DOMAIN = """\
 This is a DOMAIN-mode rewrite. Mining produced the structural fields \
 already (canonical_phrase, aliases, references_anchors). Your scope is \
 narrow: fix only what the audit flagged.
 
-Focus on:
+**Identity lock (most important):**
+- **NEVER rewrite `canonical_phrase` (anchors) or `title` (slabs).** \
+  Mining captured these from the source surface and the corpus depends \
+  on identity stability. If the audit thinks the phrase is wrong, \
+  surface the concern in `notes` — don't silently rename. This applies \
+  even when verdict is CONFABULATED.
+- **Aliases**: mining captures variants from source surface. Only ADD \
+  aliases the audit explicitly identified in the chat. Don't \
+  speculatively broaden.
+- **references_anchors / links.anchors**: Pass 3 produced these as \
+  structural intent. Only REMOVE items the audit listed in \
+  `ungrounded_references`. Don't add new ones unless the audit \
+  explicitly identified them.
+
+**Where to focus rewrites (mining's actual blind spots):**
 - **canonical_text accuracy** (slabs): if the audit flagged claims as \
   going beyond the source turns, tighten the text to what the chat \
   actually supports. Recover nuance, caveats, numbers, dates, or \
   qualifications the miner missed.
 - **notes** (anchors): mining doesn't populate this. If the source \
   turns give context — origin, scope, or limitations of the term — \
-  fill it in.
+  fill it in. If the audit thinks the canonical_phrase is wrong, \
+  explain the concern here instead of renaming.
 - **invokes** (anchors): if the audit flagged a missing bundle link \
   AND a related bundle exists in companions or corpus, add it.
 - **redundancy resolution**: if the audit found redundancy with an \
   existing corpus node (in `redundant_with`), prefer to enrich the \
   existing node rather than creating a duplicate — make this explicit \
-  in the notes / canonical_text.
-- **ungrounded references**: remove any anchor reference the audit \
-  listed in `ungrounded_references` from invokes / links.anchors.
-
-Do NOT rewrite (mining already handled these well):
-- canonical_phrase / title: mining's negative-space rules filtered \
-  generic phrases at extraction time.
-- aliases: mining captures variants from source surface. Only add \
-  aliases the audit explicitly identified in the chat.
-- references_anchors / links.anchors: Pass 3 produced these as \
-  structural intent. Only remove items the audit listed in \
-  `ungrounded_references`."""
+  in the notes / canonical_text."""
