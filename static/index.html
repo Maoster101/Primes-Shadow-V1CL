@@ -386,6 +386,7 @@
         <div class="dn-item" data-page="gates" onclick="dashNav('gates')"><span class="dn-icon">&#9711;</span> Gates</div>
         <div class="dn-item" data-page="stale" onclick="dashNav('stale')"><span class="dn-icon">&#9888;</span> Stale Review</div>
         <div class="dn-item" data-page="mine" onclick="dashNav('mine')"><span class="dn-icon">&#9889;</span> AI Mine</div>
+        <div class="dn-item" data-page="dream" onclick="dashNav('dream')"><span class="dn-icon">&#9790;</span> Dream</div>
         <div class="dn-item" data-page="verify" onclick="dashNav('verify')"><span class="dn-icon">&#10003;</span> Verify</div>
         <div class="dn-item" data-page="tentative" onclick="dashNav('tentative')"><span class="dn-icon">&#9901;</span> Tentative</div>
         <div class="dn-item" data-page="export" onclick="dashNav('export')"><span class="dn-icon">&#8681;</span> Export</div>
@@ -1549,6 +1550,7 @@ function dashNav(page){
     gates:dashPageGates,
     stale:dashPageStale,
     mine:dashPageMine,
+    dream:dashPageDream,
     verify:dashPageVerify,
     tentative:dashPageTentative,
     export:dashPageExport,
@@ -3059,6 +3061,147 @@ async function _deleteCollection(cid){
 }
 
 // ── Verify & Promote page (Phase 9) ──
+
+// ── Dream page ──
+// Lists workbench sessions with per-session dream stats and a button
+// to fire /sessions/{id}/dream-all on each. Dreaming is decoupled from
+// promotion — it's a separate quality-grounding step, not a step in
+// the promote flow. The auto-trigger from /push-mined races with
+// promotion in practice, so this page is the deterministic surface.
+let _dreamPolling=null;     // setInterval handle while dreams are running
+let _dreamingSessionIds=new Set();  // sessions with an in-flight dream-all
+
+function dashPageDream(c){
+  c.innerHTML=`
+    <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:6px">Dream <span style="font-size:13px;color:var(--text-dim);font-weight:400">grounding audit + content rewrite over pending drafts</span></div>
+    <div style="font-size:10px;color:var(--text-dim);margin-bottom:18px">Each draft gets a two-stage LLM pass: (1) audit verdict against source material, (2) rewrite if not grounded. Output written as <code>{draft_id}.enriched.json</code>. Run <strong>before</strong> Promote for best quality. Drafts already promoted to corpus are skipped.</div>
+    <div id="dream-sessions-body"><div class="dpanel-empty">Loading sessions...</div></div>`;
+  _dreamLoadSessions();
+}
+
+async function _dreamLoadSessions(){
+  const body=document.getElementById('dream-sessions-body');
+  if(!body)return;
+  try{
+    const res=await fetch(`${API}/sessions`);
+    if(!res.ok)throw new Error(`HTTP ${res.status}`);
+    const data=await res.json();
+    const sessions=data.sessions||[];
+    if(!sessions.length){
+      body.innerHTML='<div class="dpanel-empty">No workbench sessions found. Run AI Mine first to produce drafts.</div>';
+      return;
+    }
+    // Aggregate counts across all sessions for the summary strip
+    const tot=sessions.reduce((acc,s)=>({
+      drafts:acc.drafts+s.draft_count,
+      dreamed:acc.dreamed+s.dreamed_count,
+      pending:acc.pending+s.pending_count,
+    }),{drafts:0,dreamed:0,pending:0});
+    const pctDone=tot.drafts?Math.round(tot.dreamed/tot.drafts*100):0;
+    body.innerHTML=`
+      <div class="dpanel" style="margin-bottom:14px;padding:12px 16px">
+        <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">
+          <div><span style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em">Total drafts</span><br><span style="font-family:'JetBrains Mono',monospace;font-size:18px;color:var(--text)">${tot.drafts}</span></div>
+          <div><span style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em">Dreamed</span><br><span style="font-family:'JetBrains Mono',monospace;font-size:18px;color:#0AAC00">${tot.dreamed}</span></div>
+          <div><span style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em">Pending</span><br><span style="font-family:'JetBrains Mono',monospace;font-size:18px;color:#fbbf24">${tot.pending}</span></div>
+          <div><span style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em">Coverage</span><br><span style="font-family:'JetBrains Mono',monospace;font-size:18px;color:var(--text)">${pctDone}%</span></div>
+          <div style="flex:1"></div>
+          <button class="dbtn dbtn-blue" style="padding:8px 18px;font-size:11px" onclick="_dreamRunAllSessions()" ${tot.pending===0?'disabled style="opacity:.4;cursor:not-allowed"':''}>&#9790; Dream All Pending (${tot.pending})</button>
+        </div>
+      </div>
+      <table class="dtable">
+        <thead><tr>
+          <th>Session</th>
+          <th style="text-align:right">Drafts</th>
+          <th style="text-align:right">Dreamed</th>
+          <th style="text-align:right">Pending</th>
+          <th style="text-align:right">Last Activity</th>
+          <th style="text-align:right">Action</th>
+        </tr></thead>
+        <tbody>${sessions.map(s=>{
+          const isDreaming=_dreamingSessionIds.has(s.id);
+          const ts=s.mtime?new Date(s.mtime*1000).toLocaleString():'—';
+          const pendingColor=s.pending_count>0?'#fbbf24':'var(--text-dim)';
+          const dreamedColor=s.dreamed_count>0?'#0AAC00':'var(--text-dim)';
+          const btnLabel=isDreaming?'Dreaming...':(s.pending_count===0?'All Dreamed':`Dream ${s.pending_count}`);
+          const btnClass=isDreaming?'dbtn-grey':(s.pending_count===0?'dbtn-grey':'dbtn-blue');
+          const btnDisabled=isDreaming||s.pending_count===0;
+          return `<tr>
+            <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text)">${_esc(s.id)}</td>
+            <td style="text-align:right;font-size:11px;color:var(--text-dim)">${s.draft_count}</td>
+            <td style="text-align:right;font-size:11px;color:${dreamedColor}">${s.dreamed_count}</td>
+            <td style="text-align:right;font-size:11px;color:${pendingColor}">${s.pending_count}</td>
+            <td style="text-align:right;font-size:9px;color:var(--text-dim)">${ts}</td>
+            <td style="text-align:right">
+              <button class="dbtn ${btnClass}" style="padding:4px 12px;font-size:10px;${btnDisabled?'opacity:.4;cursor:not-allowed':''}" ${btnDisabled?'disabled':''} onclick="_dreamRunSession('${s.id}')">${btnLabel}</button>
+            </td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>
+      <div style="margin-top:18px;font-size:10px;color:var(--text-dim);line-height:1.5">
+        <strong>Note:</strong> Dreaming runs as a background pass. Concurrency is bounded by <code>PS_DREAMING_PARALLEL</code> (default 2). Each dream call hits a 300s ceiling — pathological prompts time out and the loop continues. Page auto-refreshes every 5s while dreams are in flight.
+      </div>`;
+  }catch(e){
+    body.innerHTML=`<div class="dpanel-empty">Failed to load sessions: ${_esc(e.message)}</div>`;
+  }
+}
+
+// Fire dream-all on a single session. Background — returns immediately.
+// Page polling picks up the progress via re-fetching session stats.
+async function _dreamRunSession(sessionId){
+  if(_dreamingSessionIds.has(sessionId))return;
+  _dreamingSessionIds.add(sessionId);
+  _dreamStartPolling();
+  // Re-render to show "Dreaming..." state
+  _dreamLoadSessions();
+  try{
+    const res=await fetch(`${API}/sessions/${encodeURIComponent(sessionId)}/dream-all`,{method:'POST'});
+    if(!res.ok){
+      const txt=await res.text().catch(()=>'unknown');
+      console.warn('dream-all failed:',res.status,txt);
+    }
+  }catch(e){
+    console.warn('dream-all error:',e);
+  }finally{
+    // The endpoint blocks until all dreams in this session complete,
+    // so when the await returns we know this session is done.
+    _dreamingSessionIds.delete(sessionId);
+    if(_dreamingSessionIds.size===0)_dreamStopPolling();
+    _dreamLoadSessions();
+  }
+}
+
+// Fire dream-all sequentially across every session that has pending
+// drafts. Sequential rather than parallel because the daemon-level
+// concurrency is already bounded by PS_DREAMING_PARALLEL — running
+// multiple sessions in parallel would just queue requests behind each
+// other without speeding anything up.
+async function _dreamRunAllSessions(){
+  try{
+    const res=await fetch(`${API}/sessions`);
+    const data=await res.json();
+    const targets=(data.sessions||[]).filter(s=>s.pending_count>0);
+    if(!targets.length){alert('No pending dreams.');return}
+    if(!confirm(`Dream ${targets.length} session(s) — ${targets.reduce((n,s)=>n+s.pending_count,0)} drafts total?\n\nThis runs sequentially per session. Estimated time at ~10s/draft = ${Math.round(targets.reduce((n,s)=>n+s.pending_count,0)*10/60)} min minimum.`))return;
+    for(const s of targets){
+      await _dreamRunSession(s.id);
+    }
+  }catch(e){
+    alert('Failed: '+e.message);
+  }
+}
+
+// While any session is dreaming, re-fetch stats every 5s so the UI
+// shows progress (dreamed_count climbing, pending_count falling).
+function _dreamStartPolling(){
+  if(_dreamPolling)return;
+  _dreamPolling=setInterval(()=>{
+    if(dashPage==='dream')_dreamLoadSessions();
+  },5000);
+}
+function _dreamStopPolling(){
+  if(_dreamPolling){clearInterval(_dreamPolling);_dreamPolling=null}
+}
 
 // ── Tentative library page ──
 // Lists app/library/tentative/*.json — PROVISIONAL records that are preserved

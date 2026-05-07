@@ -40,6 +40,66 @@ class PromoteToAnchorRequest(BaseModel):
 
 # --- Sessions & Frame ---
 
+
+@router.get("/sessions")
+async def list_sessions():
+    """List all workbench sessions with dream-pass stats.
+
+    Powers the Dream page UI — shows per-session draft counts and
+    how many have been dreamed (presence of {draft_id}.enriched.json).
+    Cheap directory walk, no LLM calls. Sessions with zero drafts are
+    omitted; empty sessions don't deserve a UI row.
+
+    Returns a list ordered by most-recently-modified first, so the UI
+    surfaces active work at the top.
+    """
+    from pathlib import Path
+    sessions_root = Path("app/workbench/sessions")
+    if not sessions_root.exists():
+        return {"sessions": []}
+
+    out: list[dict] = []
+    for sdir in sessions_root.iterdir():
+        if not sdir.is_dir():
+            continue
+        drafts_dir = sdir / "drafts"
+        if not drafts_dir.exists():
+            continue
+        # Count *.json drafts (excluding *.enriched.json and *_raw.json
+        # sidecars). The primary draft file is mined_<type>_<id>_v1.json
+        # — sidecars carry the _raw.json or .enriched.json extension.
+        drafts = [
+            p for p in drafts_dir.iterdir()
+            if p.suffix == ".json"
+            and not p.name.endswith(".enriched.json")
+            and not p.name.endswith("_raw.json")
+        ]
+        if not drafts:
+            continue
+        enriched = [
+            p for p in drafts_dir.iterdir()
+            if p.name.endswith(".enriched.json")
+        ]
+        # Modification time = the most recent activity in this session.
+        # Sorting on it lets the UI float active sessions to the top.
+        try:
+            mtime = max(
+                (p.stat().st_mtime for p in sdir.iterdir() if p.is_file()),
+                default=sdir.stat().st_mtime,
+            )
+        except OSError:
+            mtime = 0.0
+        out.append({
+            "id": sdir.name,
+            "draft_count": len(drafts),
+            "dreamed_count": len(enriched),
+            "pending_count": max(0, len(drafts) - len(enriched)),
+            "mtime": mtime,
+        })
+
+    out.sort(key=lambda s: s["mtime"], reverse=True)
+    return {"sessions": out}
+
 @router.post("/sessions/{session_id}/frame/adjust-salience")
 async def adjust_salience(session_id: str, req: NodeSalienceRequest):
     """Heat or cool a node — modifies backend salience that the model sees."""
