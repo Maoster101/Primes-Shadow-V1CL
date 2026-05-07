@@ -423,9 +423,14 @@ async def review_draft(session_id: str, draft_id: str, req: ReviewDraftRequest):
 
     if "error" in result:
         raise HTTPException(400, result)
-    # If committed to corpus, warm the anchor cache so matcher sees it
+    # If committed to corpus, warm the anchor cache so matcher sees it.
+    # only_new=True: embed JUST the newly-committed anchor, not the
+    # whole corpus. Pre-fix, this was the accidental-quadratic in bulk
+    # promotion — every commit re-embedded all N anchors, making M
+    # promotions cost O(M²) embed calls. See anchor_matcher.warm_cache
+    # docstring for the math.
     if result.get("status") == "COMMITTED" and "anchor" in draft_id:
-        await anchor_matcher.warm_cache()
+        await anchor_matcher.warm_cache(only_new=True)
     return result
 
 

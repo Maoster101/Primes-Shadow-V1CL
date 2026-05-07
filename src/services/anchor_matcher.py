@@ -432,8 +432,30 @@ class AnchorMatcher:
             key=lambda g: stage_order.get(g.stage, 99),
         )
 
-    async def warm_cache(self) -> None:
+    async def warm_cache(self, only_new: bool = False) -> None:
+        """Embed anchor canonical phrases + aliases for fast matching.
+
+        Args:
+          only_new: when True, skip anchors that already have a cache
+            entry. Use during bulk promotion — each commit only embeds
+            the just-promoted anchor instead of rebuilding the entire
+            cache. Turns per-commit cost from O(N) to O(1).
+            Default False preserves the original full-rebuild semantics
+            for startup and collection-activation callers, where the
+            corpus view may have changed under the cache.
+
+        Pre-fix history: this used to walk the entire corpus on every
+        call, including from drafts.py after each individual anchor
+        promotion. With N anchors in the corpus, the M-th promotion
+        re-embedded all M anchors, giving O(M²) total embed work to
+        promote M drafts. On the pod run (~800 anchors), that was
+        observed at ~51s per anchor wall-time, ~7-8 hours for the
+        batch. With ``only_new=True``, each commit embeds exactly one
+        anchor — the new one — and the batch finishes in minutes.
+        """
         for anchor in self.corpus.anchors.values():
+            if only_new and anchor.id in self._embed_cache:
+                continue
             phrases = [anchor.canonical_phrase] + anchor.aliases
             embeddings = await ollama.embed(phrases)
             self._embed_cache[anchor.id] = list(zip(phrases, embeddings))

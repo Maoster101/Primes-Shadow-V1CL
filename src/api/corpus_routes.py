@@ -2,6 +2,7 @@
 from __future__ import annotations
 import math
 import logging
+import time
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -13,6 +14,52 @@ from .deps import registry, anchor_matcher, frame_manager, rebind_corpus
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# ── /corpus/full response cache ──────────────────────────────────
+#
+# Background: /corpus/full re-embeds every anchor + bundle + slab in
+# the requested view to compute graph positions via
+# compute_positions_and_vectors. On a 1k+ node corpus this is an 8-12s
+# Ollama batch call. The frontend polls this endpoint reflexively
+# during bulk promote (once before AND after each draft review),
+# making it the dominant per-anchor cost — measured at ~8s of every
+# ~10s anchor commit during the pod run.
+#
+# Fix: cheap TTL cache. The corpus barely changes during a bulk
+# promote (a few nodes per second at most), and the graph positions
+# are derived from canonical_text which is immutable. Caching for 60s
+# turns N polls into 1 embed call. Invalidated on corpus mutation
+# (collection activation, manual invalidate hook), so freshness
+# matters only across the TTL window.
+_CORPUS_FULL_CACHE: dict[str, tuple[float, dict]] = {}
+_CORPUS_FULL_TTL = 60.0  # seconds
+
+
+def _corpus_full_cache_get(key: str) -> Optional[dict]:
+    """Return a cached /corpus/full response if still fresh, else None."""
+    entry = _CORPUS_FULL_CACHE.get(key)
+    if not entry:
+        return None
+    timestamp, payload = entry
+    if time.monotonic() - timestamp > _CORPUS_FULL_TTL:
+        _CORPUS_FULL_CACHE.pop(key, None)
+        return None
+    return payload
+
+
+def _corpus_full_cache_set(key: str, payload: dict) -> None:
+    _CORPUS_FULL_CACHE[key] = (time.monotonic(), payload)
+
+
+def invalidate_corpus_full_cache() -> None:
+    """Drop all cached /corpus/full responses.
+
+    Called from collection activation and other mutation paths so the
+    next /corpus/full request rebuilds the graph positions against
+    fresh corpus state. Cheap — just a dict.clear().
+    """
+    _CORPUS_FULL_CACHE.clear()
 
 
 # ── Collection management ─────────────────────────────────────
@@ -65,6 +112,13 @@ async def toggle_collection(collection_id: str, req: ToggleCollectionRequest):
         registry.deactivate(collection_id)
 
     rebind_corpus()
+    # Collection activation actually changes the merged corpus view —
+    # drop the /corpus/full cache so the next graph render reflects
+    # the new active set. Note: rebind_corpus() does NOT invalidate
+    # this cache itself; it's called per edge-commit during bulk
+    # promote where invalidation would defeat the purpose. Explicit
+    # invalidation here gates on real corpus-membership changes.
+    invalidate_corpus_full_cache()
     # Re-warm anchor matcher cache with new merged set
     await anchor_matcher.warm_cache()
 
@@ -229,6 +283,11 @@ async def corpus_status():
 async def corpus_full(collection: Optional[str] = None):
     """Return corpus for the Cold Corpus browser tab.
 
+    See ``_CORPUS_FULL_CACHE`` above — responses are cached for
+    ``_CORPUS_FULL_TTL`` seconds (default 60s) to avoid re-embedding
+    the entire corpus on every UI poll during bulk promote runs.
+    Cache invalidates on collection activation / corpus mutation.
+
     Args:
         collection: Optional collection ID to filter to. If omitted,
                     returns the full merged corpus.
@@ -240,6 +299,16 @@ async def corpus_full(collection: Optional[str] = None):
       Z = meta depth (slab=0, bundle=1, anchor=2)
     """
     from ..services.embeddings import compute_positions_and_vectors, compute_affinity
+
+    # Cache check — return early if a fresh response is available.
+    # Key includes the collection filter so different views don't
+    # shadow each other. The expensive work below (embeddings,
+    # affinity pairs, layout hints) all derives from canonical_text
+    # which is immutable, so a 60s window is safe.
+    cache_key = collection or "__all__"
+    cached = _corpus_full_cache_get(cache_key)
+    if cached is not None:
+        return cached
 
     # Select corpus source: specific collection or full merged view
     if collection and collection != "__all__":
@@ -475,7 +544,7 @@ async def corpus_full(collection: Optional[str] = None):
                     "confidence": 0.4,
                 })
 
-    return {
+    response = {
         "collection": collection or "__all__",
         "layout_hint": layout_hint,
         "spine_order": spine_order,  # ordered node IDs along SEQUENCE spine (flow layout only)
@@ -493,6 +562,8 @@ async def corpus_full(collection: Optional[str] = None):
         ],
         "gates": [g.model_dump() for g in source.gates.values()],
     }
+    _corpus_full_cache_set(cache_key, response)
+    return response
 
 
 # ── Corpus node management (dashboard) ────────────────────────

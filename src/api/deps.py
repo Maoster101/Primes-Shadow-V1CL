@@ -102,6 +102,17 @@ def rebind_corpus() -> None:
     except Exception:
         pass
 
+    # /corpus/full response cache: do NOT invalidate from this path.
+    # rebind_corpus() fires per edge commit during bulk promote (via
+    # lifecycle._resolve_accepted_edges_for_node), so invalidating
+    # here defeats the cache — every promote triggers a fresh 8-12s
+    # full-corpus re-embed for graph positions. The cache's 60s TTL
+    # is sufficient: positions derive from canonical_text which is
+    # immutable, so the only "staleness" is a new anchor not appearing
+    # in the graph view for up to 60s. Acceptable for any bulk run.
+    # Collection-activation paths invalidate explicitly via
+    # invalidate_corpus_full_cache() in corpus_routes.py instead.
+
 
 def save_session_state(sid: str) -> None:
     """Save frame + tentative registry + edges together.
