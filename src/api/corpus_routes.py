@@ -263,6 +263,109 @@ async def promote_collection(collection_id: str, req: PromoteCollectionRequest):
     }
 
 
+# ── Coherence-bundle migration ────────────────────────────────
+
+
+@router.post("/corpora/{collection_id}/migrate-coherence-bundles")
+async def migrate_coherence_bundles(collection_id: str):
+    """Collapse 1:1 coherence bundles into slab.intent/invariants fields.
+
+    Pre-refactor, every promoted slab got a sibling KeyBundle of the
+    form ``{slab_id}_coherence_v1`` carrying intent + invariants
+    derived from the slab's own canonical_text. Pure data duplication
+    — same content, single-slab role, no cross-slab semantic value.
+
+    Post-refactor, slab.intent and slab.invariants live ON the slab
+    itself. New mines write the new shape automatically; this
+    endpoint migrates pre-refactor corpora to match.
+
+    For each ``*_coherence_v1`` bundle in the target collection:
+      1. Find the parent slab (bundle.depends_on[0])
+      2. Copy bundle.payload.intent → slab.intent
+      3. Copy bundle.payload.invariants → slab.invariants
+      4. Drop the bundle from corpus.bundles
+      5. Drop any ``SUPPORTS`` edge bundle → slab
+
+    Idempotent — re-running on an already-migrated corpus is a no-op.
+    Persists YAML + rebinds services + invalidates caches.
+    """
+    if collection_id == "__merged__":
+        raise HTTPException(
+            400, "Cannot migrate the merged view — pick a specific collection.",
+        )
+    source = registry.get_store(collection_id)
+    if not source:
+        raise HTTPException(404, f"Collection '{collection_id}' not found")
+
+    bundles_collapsed = 0
+    edges_dropped = 0
+    slabs_updated = 0
+
+    # Identify coherence bundles (id pattern ends in _coherence_v1)
+    coherence_ids = [
+        bid for bid in source.bundles
+        if bid.endswith("_coherence_v1")
+    ]
+
+    for bid in coherence_ids:
+        bundle = source.bundles[bid]
+        # Parent slab id is in bundle.depends_on (typically first entry)
+        parent_id = next(
+            (s for s in (bundle.depends_on or []) if s in source.slabs),
+            None,
+        )
+        if not parent_id:
+            # Orphaned coherence bundle — parent slab doesn't exist.
+            # Drop the bundle anyway (it has no other role).
+            source.bundles.pop(bid, None)
+            bundles_collapsed += 1
+            continue
+        slab = source.slabs[parent_id]
+        # Only overwrite if the slab doesn't already have metadata
+        # (idempotency: a previously-migrated slab keeps its values)
+        if not slab.intent and bundle.payload.intent:
+            slab.intent = list(bundle.payload.intent)
+        if not slab.invariants and bundle.payload.invariants:
+            slab.invariants = list(bundle.payload.invariants)
+        source.bundles.pop(bid, None)
+        bundles_collapsed += 1
+        slabs_updated += 1
+
+    # Drop any SUPPORTS edges that pointed bundle → slab where the
+    # bundle no longer exists (i.e., we just removed a coherence bundle).
+    bundle_ids_now = set(source.bundles.keys())
+    edges_to_drop: list[str] = []
+    for eid, edge in source.edges.items():
+        etype = str(getattr(edge.type, "value", edge.type))
+        if etype != "SUPPORTS":
+            continue
+        # SUPPORTS edges from a (now-removed) coherence bundle have
+        # from_node ∈ removed-bundles. The to_node is the slab.
+        if edge.from_node not in bundle_ids_now and edge.from_node.endswith("_coherence_v1"):
+            edges_to_drop.append(eid)
+    for eid in edges_to_drop:
+        source.edges.pop(eid, None)
+        edges_dropped += 1
+
+    try:
+        source.save()
+    except Exception as exc:
+        logger.error("migrate-coherence-bundles: persist failed: %r", exc)
+        raise HTTPException(500, f"Mutation succeeded but persist failed: {exc}")
+    rebind_corpus()
+    invalidate_corpus_full_cache()
+    await anchor_matcher.warm_cache()
+
+    return {
+        "collection_id": collection_id,
+        "bundles_collapsed": bundles_collapsed,
+        "slabs_updated": slabs_updated,
+        "edges_dropped": edges_dropped,
+        "remaining_bundles": len(source.bundles),
+        "remaining_slabs": len(source.slabs),
+    }
+
+
 # ── Anchor consolidation ──────────────────────────────────────
 
 

@@ -718,7 +718,7 @@ class DraftManager:
 
             # Add to target store, validate, save or rollback
             obj_type, corpus_obj = obj
-            generated_bundle = None
+            generated_bundle = None  # kept for back-compat with edge generator + result dict
 
             if obj_type == "anchor":
                 target_store.anchors[corpus_obj.id] = corpus_obj
@@ -726,19 +726,22 @@ class DraftManager:
                 if target_store is not self.corpus:
                     self.corpus.anchors[corpus_obj.id] = corpus_obj
             elif obj_type == "slab":
+                # Populate slab.intent + slab.invariants from the slab's
+                # own content BEFORE adding to store, so validation sees
+                # the complete object. Replaces the previous 1:1
+                # "coherence bundle" auto-generation — same metadata,
+                # but now lives ON the slab instead of as a sibling
+                # corpus node. See _generate_minimum_bundle docstring.
+                intent, invariants = self._generate_minimum_bundle(
+                    corpus_obj.id, raw, packet=packet
+                )
+                if intent:
+                    corpus_obj.intent = intent
+                if invariants:
+                    corpus_obj.invariants = invariants
                 target_store.slabs[corpus_obj.id] = corpus_obj
                 if target_store is not self.corpus:
                     self.corpus.slabs[corpus_obj.id] = corpus_obj
-                # §15.1 + §4.1.3: Auto-generate minimum coherence bundle for slab.
-                # Also packet-aware: if the slab was enriched, the bundle is
-                # generated from the enriched canonical_text, not the raw.
-                generated_bundle = self._generate_minimum_bundle(
-                    corpus_obj.id, raw, packet=packet
-                )
-                if generated_bundle:
-                    target_store.bundles[generated_bundle.id] = generated_bundle
-                    if target_store is not self.corpus:
-                        self.corpus.bundles[generated_bundle.id] = generated_bundle
 
             # --- Auto-generate edges from inline structural fields ---
             # These are placeholder-weight edges that make the dual
@@ -760,16 +763,14 @@ class DraftManager:
 
             errors = target_store.validate()
             if errors:
-                # Rollback everything: nodes, bundle, AND edges
+                # Rollback nodes + edges. (No coherence bundle to roll
+                # back since slab metadata now lives on the slab itself.)
                 if obj_type == "anchor":
                     target_store.anchors.pop(corpus_obj.id, None)
                     self.corpus.anchors.pop(corpus_obj.id, None)
                 elif obj_type == "slab":
                     target_store.slabs.pop(corpus_obj.id, None)
                     self.corpus.slabs.pop(corpus_obj.id, None)
-                if generated_bundle:
-                    target_store.bundles.pop(generated_bundle.id, None)
-                    self.corpus.bundles.pop(generated_bundle.id, None)
                 for edge in generated_edges:
                     target_store.edges.pop(edge.id, None)
                     self.corpus.edges.pop(edge.id, None)
@@ -781,8 +782,6 @@ class DraftManager:
             self._mark_resolved(session_id, draft_id)
 
             result = {"status": "COMMITTED", "draft_id": draft_id, "corpus_id": corpus_obj.id}
-            if generated_bundle:
-                result["generated_bundle"] = generated_bundle.id
             if generated_edges:
                 result["generated_edges"] = [e.id for e in generated_edges]
             if oli_warning:
@@ -936,23 +935,32 @@ class DraftManager:
         slab_id: str,
         raw: dict,
         packet: Optional[DraftPacket] = None,
-    ) -> Optional[KeyBundle]:
-        """§4.1.3 + §15.1: Generate minimum coherence bundle for a committed slab.
+    ) -> tuple[list[str], list[str]]:
+        """Extract slab-level intent + invariants metadata from raw content.
 
-        Bundles are never proposed standalone. They are the minimum structural
-        context a slab needs to be coherent in the corpus: intent, key invariants,
-        and what must NOT be assumed.
+        Returns (intent, invariants) tuples to be assigned directly to
+        ``slab.intent`` and ``slab.invariants`` at promote time. Slab
+        owns this metadata as fields rather than as a sibling 1:1
+        "coherence bundle" corpus node.
 
-        Only generated if the slab has enough substance to warrant one.
+        Background: this function used to construct a KeyBundle whose
+        payload was *literally derived from this single slab's text*
+        (see git blame for the prior shape). The bundle then existed
+        as a separate corpus node 1:1 with the slab — same content,
+        same lifecycle, no cross-slab role. Pure data duplication
+        flagged in podv3 audit (300 slabs → 296 coherence bundles, all
+        single-slab). Now the metadata lives on the Slab itself; the
+        ``bundle`` corpus type is reserved for *actual* thematic
+        cross-slab clusters from the Pass-2 mining path.
 
-        Packet-aware: when ``packet`` is provided, prefers the enriched
-        inline slab dict over the raw sidecar — so a dreaming-phase rewrite
-        that substitutes the confabulated miner text for a grounded version
-        will also produce a bundle built from the grounded text, not the
-        discarded original. Same fallback ladder as _convert_to_corpus_object.
+        Packet-aware: same three-deep fallback as
+        ``_convert_to_corpus_object`` — prefers the enriched inline
+        slab dict (post-dream rewrite) over raw sidecar.
+
+        Returns ([], []) when the slab is too short to bother
+        extracting metadata, mirroring the pre-refactor behaviour
+        of returning None.
         """
-        from ..models.schemas import KeyBundle, BundlePayload, AnchorMeta
-
         # Three-deep fallback: inline slab dict → packet.justification → raw
         p_slab = packet.slab if packet else None
         canonical_text = ""
@@ -967,44 +975,29 @@ class DraftManager:
         else:
             justification = raw.get("justification", "")
 
-        # Only generate if slab has real content
+        # Only extract if slab has real content
         if len(canonical_text) < 50:
-            return None
+            return [], []
 
-        bundle_id = slab_id.replace("tentative_slab_", "bundle_").replace("_v1", "_coherence_v1")
-        if not bundle_id.endswith("_v1"):
-            bundle_id += "_v1"
+        intent = [justification] if justification else []
 
-        # Build minimal payload from available context
-        intent = [justification] if justification else [f"Coherence context for {slab_id}"]
-        invariants = []
-        non_assumptions = []
-
-        # Extract key claims from canonical text as invariants
-        sentences = [s.strip() for s in canonical_text.split('.') if len(s.strip()) > 15]
-        for s in sentences[:3]:
-            invariants.append(s)
-
-        bundle = KeyBundle(
-            id=bundle_id,
-            payload=BundlePayload(
-                intent=intent[:3],
-                invariants=invariants[:5],
-                non_assumptions=non_assumptions,
-            ),
-            version="v1",
-            meta=AnchorMeta(version="v1"),
-            depends_on=[slab_id],
-            supports=[slab_id],
-        )
+        # Extract key claims from canonical text as invariants —
+        # sentence-split by period, drop trivially-short fragments.
+        # Cap at 5 to keep slab.invariants bounded.
+        invariants = [
+            s.strip()
+            for s in canonical_text.split('.')
+            if len(s.strip()) > 15
+        ][:5]
 
         _event_log.log_proposal_event(
-            event="bundle_generated_at_commit",
+            event="slab_metadata_extracted_at_commit",
             slab_id=slab_id,
-            bundle_id=bundle_id,
+            intent_count=len(intent[:3]),
+            invariants_count=len(invariants),
         )
 
-        return bundle
+        return intent[:3], invariants
 
     # ------------------------------------------------------------------
     # Edge generation at commit time
@@ -1094,10 +1087,11 @@ class DraftManager:
                 for bundle_id in links.bundles or []:
                     _maybe_add(EdgeType.LINKS, corpus_obj.id, bundle_id, 0.8)
 
-        # Auto-generated coherence bundle → SUPPORTS edges (w=0.7)
-        if generated_bundle:
-            for slab_id in generated_bundle.supports or []:
-                _maybe_add(EdgeType.SUPPORTS, generated_bundle.id, slab_id, 0.7)
+        # Coherence-bundle SUPPORTS edges removed — slab metadata now
+        # lives on the slab itself (slab.intent + slab.invariants), no
+        # sibling bundle to point at. ``generated_bundle`` is always
+        # None on this path; argument kept for back-compat with any
+        # caller still passing it.
 
         if edges:
             _event_log.log_proposal_event(
@@ -1272,21 +1266,23 @@ class DraftManager:
                 target_store = specific
 
         obj_type, corpus_obj = obj
-        generated_bundle = None
+        generated_bundle = None  # back-compat with _generate_commit_edges signature
 
         if obj_type == "anchor":
             target_store.anchors[corpus_obj.id] = corpus_obj
             if target_store is not self.corpus:
                 self.corpus.anchors[corpus_obj.id] = corpus_obj
         elif obj_type == "slab":
+            # Same pattern as the main promote path: populate slab
+            # metadata fields directly, no sibling coherence bundle.
+            intent, invariants = self._generate_minimum_bundle(corpus_obj.id, raw, packet=packet)
+            if intent:
+                corpus_obj.intent = intent
+            if invariants:
+                corpus_obj.invariants = invariants
             target_store.slabs[corpus_obj.id] = corpus_obj
             if target_store is not self.corpus:
                 self.corpus.slabs[corpus_obj.id] = corpus_obj
-            generated_bundle = self._generate_minimum_bundle(corpus_obj.id, raw, packet=packet)
-            if generated_bundle:
-                target_store.bundles[generated_bundle.id] = generated_bundle
-                if target_store is not self.corpus:
-                    self.corpus.bundles[generated_bundle.id] = generated_bundle
 
         generated_edges = self._generate_commit_edges(obj_type, corpus_obj, generated_bundle)
         for edge in generated_edges:
@@ -1302,9 +1298,6 @@ class DraftManager:
             elif obj_type == "slab":
                 target_store.slabs.pop(corpus_obj.id, None)
                 self.corpus.slabs.pop(corpus_obj.id, None)
-            if generated_bundle:
-                target_store.bundles.pop(generated_bundle.id, None)
-                self.corpus.bundles.pop(generated_bundle.id, None)
             for edge in generated_edges:
                 target_store.edges.pop(edge.id, None)
                 self.corpus.edges.pop(edge.id, None)

@@ -134,6 +134,13 @@ class Slab(BaseModel):
     depends_on: list[str] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
     provenance_refs: list[ProvenanceRef] = Field(default_factory=list)
+    # Slab-level metadata previously held in a 1:1 "coherence bundle"
+    # corpus node. Inlined here because the bundle was structurally
+    # redundant (same content, derived only from this slab, no
+    # cross-slab role). Backwards-compatible: pre-migration slabs
+    # default to empty lists.
+    intent: list[str] = Field(default_factory=list)
+    invariants: list[str] = Field(default_factory=list)
 
 
 # §13.3 — ProvenanceRef
