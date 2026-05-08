@@ -89,9 +89,36 @@ class Anchor(BaseModel):
 
 
 # §4.1.1 — Slab (Design + Schemas doc)
+class InlineAnchor(BaseModel):
+    """An anchor record stored by-value inside a slab.
+
+    Produced by the anchor consolidation pass: anchors that fail the
+    cross-slab-reach criterion (touched by <2 slabs AND not in any
+    multi-slab bundle) get demoted from ``corpus.anchors`` into the
+    parent slab's ``links.anchors_inline`` list.
+
+    The anchor's text content is preserved verbatim (canonical_phrase,
+    aliases, notes) so synthesis-time text search and quote handling
+    still resolve. The ``id`` is preserved for traceability — if the
+    anchor is later promoted back to the corpus (e.g. another doc
+    introduces a second slab that touches the concept), the same id
+    can be re-used. The Pydantic default of empty list keeps existing
+    corpora backwards-compatible: pre-consolidation slabs have no
+    inline anchors and the field is just ``[]``.
+    """
+    id: str
+    canonical_phrase: str
+    aliases: list[str] = Field(default_factory=list)
+    notes: str = ""
+    confidence: float = 0.5
+
+
 class SlabLinks(BaseModel):
     anchors: list[str] = Field(default_factory=list)
     bundles: list[str] = Field(default_factory=list)
+    # Anchors demoted from corpus-level — see InlineAnchor docstring.
+    # Backwards-compatible: pre-consolidation slabs default to empty.
+    anchors_inline: list[InlineAnchor] = Field(default_factory=list)
 
 
 class Slab(BaseModel):

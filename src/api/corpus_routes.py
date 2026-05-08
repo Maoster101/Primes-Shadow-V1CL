@@ -263,6 +263,124 @@ async def promote_collection(collection_id: str, req: PromoteCollectionRequest):
     }
 
 
+# ── Anchor consolidation ──────────────────────────────────────
+
+
+@router.get("/corpora/{collection_id}/consolidation-preview")
+async def consolidation_preview(
+    collection_id: str,
+    max_examples: int = 50,
+):
+    """Dry-run the anchor consolidation pass on a collection.
+
+    Returns the analysis (counts + sample verdicts) WITHOUT mutating
+    the corpus. Use this to inspect what would be demoted before
+    committing to the apply step.
+
+    Args:
+        collection_id: collection to analyze. Use ``__merged__`` for
+            the active merged view.
+        max_examples: cap the number of verdicts in each bucket
+            (keep / demote / orphan) returned in the response. Use
+            ``?max_examples=0`` to see all verdicts (potentially
+            hundreds — fine for analysis, heavy in the UI).
+    """
+    from ..services.anchor_consolidation import analyze
+
+    if collection_id == "__merged__":
+        source = deps.corpus
+    else:
+        source = registry.get_store(collection_id)
+        if not source:
+            raise HTTPException(404, f"Collection '{collection_id}' not found")
+
+    plan = analyze(source)
+
+    def _serialize(verdict_list):
+        verdicts = [
+            {
+                "anchor_id": v.anchor_id,
+                "canonical_phrase": v.canonical_phrase,
+                "decision": v.decision,
+                "reason": v.reason,
+                "own_slab_reach": v.own_slab_reach,
+                "bundle_reach": v.bundle_reach,
+                "has_semantic_edges": v.has_semantic_edges,
+                "parent_slab_id": v.parent_slab_id,
+            }
+            for v in verdict_list
+        ]
+        if max_examples > 0:
+            verdicts = verdicts[:max_examples]
+        return verdicts
+
+    return {
+        "collection_id": collection_id,
+        "summary": plan.summary(),
+        "verdicts": {
+            "keep": _serialize(plan.keep),
+            "demote": _serialize(plan.demote),
+            "orphan": _serialize(plan.orphan),
+        },
+        "max_examples": max_examples,
+    }
+
+
+class ConsolidateRequest(BaseModel):
+    confirm: bool = False  # safety: must be true to actually mutate
+
+
+@router.post("/corpora/{collection_id}/consolidate")
+async def consolidate(collection_id: str, req: ConsolidateRequest):
+    """Apply anchor consolidation to a collection. MUTATES the corpus.
+
+    Calls analyze() then apply_plan(). Demotes leaf anchors into
+    their parent slab's links.anchors_inline, drops the now-redundant
+    LINKS edges, leaves orphan anchors with a flag (no auto-purge in
+    v1).
+
+    Requires ``{"confirm": true}`` in the body so the destructive
+    action is explicit. After mutation, persists the corpus YAML and
+    rebinds dependent services.
+    """
+    if not req.confirm:
+        raise HTTPException(
+            400,
+            "Pass {\"confirm\": true} to apply. Use the preview endpoint first.",
+        )
+
+    from ..services.anchor_consolidation import analyze, apply_plan
+
+    if collection_id == "__merged__":
+        raise HTTPException(
+            400,
+            "Cannot consolidate the merged view directly — pick a specific collection.",
+        )
+    source = registry.get_store(collection_id)
+    if not source:
+        raise HTTPException(404, f"Collection '{collection_id}' not found")
+
+    plan = analyze(source)
+    result = apply_plan(source, plan)
+
+    # Persist + rebind. apply_plan mutated the source store in place;
+    # CorpusStore.save() flushes YAML for all four object lists,
+    # rebind_corpus refreshes the merged view + downstream services.
+    try:
+        source.save()
+    except Exception as exc:
+        logger.error("consolidate: failed to persist YAML: %r", exc)
+        raise HTTPException(500, f"Mutation succeeded but persist failed: {exc}")
+    rebind_corpus()
+    await anchor_matcher.warm_cache()
+
+    return {
+        "collection_id": collection_id,
+        "summary": plan.summary(),
+        "applied": result,
+    }
+
+
 # ── Corpus status & full browser ──────────────────────────────
 
 @router.get("/corpus/status")

@@ -254,15 +254,35 @@ async def _identify_seeds(
     query_vec = await ollama.embed_single(query)
     query_arr = _l2_normalize(query_vec)
 
-    # Build a target list — anchors keyed by canonical_phrase, slabs
-    # by canonical_text. We embed both pools and rank together.
-    target_texts: list[tuple[str, str]] = []  # (node_id, text)
+    # Build a target list — three kinds of embed targets, all
+    # competing on the same cosine-rank:
+    #   1. Anchor canonical_phrase           → returns anchor.id
+    #   2. Slab canonical_text (first 600c)  → returns slab.id
+    #   3. Inline-anchor phrases (per slab)  → returns SLAB.id (not anchor.id)
+    #
+    # Why (3) returns slab.id: post-consolidation, leaf anchors live
+    # inside slab.links.anchors_inline as text records, NOT in
+    # corpus.anchors. They aren't graph entities — but their
+    # canonical_phrases are still the most-discriminating text
+    # signals for matching specific design quotes ("Nothing persists
+    # without consent", "salt is not permitted"). Without this,
+    # those phrases get washed out inside the slab's full canonical_
+    # text embedding and the model loses the per-phrase grip on
+    # corpus voice. By embedding them as discrete targets but
+    # returning the parent slab as the seed, we keep selection
+    # output at the graph-entity granularity (slab) while restoring
+    # phrase-level discrimination at the seed step.
+    target_texts: list[tuple[str, str]] = []  # (return_id, text_to_embed)
     for a in corpus.anchors.values():
         if a.canonical_phrase:
             target_texts.append((a.id, a.canonical_phrase))
     for s in corpus.slabs.values():
         if s.canonical_text:
             target_texts.append((s.id, s.canonical_text[:600]))  # cap for embed cost
+        # Inline anchor phrases — return the slab id, not the inline id.
+        for inline in (s.links.anchors_inline or []):
+            if inline.canonical_phrase:
+                target_texts.append((s.id, inline.canonical_phrase))
 
     if not target_texts:
         return [], query_arr
@@ -271,14 +291,22 @@ async def _identify_seeds(
     texts = [t[1] for t in target_texts]
     vecs = await ollama.embed(texts)
 
-    sims: list[tuple[str, float]] = []
-    for (nid, _), v in zip(target_texts, vecs):
+    # Dedupe by return_id keeping the MAX cosine — multiple targets
+    # may share an id (e.g., a slab's canonical_text + several of
+    # its inline anchors all return the slab.id). The strongest
+    # signal wins; we don't want one slab consuming multiple
+    # max_seeds slots from its inline anchors stacking up.
+    best_sim: dict[str, float] = {}
+    for (rid, _), v in zip(target_texts, vecs):
         nv = _l2_normalize(v)
         sim = float(np.dot(query_arr, nv))
-        if sim >= min_cosine:
-            sims.append((nid, sim))
-    sims.sort(key=lambda x: -x[1])
-    return [nid for nid, _ in sims[:max_seeds]], query_arr
+        if sim < min_cosine:
+            continue
+        if sim > best_sim.get(rid, -1.0):
+            best_sim[rid] = sim
+
+    sims = sorted(best_sim.items(), key=lambda x: -x[1])
+    return [rid for rid, _ in sims[:max_seeds]], query_arr
 
 
 # ── Typed graph walk (BFS, edge-type filtered) ──────────────────────
