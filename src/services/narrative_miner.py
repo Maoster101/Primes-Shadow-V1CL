@@ -1059,8 +1059,13 @@ class NarrativeMiner:
         min_confidence: float = 0.4,
         max_segment_chars: int = 1800,
     ) -> dict:
+        from . import mining_progress
+        mining_progress.reset("narrative")
+        mining_progress.set_phase("segmenting", total=1)
+
         segments = segment_narrative(raw_text, max_chars=max_segment_chars)
         if not segments:
+            mining_progress.mark_error("no segments found")
             return {
                 "format": "narrative",
                 "segments": 0,
@@ -1068,13 +1073,21 @@ class NarrativeMiner:
                 "edges": [],
                 "error": "No content found after segmentation",
             }
+        mining_progress.increment()
 
         sem = asyncio.Semaphore(_PASS_PARALLEL)
 
         # ── Pass 1 — anchors per segment, parallel ───────────────────
+        # Increment progress AFTER the await — that's when the LLM call
+        # has completed and we have the anchors back. The lock inside
+        # mining_progress.increment() serializes concurrent completions.
+        mining_progress.set_phase("anchor_extraction", total=len(segments))
+
         async def _p1(seg: NarrativeSegment) -> list[MiningProposal]:
             async with sem:
-                return await extract_anchors_pass1(seg)
+                result = await extract_anchors_pass1(seg)
+                mining_progress.increment()
+                return result
 
         pass1_results = await asyncio.gather(*[_p1(s) for s in segments])
         all_anchors: list[MiningProposal] = []
@@ -1088,7 +1101,9 @@ class NarrativeMiner:
         canonical_anchors = [a for a in canonical_anchors if a.proposal_type == "anchor"]
 
         # ── Pass 2 — bundle synthesis (Python clustering + 1 LLM call) ─
+        mining_progress.set_phase("bundle_synthesis", total=1)
         bundle_proposals = await synthesize_bundles(canonical_anchors, segments)
+        mining_progress.increment()
 
         # ── Pass 3 — slabs per segment with anchor context, parallel ───
         # Build the per-segment scoped anchor list once. Each segment's
@@ -1100,11 +1115,15 @@ class NarrativeMiner:
             for seg_idx in membership.get(anchor.canonical_phrase, set()):
                 anchors_by_segment.setdefault(seg_idx, []).append(anchor)
 
+        mining_progress.set_phase("slab_extraction", total=len(segments))
+
         async def _p3(seg: NarrativeSegment):
             async with sem:
-                return await extract_slabs_pass3(
+                result = await extract_slabs_pass3(
                     seg, anchors_by_segment.get(seg.order, []),
                 )
+                mining_progress.increment()
+                return result
 
         pass3_results = await asyncio.gather(*[_p3(s) for s in segments])
         all_slabs: list[MiningProposal] = []
@@ -1153,6 +1172,7 @@ class NarrativeMiner:
         # Failures pass through unfiltered (corpus-level consolidate
         # remains available as fallback).
         from .anchor_consolidation import analyze_proposals, apply_to_proposals
+        mining_progress.set_phase("consolidation", total=1)
         cons_summary = None
         inline_map: dict[str, list[dict]] = {}
         try:
@@ -1163,6 +1183,8 @@ class NarrativeMiner:
             logger.info("[CONS] %s", cons_summary)
         except Exception as exc:
             logger.warning("Consolidation failed (passing through unfiltered): %r", exc)
+        mining_progress.increment()
+        mining_progress.mark_done()
 
         return {
             "format": "narrative",

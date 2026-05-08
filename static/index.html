@@ -2279,6 +2279,19 @@ function dashPageMine(c){
       </div>
     </div>
 
+    <!-- Mining progress bar — shown while a mine is in flight, hidden otherwise.
+         _startMineProgress() unhides it; the polling loop fills #mine-progress-fill
+         and updates the label/detail. _stopMineProgress() hides it on completion. -->
+    <div id="mine-progress" class="dpanel" style="margin-bottom:14px;padding:14px 16px;display:none">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;font-size:11px">
+        <span id="mine-progress-label" style="color:var(--text);font-weight:500">Starting...</span>
+        <span id="mine-progress-detail" style="color:var(--text-dim);font-family:'JetBrains Mono',monospace;font-size:10px">—</span>
+      </div>
+      <div style="background:rgba(255,255,255,0.05);border-radius:4px;height:8px;overflow:hidden;border:1px solid var(--border)">
+        <div id="mine-progress-fill" style="height:100%;width:0%;background:linear-gradient(90deg,#0AAC00,#00d4aa);transition:width 0.6s ease"></div>
+      </div>
+    </div>
+
     <!-- Results panel -->
     <div id="mine-results-panel" style="display:${_mineResults?'block':'none'}">
       <div class="dpanel" style="margin-bottom:14px">
@@ -2365,12 +2378,82 @@ async function _mineHandleFile(file){
   reader.readAsText(file);
 }
 
+// ── Mining progress polling ──
+// Polls /api/mining-progress every 1.5s while a mine is in flight
+// and renders the bar in #mine-progress. Started by the mine-run
+// wrappers below; stopped in their finally blocks regardless of
+// success/failure. Phase labels mirror services/mining_progress.py.
+let _mineProgressPoll=null;
+const _MINE_PHASE_LABELS={
+  starting:'Starting',
+  segmenting:'Segmenting document',
+  anchor_extraction:'Extracting anchors',
+  bundle_synthesis:'Synthesising bundles',
+  slab_extraction:'Extracting slabs',
+  consolidation:'Consolidating',
+  normalizing:'Parsing input',
+  chunking:'Chunking',
+  extracting:'Extracting proposals',
+  deduplicating:'Deduplicating',
+  edge_extraction:'Extracting edges',
+  done:'Done',
+  error:'Error',
+  idle:'Idle',
+};
+
+function _startMineProgress(){
+  const bar=document.getElementById('mine-progress');
+  if(bar)bar.style.display='block';
+  _pollMineProgress();
+  _mineProgressPoll=setInterval(_pollMineProgress,1500);
+}
+
+function _stopMineProgress(){
+  if(_mineProgressPoll){clearInterval(_mineProgressPoll);_mineProgressPoll=null}
+  const bar=document.getElementById('mine-progress');
+  if(bar)bar.style.display='none';
+}
+
+async function _pollMineProgress(){
+  try{
+    const r=await fetch(`${API}/mining-progress`);
+    if(!r.ok)return;
+    const p=await r.json();
+    _renderMineProgress(p);
+  }catch(e){/* network blip — try again next tick */}
+}
+
+function _renderMineProgress(p){
+  const fill=document.getElementById('mine-progress-fill');
+  const label=document.getElementById('mine-progress-label');
+  const detail=document.getElementById('mine-progress-detail');
+  if(!fill||!label||!detail)return;
+  const pct=p.overall_pct||0;
+  fill.style.width=pct+'%';
+  const phaseLabel=_MINE_PHASE_LABELS[p.phase]||p.phase;
+  label.textContent=`${phaseLabel} — ${pct.toFixed(1)}%`;
+  // ETA = elapsed × (100 - pct) / pct, only when pct > 5 to avoid early-noise
+  const elapsed=p.elapsed_s||0;
+  let etaStr='';
+  if(pct>5&&pct<99){
+    const remainSecs=Math.round(elapsed*(100-pct)/pct);
+    if(remainSecs<60){etaStr=` · ETA ${remainSecs}s`}
+    else if(remainSecs<3600){etaStr=` · ETA ${Math.round(remainSecs/60)}m`}
+    else{etaStr=` · ETA ${(remainSecs/3600).toFixed(1)}h`}
+  }
+  const elapsedStr=elapsed<60?`${Math.round(elapsed)}s`:`${Math.round(elapsed/60)}m ${Math.round(elapsed%60)}s`;
+  let countStr='';
+  if(p.total>1)countStr=` · ${p.completed}/${p.total}`;
+  detail.textContent=`${elapsedStr} elapsed${countStr}${etaStr}`;
+}
+
 async function _mineRun(){
   const text=document.getElementById('mine-text').value;
   if(!text.trim()){alert('Paste or drop a conversation first.');return}
   const btn=document.getElementById('mine-run-btn');
   btn.disabled=true;btn.textContent='Mining...';
   _mineRunning=true;
+  _startMineProgress();
 
   try{
     const res=await fetch(`${API}/mine`,{
@@ -2392,6 +2475,7 @@ async function _mineRun(){
     alert('Mining failed: '+e.message);
   }finally{
     _mineRunning=false;
+    _stopMineProgress();
     const b=document.getElementById('mine-run-btn');
     if(b){b.disabled=false;b.textContent='⚡ Mine Conversation'}
   }
@@ -2403,6 +2487,7 @@ async function _mineRunNarrative(){
   const btn=document.getElementById('mine-run-narrative-btn');
   btn.disabled=true;btn.textContent='Mining narrative...';
   _mineRunning=true;
+  _startMineProgress();
 
   try{
     const res=await fetch(`${API}/mine-narrative`,{
@@ -2423,6 +2508,7 @@ async function _mineRunNarrative(){
     alert('Narrative mining failed: '+e.message);
   }finally{
     _mineRunning=false;
+    _stopMineProgress();
     const b=document.getElementById('mine-run-narrative-btn');
     if(b){b.disabled=false;b.textContent='📜 Mine Narrative'}
   }

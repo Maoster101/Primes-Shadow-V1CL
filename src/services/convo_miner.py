@@ -885,15 +885,22 @@ class ConversationMiner:
         Returns:
             Dict with format info, stats, and proposals
         """
+        from . import mining_progress
+        mining_progress.reset("convo")
+        mining_progress.set_phase("normalizing", total=1)
+
         # Step 1: Detect and normalize
         fmt, exchanges = normalize(raw_text)
         if not exchanges:
+            mining_progress.mark_error("no exchanges found")
             return {
                 "format": fmt,
                 "exchanges": 0,
                 "proposals": [],
                 "error": "No exchanges found in input",
             }
+        mining_progress.increment()
+        mining_progress.set_phase("chunking", total=1)
 
         # Step 2: Pair exchanges
         pairs = pair_exchanges(exchanges)
@@ -929,11 +936,16 @@ class ConversationMiner:
             a.canonical_phrase for a in self.corpus.anchors.values()
         ]
 
+        mining_progress.increment()  # chunking phase done
+        mining_progress.set_phase("extracting", total=len(meaningful_chunks))
+
         sem = asyncio.Semaphore(_MINING_PARALLEL)
 
         async def _extract(chunk):
             async with sem:
-                return await extract_proposals_from_chunk(chunk, existing_phrases)
+                result = await extract_proposals_from_chunk(chunk, existing_phrases)
+                mining_progress.increment()
+                return result
 
         chunk_results = await asyncio.gather(
             *[_extract(c) for c in meaningful_chunks]
@@ -947,7 +959,11 @@ class ConversationMiner:
         # Sort by confidence descending
         all_proposals.sort(key=lambda p: p.confidence, reverse=True)
 
+        mining_progress.set_phase("deduplicating", total=1)
+        mining_progress.increment()
+
         # Step 6: Extract edges between proposals
+        mining_progress.set_phase("edge_extraction", total=1)
         edge_proposals = []
         if len(all_proposals) >= 2:
             try:
@@ -955,6 +971,7 @@ class ConversationMiner:
                 edge_proposals = [e for e in edge_proposals if e.confidence >= min_confidence]
             except Exception as e:
                 logger.warning("Edge extraction failed: %s", e)
+        mining_progress.increment()
 
         # Step 7: Build topic summary
         topic_counts: dict[str, int] = {}
@@ -970,6 +987,7 @@ class ConversationMiner:
         # See anchor_consolidation.apply_to_proposals for the full
         # contract — this is identical for both miners.
         from .anchor_consolidation import analyze_proposals, apply_to_proposals
+        mining_progress.set_phase("consolidation", total=1)
         cons_summary = None
         inline_map: dict[str, list[dict]] = {}
         try:
@@ -984,6 +1002,8 @@ class ConversationMiner:
             # behaviour (corpus-level consolidate-after-promote) is
             # still available as a fallback.
             logger.warning("Consolidation failed (passing through unfiltered): %r", exc)
+        mining_progress.increment()
+        mining_progress.mark_done()
 
         return {
             "format": fmt,

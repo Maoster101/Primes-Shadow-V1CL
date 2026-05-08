@@ -111,6 +111,19 @@ async def mine_narrative(req: MineNarrativeRequest):
     return result
 
 
+@router.get("/mining-progress")
+async def get_mining_progress():
+    """Snapshot of the current mine's progress.
+
+    Singleton: only tracks one mine at a time. Frontend polls this
+    while a mine is in flight to render a progress bar with phase +
+    counts + ETA. See services/mining_progress.py for the state
+    shape and per-phase weighting.
+    """
+    from ..services import mining_progress
+    return mining_progress.get()
+
+
 @router.post("/sessions/{session_id}/push-mined")
 async def push_mined_proposals(session_id: str, req: PushMinedRequest):
     """Push mined proposals directly into the session draft stack.
