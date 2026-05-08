@@ -2933,10 +2933,29 @@ async function _minePushSelected(){
     return f && t && (selectedLabels.has(f) || selectedLabels.has(t));
   });
 
+  // Pipeline-integrated consolidation handshake: forward the
+  // _inline_anchors_per_slab metadata the miner produced (when it
+  // consolidated at mine time). /push-mined uses it to populate
+  // slab.links.anchors_inline at draft write time so DEMOTE leaves
+  // ride along with their parent slab without surfacing as drafts.
+  // Filter to slabs that survived selection — if the user deselected
+  // a slab we shouldn't drag its inline anchors into a stranded slot.
+  const inlineMap={};
+  const survivingTitles=new Set(proposals.filter(p=>p.type==='slab').map(p=>(p.title||'').trim()).filter(Boolean));
+  const fullInlineMap=_mineResults._inline_anchors_per_slab||{};
+  for(const [title,records] of Object.entries(fullInlineMap)){
+    if(survivingTitles.has(title))inlineMap[title]=records;
+  }
+
   try{
     const res=await fetch(`${API}/sessions/${currentSessionId}/push-mined`,{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({proposals:proposals, edges:edges, target_collection:targetCollection})
+      body:JSON.stringify({
+        proposals:proposals,
+        edges:edges,
+        target_collection:targetCollection,
+        inline_anchors_per_slab:inlineMap,
+      })
     });
     if(!res.ok){const err=await res.json();throw new Error(err.detail||JSON.stringify(err))}
     const result=await res.json();

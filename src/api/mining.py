@@ -42,6 +42,12 @@ class PushMinedRequest(BaseModel):
     proposals: list[dict]           # Raw mined proposal dicts from /mine response
     edges: list[dict] = []          # Raw mined edge dicts from /mine response (Phase 3)
     target_collection: str = "default"  # Which collection to commit into
+    # Pipeline-integrated consolidation handshake. Both miners emit
+    # ``_inline_anchors_per_slab`` (slab-title → list of inline anchor
+    # records) when they consolidate at mine time. Forwarded by the
+    # frontend untouched. Empty dict = no consolidation ran (or it ran
+    # and there were no demotions); slabs get empty anchors_inline.
+    inline_anchors_per_slab: dict[str, list[dict]] = {}
 
 
 class ScratchSessionRequest(BaseModel):
@@ -147,11 +153,25 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
                 "notes": prop.get("justification", "") or "",
             }
         elif prop_type == "slab":
+            slab_title = prop.get("title") or prop.get("canonical_phrase") or ""
+            # Pipeline-integrated consolidation: any anchor proposal
+            # demoted at mine time that resolved to THIS slab as its
+            # parent gets attached as an inline record. The slab title
+            # is the join key — both sides agreed on the slab's title
+            # at mine time. Falls back to empty when no consolidation
+            # happened upstream.
+            inline_anchors_for_slab = req.inline_anchors_per_slab.get(
+                slab_title.strip(), []
+            ) if slab_title else []
             inline_slab = {
                 "id": draft_id,
-                "title": prop.get("title") or prop.get("canonical_phrase") or "",
+                "title": slab_title,
                 "canonical_text": prop.get("canonical_text", "") or "",
-                "links": {"anchors": [], "bundles": []},
+                "links": {
+                    "anchors": [],
+                    "bundles": [],
+                    "anchors_inline": inline_anchors_for_slab,
+                },
                 "version": "v1",
             }
 

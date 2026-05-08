@@ -262,3 +262,274 @@ def apply_plan(corpus: CorpusStore, plan: ConsolidationPlan) -> dict:
         "remaining_edges": len(corpus.edges),
         "orphans_kept": len(plan.orphan),
     }
+
+
+# ── Draft-time consolidation (Option B pipeline integration) ────────
+#
+# The corpus-level analyze + apply_plan above operates on a CorpusStore
+# (committed nodes). The pipeline-integrated path runs consolidation
+# at MINE TIME, before drafts get pushed to the workbench — so the
+# user never sees leaf-anchor noise in the drafts list and the dream
+# pass never burns LLM calls on anchors destined for inline demotion.
+#
+# These helpers operate on the MiningProposal / EdgeProposal lists
+# that both convo_miner and narrative_miner produce. They materialize
+# a temporary in-memory CorpusStore (using the same label-resolution
+# pattern as /push-mined), run the existing analyze() unchanged, and
+# return the surviving proposal set + the inline-anchor mapping that
+# /push-mined uses to populate slab.links.anchors_inline at draft
+# write time.
+
+
+def _materialize_proposals_to_temp_corpus(proposals, edges):
+    """Build an in-memory CorpusStore from proposal/edge lists.
+
+    Uses fuzzy label resolution (label_resolver) to map edge endpoints
+    to the temp ids we assign here, mirroring /push-mined's behaviour.
+    Bundle membership: narrative_miner stores member anchor phrases in
+    ``MiningProposal.aliases``; we resolve those into ``bundle.depends_on``
+    so analyze() can count bundle reach correctly.
+
+    Bundle slab-reach for the analyze step: bundles don't have explicit
+    "bundle supports slab" edges in mining output. We approximate via
+    member-anchor reach — a bundle's slab reach is the union of slabs
+    its member anchors LINK to. This is populated into bundle.supports
+    so analyze() picks it up via its existing reach logic.
+
+    Returns:
+        (temp_corpus, id_to_proposal_index)
+        where id_to_proposal_index maps each temp node id back to the
+        proposal's position in the input list.
+    """
+    import uuid
+    from .corpus import CorpusStore
+    from .label_resolver import build_index, resolve_label
+    from ..models.schemas import (
+        Anchor, Slab, KeyBundle, Edge, AnchorMatchPolicy, AnchorMeta,
+        BundlePayload,
+    )
+    from ..models.enums import EdgeType, SlabType
+
+    temp = CorpusStore()
+    label_entries: list[tuple[str, str]] = []
+    id_to_proposal: dict[str, int] = {}
+    bundle_member_labels: dict[str, list[str]] = {}  # tmp_bundle_id → member phrases
+
+    for i, p in enumerate(proposals):
+        ptype = p.proposal_type
+        nid = f"_cons_{ptype}_{i}_{uuid.uuid4().hex[:6]}"
+        if ptype == "anchor":
+            phrase = (p.canonical_phrase or "").strip()
+            if not phrase:
+                continue
+            temp.anchors[nid] = Anchor(
+                id=nid,
+                canonical_phrase=phrase,
+                aliases=list(p.aliases or []),
+                notes=p.justification or "",
+                match_policy=AnchorMatchPolicy(),
+                meta=AnchorMeta(),
+            )
+            label_entries.append((phrase, nid))
+            for al in p.aliases or []:
+                label_entries.append((al, nid))
+            id_to_proposal[nid] = i
+        elif ptype == "slab":
+            text = (p.canonical_text or "").strip()
+            if not text:
+                continue
+            title = (p.title or "").strip() or f"Slab {nid}"
+            temp.slabs[nid] = Slab(
+                id=nid,
+                type=SlabType.REFERENCE,
+                title=title,
+                canonical_text=text,
+                meta=AnchorMeta(),
+            )
+            label_entries.append((title, nid))
+            id_to_proposal[nid] = i
+        elif ptype == "bundle":
+            label = (p.label or "").strip() or f"Bundle {nid}"
+            temp.bundles[nid] = KeyBundle(
+                id=nid,
+                payload=BundlePayload(intent=[label]),
+                meta=AnchorMeta(),
+                depends_on=[],
+                supports=[],
+            )
+            label_entries.append((label, nid))
+            # narrative_miner stuffs member anchor phrases into aliases.
+            # Stash them; we resolve to anchor IDs below once all anchors
+            # are materialized + label_to_id is built.
+            bundle_member_labels[nid] = list(p.aliases or [])
+            id_to_proposal[nid] = i
+
+    label_to_id = build_index(label_entries)
+
+    # Resolve bundle membership (depends_on = list of member anchor IDs)
+    for bid, members in bundle_member_labels.items():
+        bundle = temp.bundles.get(bid)
+        if not bundle:
+            continue
+        for label in members:
+            rid, _ = resolve_label(label, label_to_id)
+            if rid and rid in temp.anchors:
+                bundle.depends_on.append(rid)
+
+    # Materialize edges with the same fuzzy label resolution that
+    # /push-mined uses. Skip unresolvable / self-loop edges.
+    for e in edges:
+        etype_raw = (e.edge_type or "LINKS").upper()
+        if etype_raw not in {
+            "INVOKES", "SUPPORTS", "CONFLICTS", "TENSIONS",
+            "LINKS", "SEQUENCE", "PARENT_OF",
+        }:
+            etype_raw = "LINKS"
+        from_id, _ = resolve_label((e.from_label or "").strip(), label_to_id)
+        to_id, _ = resolve_label((e.to_label or "").strip(), label_to_id)
+        if not from_id or not to_id or from_id == to_id:
+            continue
+        eid = f"_cons_edge_{uuid.uuid4().hex[:8]}"
+        try:
+            temp.edges[eid] = Edge(
+                id=eid,
+                type=EdgeType(etype_raw),
+                from_node=from_id,
+                to_node=to_id,
+                weight=float(e.confidence),
+                confidence=float(e.confidence),
+            )
+        except Exception:
+            continue
+
+    # Compute bundle.supports = union of slabs reachable from member
+    # anchors via LINKS edges. analyze() reads this for bundle reach.
+    slab_ids = set(temp.slabs.keys())
+    for bundle in temp.bundles.values():
+        reach: set[str] = set()
+        for member_id in bundle.depends_on:
+            for edge in temp.edges.values():
+                etype = str(getattr(edge.type, "value", edge.type))
+                if etype != "LINKS":
+                    continue
+                if edge.from_node == member_id and edge.to_node in slab_ids:
+                    reach.add(edge.to_node)
+                elif edge.to_node == member_id and edge.from_node in slab_ids:
+                    reach.add(edge.from_node)
+        bundle.supports = list(reach)
+
+    return temp, id_to_proposal
+
+
+def analyze_proposals(proposals, edges) -> tuple[ConsolidationPlan, dict[str, int]]:
+    """Run consolidation analysis on draft proposal/edge lists.
+
+    Returns the plan plus a mapping from temp node IDs back to the
+    proposal's position in the input list, so callers can translate
+    verdicts into actions on the proposal set.
+    """
+    temp, id_to_proposal = _materialize_proposals_to_temp_corpus(proposals, edges)
+    plan = analyze(temp)
+    return plan, id_to_proposal
+
+
+def apply_to_proposals(proposals, edges, plan, id_to_proposal):
+    """Apply a consolidation plan to draft proposal/edge lists.
+
+    Pipeline-integrated counterpart to apply_plan() (which mutates a
+    committed CorpusStore). This one filters the in-memory proposal +
+    edge lists used by /push-mined and produces the inline-anchor
+    mapping needed for slab DraftPackets.
+
+    Returns:
+        (surviving_proposals, surviving_edges, inline_map, summary)
+        where:
+          surviving_proposals: KEEP anchors + all slabs + all bundles
+                               (DEMOTE and ORPHAN anchors filtered out)
+          surviving_edges:     edges except those touching DEMOTE/ORPHAN
+                               anchors (which are now graph-redundant)
+          inline_map:          {slab_title: [{id, canonical_phrase,
+                                aliases, notes, confidence}, ...]}
+                               consumed by /push-mined to populate
+                               slab.links.anchors_inline at draft
+                               write time. Slab title is the join key
+                               because draft-time slab IDs aren't
+                               assigned until /push-mined runs.
+          summary:             counts for the response body and logs.
+    """
+    import uuid
+
+    # Map verdict anchor_ids back to proposal indices
+    demote_indices: set[int] = set()
+    orphan_indices: set[int] = set()
+    inline_map: dict[str, list[dict]] = {}
+
+    proposal_by_temp_id = {tid: proposals[idx] for tid, idx in id_to_proposal.items()}
+
+    for verdict in plan.demote:
+        anchor_idx = id_to_proposal.get(verdict.anchor_id)
+        if anchor_idx is None:
+            continue
+        demote_indices.add(anchor_idx)
+        anchor_p = proposals[anchor_idx]
+
+        # Resolve the parent slab proposal
+        parent_p = proposal_by_temp_id.get(verdict.parent_slab_id)
+        if not parent_p or parent_p.proposal_type != "slab":
+            # Verdict's parent_slab_id didn't resolve to a slab proposal —
+            # fall through; the anchor still gets dropped, just no inline
+            # record. Shouldn't happen for well-formed verdicts.
+            continue
+
+        slab_title = (parent_p.title or "").strip()
+        if not slab_title:
+            continue
+        inline_map.setdefault(slab_title, []).append({
+            "id": f"mined_anchor_{uuid.uuid4().hex[:8]}_v1",
+            "canonical_phrase": anchor_p.canonical_phrase,
+            "aliases": list(anchor_p.aliases or []),
+            "notes": anchor_p.justification or "",
+            "confidence": float(anchor_p.confidence),
+        })
+
+    for verdict in plan.orphan:
+        anchor_idx = id_to_proposal.get(verdict.anchor_id)
+        if anchor_idx is not None:
+            orphan_indices.add(anchor_idx)
+
+    # Filter proposals
+    drop_indices = demote_indices | orphan_indices
+    surviving_proposals = [p for i, p in enumerate(proposals) if i not in drop_indices]
+
+    # Filter edges referencing dropped anchors. Edges identify endpoints
+    # by label, not id, so we drop by canonical_phrase match.
+    dropped_phrases: set[str] = set()
+    for i in drop_indices:
+        p = proposals[i]
+        if p.proposal_type == "anchor" and p.canonical_phrase:
+            dropped_phrases.add(p.canonical_phrase.strip().lower())
+            for alias in (p.aliases or []):
+                if alias:
+                    dropped_phrases.add(alias.strip().lower())
+
+    surviving_edges = []
+    edges_dropped = 0
+    for e in edges:
+        from_l = (e.from_label or "").strip().lower()
+        to_l = (e.to_label or "").strip().lower()
+        if from_l in dropped_phrases or to_l in dropped_phrases:
+            edges_dropped += 1
+            continue
+        surviving_edges.append(e)
+
+    summary = {
+        "total_anchors": plan.total_anchors,
+        "kept": len(plan.keep),
+        "demoted": len(plan.demote),
+        "orphans_dropped": len(plan.orphan),
+        "edges_dropped": edges_dropped,
+        "anchors_inlined_into_slabs": sum(len(v) for v in inline_map.values()),
+        "slabs_with_inline_anchors": len(inline_map),
+    }
+
+    return surviving_proposals, surviving_edges, inline_map, summary

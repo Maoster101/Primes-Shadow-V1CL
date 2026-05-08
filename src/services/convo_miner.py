@@ -961,6 +961,30 @@ class ConversationMiner:
         for chunk in chunks:
             topic_counts[chunk.top_topic] = topic_counts.get(chunk.top_topic, 0) + 1
 
+        # Step 8: Pipeline-integrated consolidation. Runs BEFORE the
+        # results hit /push-mined so leaf anchors never reach the
+        # workbench draft list. Surviving anchors are KEEPs only;
+        # DEMOTEs become inline records on their parent slab via the
+        # _inline_anchors_per_slab metadata that /push-mined consumes;
+        # ORPHANs are dropped outright (with a count in the summary).
+        # See anchor_consolidation.apply_to_proposals for the full
+        # contract — this is identical for both miners.
+        from .anchor_consolidation import analyze_proposals, apply_to_proposals
+        cons_summary = None
+        inline_map: dict[str, list[dict]] = {}
+        try:
+            plan, id_to_proposal = analyze_proposals(all_proposals, edge_proposals)
+            all_proposals, edge_proposals, inline_map, cons_summary = apply_to_proposals(
+                all_proposals, edge_proposals, plan, id_to_proposal,
+            )
+            logger.info("[CONS] %s", cons_summary)
+        except Exception as exc:
+            # Consolidation failures must never block a mine. Log loudly
+            # and pass the un-consolidated set through; the previous
+            # behaviour (corpus-level consolidate-after-promote) is
+            # still available as a fallback.
+            logger.warning("Consolidation failed (passing through unfiltered): %r", exc)
+
         return {
             "format": fmt,
             "exchanges": len(exchanges),
@@ -995,6 +1019,11 @@ class ConversationMiner:
             "proposal_count": len(all_proposals),
             "edge_count": len(edge_proposals),
             "source_label": source_label,
+            # Pipeline metadata consumed by /push-mined — the leading
+            # underscore signals "internal-handshake field, not part
+            # of the public proposal payload".
+            "_inline_anchors_per_slab": inline_map,
+            "_consolidation_summary": cons_summary,
         }
 
     async def mine_file(self, path: str | Path, **kwargs) -> dict:

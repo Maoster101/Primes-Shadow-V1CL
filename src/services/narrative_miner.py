@@ -1145,6 +1145,25 @@ class NarrativeMiner:
 
         all_edges = seq_edges + links_edges
 
+        # Pipeline-integrated consolidation — see convo_miner.mine() for
+        # the full rationale. Runs BEFORE the dict serialization so
+        # leaf anchors never reach /push-mined or the workbench drafts
+        # list. KEEPs survive; DEMOTEs become inline records via
+        # _inline_anchors_per_slab; ORPHANs drop with a summary count.
+        # Failures pass through unfiltered (corpus-level consolidate
+        # remains available as fallback).
+        from .anchor_consolidation import analyze_proposals, apply_to_proposals
+        cons_summary = None
+        inline_map: dict[str, list[dict]] = {}
+        try:
+            plan, id_to_proposal = analyze_proposals(all_proposals, all_edges)
+            all_proposals, all_edges, inline_map, cons_summary = apply_to_proposals(
+                all_proposals, all_edges, plan, id_to_proposal,
+            )
+            logger.info("[CONS] %s", cons_summary)
+        except Exception as exc:
+            logger.warning("Consolidation failed (passing through unfiltered): %r", exc)
+
         return {
             "format": "narrative",
             "segments": len(segments),
@@ -1178,6 +1197,8 @@ class NarrativeMiner:
             "proposal_count": len(all_proposals),
             "edge_count": len(all_edges),
             "source_label": source_label,
+            "_inline_anchors_per_slab": inline_map,
+            "_consolidation_summary": cons_summary,
         }
 
     async def mine_file(self, path: str | Path, **kwargs) -> dict:
