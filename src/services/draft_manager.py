@@ -206,6 +206,18 @@ class DraftManager:
             if not text:
                 continue
 
+            # Defense-in-depth heading filter for anchor proposals — same
+            # rule the document miners apply at extraction parse time. The
+            # per-turn sweep prompt rarely produces section-heading-shaped
+            # anchors (chat content has no headings) but the filter is
+            # cheap and catches edge cases like "Topic A and Topic B" type
+            # compound headings the speaker might dictate aloud.
+            if prop_type == "anchor":
+                from .narrative_miner import _looks_like_section_heading
+                if _looks_like_section_heading(text):
+                    print(f"[DRAFT]   skip (heading-shape): {text[:60]}", flush=True)
+                    continue
+
             dup = await self._dedup_check(text)
             if dup:
                 print(f"[DRAFT]   skip (dup of {dup}): {text[:60]}", flush=True)

@@ -24,10 +24,13 @@ oriented toward novelty, not cross-reference.
 _EDGE_TYPES_BLOCK = """\
   - INVOKES: A summons or activates B (structural dependency, e.g. an anchor points to the slab it describes).
   - SUPPORTS: A provides evidence, grounding, or justification for B.
-  - CONFLICTS: A and B make incompatible claims. Both endpoints must be preserved together — seeing one without the other produces biased reasoning.
+  - CONFLICTS: A and B make incompatible claims. The speaker positions one as wrong/incompatible with the other. Both endpoints must be preserved — seeing one without the other produces biased reasoning.
+  - TENSIONS: A and B counterbalance each other but BOTH remain valid. Use this for dialectical pairs and tradeoffs where neither side cancels the other (e.g. mercy and justice, creative breadth and rigorous depth, user agency and system safety).
   - LINKS: soft association — A and B are related but no stronger claim can be made.
   - SEQUENCE: A precedes B in a narrative or causal chain (story order, derivation step, temporal priority).
-  - PARENT_OF: A is a container/bundle whose scope includes B (hierarchical composition)."""
+  - PARENT_OF: A is a container/bundle whose scope includes B (hierarchical composition).
+
+CONFLICTS vs TENSIONS distinction: "X is wrong, Y is right" or "X and Y are incompatible" → CONFLICTS. "X and Y both valid, must balance" → TENSIONS."""
 
 
 PROPOSAL_EXTRACTION_PROMPT = """\
@@ -46,6 +49,27 @@ Rules:
   HYPOTHESIS (conjecture), or UNKNOWN.
 - If nothing in the conversation is genuinely novel or load-bearing, return \
   {"proposals": [], "edges": []}.
+
+FOIL / OPPOSING ANCHORS (when applicable):
+When the speaker contrasts THEIR concept with an opposing force, default behaviour, \
+or characterisation they're arguing against, extract BOTH SIDES as anchors. The \
+speaker's concept AND the foil are equally valid corpus hooks — without both in \
+the corpus, downstream CONFLICTS / TENSIONS edges have nothing to connect.
+
+Examples:
+- "fighting a statistical war against the Internet Average" → both `statistical war` \
+  AND `Internet Average` (the opposing force the speaker is positioning against)
+- "Neural Gravity pulls AI away from my Private Logic" → both `Neural Gravity` AND \
+  `Private Logic`, then a CONFLICTS edge between them
+- "mercy and justice both have moral weight" → both anchors, then a TENSIONS edge
+
+Foil anchors don't need to be coined — characterisations like "Probabilistic Engine", \
+"the average user", "Standard English" are valid foils when they appear as something \
+the speaker positions against. Single-side extraction loses the dialectic structure \
+the corpus is designed to capture.
+
+Then, if you've extracted a foil pair (or if the conversation explicitly contrasts \
+two concepts), emit the corresponding CONFLICTS / TENSIONS edge between them.
 
 RELATIONSHIPS (Phase 3): if the conversation asserts a clear relationship \
 between two concepts, also emit edges connecting them. Use concept labels \
