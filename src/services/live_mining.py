@@ -44,6 +44,7 @@ this pass just classifies them.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -142,6 +143,54 @@ class CanonicalizationPlan:
 # ── Stubs for the analysis pipeline (filled in subsequent commits) ─
 
 
+def _phrase_appears_in_text(phrase: str, text: str) -> bool:
+    """Word-bounded case-insensitive substring check.
+
+    Used as a verbatim-match precheck before falling back to
+    embedding cosine. Catches the calibration miss where a short
+    phrase (e.g. "Neural Gravity") appears literally in a long turn
+    but the long-turn embedding dilutes the cosine below threshold.
+
+    Word-bounded so "log" doesn't false-match "Private Logic" and
+    "NG" doesn't false-match "singing". Empty inputs are no-match.
+    """
+    if not phrase or not text:
+        return False
+    pattern = r"\b" + re.escape(phrase) + r"\b"
+    return bool(re.search(pattern, text, re.IGNORECASE))
+
+
+def _draft_phrase_appears_in_turn(packet: DraftPacket, turn_content: str) -> bool:
+    """True if the draft's canonical_phrase OR any alias appears
+    word-bounded in turn_content.
+
+    For anchors: check canonical_phrase + each alias.
+    For slabs:   check title only (full canonical_text would
+                 false-match too readily — slab content is prose).
+    For bundles: check each intent string.
+    """
+    if packet.packet_type == "anchor" and packet.anchor:
+        if _phrase_appears_in_text(
+            packet.anchor.get("canonical_phrase", "") or "", turn_content,
+        ):
+            return True
+        for alias in (packet.anchor.get("aliases") or []):
+            if _phrase_appears_in_text(alias, turn_content):
+                return True
+        return False
+    if packet.packet_type == "slab" and packet.slab:
+        return _phrase_appears_in_text(
+            packet.slab.get("title", "") or "", turn_content,
+        )
+    if packet.packet_type == "bundle" and packet.bundle:
+        intent = (packet.bundle.get("payload") or {}).get("intent") or []
+        for item in intent:
+            if _phrase_appears_in_text(item, turn_content):
+                return True
+        return False
+    return False
+
+
 def _draft_text_for_matching(packet: DraftPacket) -> str:
     """Extract a comparable text representation from a draft packet.
 
@@ -198,8 +247,7 @@ async def update_reference_history(
 
     # Load and filter candidate drafts
     packets = deps.session_store.list_draft_packets(session_id)
-    candidates: list[DraftPacket] = []
-    candidate_texts: list[str] = []
+    initial_candidates: list[DraftPacket] = []
     for p in packets:
         if p.status != DraftStatus.DRAFT_UNAUTHORIZED:
             continue
@@ -209,65 +257,94 @@ async def update_reference_history(
             continue  # don't self-match the raising turn
         if turn in p.referenced_in_turns:
             continue  # already recorded for this turn
-        text = _draft_text_for_matching(p)
-        if not text:
-            continue
-        candidates.append(p)
-        candidate_texts.append(text)
+        if not _draft_text_for_matching(p):
+            continue  # nothing embeddable / no canonical text
+        initial_candidates.append(p)
 
-    if not candidates:
+    if not initial_candidates:
         return 0
 
-    # One Ollama batch call: turn_content + all candidate texts.
-    # Batching avoids N+1 round-trips through nomic-embed-text.
-    try:
-        vecs = await ollama.embed([turn_content] + candidate_texts)
-    except Exception as exc:
-        logger.warning(
-            "[LIVE-MINE] Embedding for reference matching failed (turn %d): %r",
-            turn, exc,
-        )
-        return 0
-    if not vecs or len(vecs) != len(candidates) + 1:
-        logger.warning(
-            "[LIVE-MINE] Embed returned %d vecs for %d inputs (turn %d)",
-            len(vecs) if vecs else 0, len(candidates) + 1, turn,
-        )
-        return 0
-
-    # L2-normalize once for cosine via dot product. nomic-embed-text
-    # vectors aren't pre-normalized so we have to do this ourselves.
-    turn_arr = np.array(vecs[0], dtype=float)
-    turn_norm = float(np.linalg.norm(turn_arr))
-    if turn_norm == 0.0:
-        return 0
-    turn_arr = turn_arr / turn_norm
+    # Two-signal matching:
+    #   1. Verbatim string match (cheap, catches "user names the
+    #      draft phrase explicitly in this turn"). Short-circuits
+    #      embedding for matched drafts.
+    #   2. Embedding cosine (semantic match for paraphrased
+    #      references). Falls back for drafts that didn't verbatim-
+    #      match.
+    # Either signal suffices; defense-in-depth handles the
+    # calibration case where long-turn embeddings dilute verbatim-
+    # phrase cosines below threshold (we measured 0.51 for a verbatim
+    # "Neural Gravity" appearance — below the 0.55 cutoff).
+    verbatim_matches: list[DraftPacket] = []
+    embedding_candidates: list[DraftPacket] = []
+    for p in initial_candidates:
+        if _draft_phrase_appears_in_turn(p, turn_content):
+            verbatim_matches.append(p)
+        else:
+            embedding_candidates.append(p)
 
     updated_count = 0
-    for packet, candidate_vec in zip(candidates, vecs[1:]):
-        cand_arr = np.array(candidate_vec, dtype=float)
-        cand_norm = float(np.linalg.norm(cand_arr))
-        if cand_norm == 0.0:
-            continue
-        cand_arr = cand_arr / cand_norm
-        sim = float(np.dot(turn_arr, cand_arr))
-        if sim < REFERENCE_THRESHOLD:
-            continue
-        # Append turn + persist the updated packet. Idempotent against
-        # double-fire (the `turn in p.referenced_in_turns` guard above
-        # filters re-runs).
+
+    # --- Path 1: verbatim hits — record + persist directly ---
+    for packet in verbatim_matches:
         packet.referenced_in_turns.append(turn)
         deps.session_store.save_draft_packet(session_id, packet)
         updated_count += 1
         logger.debug(
-            "[LIVE-MINE] turn %d references draft %s (sim=%.2f)",
-            turn, packet.id, sim,
+            "[LIVE-MINE] turn %d references draft %s (verbatim)",
+            turn, packet.id,
         )
+
+    # --- Path 2: embedding cosine for the rest ---
+    if embedding_candidates:
+        candidate_texts = [_draft_text_for_matching(p) for p in embedding_candidates]
+        try:
+            vecs = await ollama.embed([turn_content] + candidate_texts)
+        except Exception as exc:
+            logger.warning(
+                "[LIVE-MINE] Embedding for reference matching failed (turn %d): %r",
+                turn, exc,
+            )
+            # Verbatim hits already counted; just return that count.
+            return updated_count
+        if not vecs or len(vecs) != len(embedding_candidates) + 1:
+            logger.warning(
+                "[LIVE-MINE] Embed returned %d vecs for %d inputs (turn %d)",
+                len(vecs) if vecs else 0, len(embedding_candidates) + 1, turn,
+            )
+            return updated_count
+
+        # L2-normalize once for cosine via dot product. nomic-embed-text
+        # vectors aren't pre-normalized so we have to do this ourselves.
+        turn_arr = np.array(vecs[0], dtype=float)
+        turn_norm = float(np.linalg.norm(turn_arr))
+        if turn_norm == 0.0:
+            return updated_count
+        turn_arr = turn_arr / turn_norm
+
+        for packet, candidate_vec in zip(embedding_candidates, vecs[1:]):
+            cand_arr = np.array(candidate_vec, dtype=float)
+            cand_norm = float(np.linalg.norm(cand_arr))
+            if cand_norm == 0.0:
+                continue
+            cand_arr = cand_arr / cand_norm
+            sim = float(np.dot(turn_arr, cand_arr))
+            if sim < REFERENCE_THRESHOLD:
+                continue
+            packet.referenced_in_turns.append(turn)
+            deps.session_store.save_draft_packet(session_id, packet)
+            updated_count += 1
+            logger.debug(
+                "[LIVE-MINE] turn %d references draft %s (sim=%.2f)",
+                turn, packet.id, sim,
+            )
 
     if updated_count:
         logger.info(
-            "[LIVE-MINE] Turn %d cross-referenced %d existing draft(s)",
+            "[LIVE-MINE] Turn %d cross-referenced %d existing draft(s) "
+            "(%d verbatim, %d via embedding)",
             turn, updated_count,
+            len(verbatim_matches), updated_count - len(verbatim_matches),
         )
     return updated_count
 
