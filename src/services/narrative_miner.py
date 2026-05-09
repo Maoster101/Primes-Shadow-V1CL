@@ -394,6 +394,136 @@ def build_sequence_edges(proposals: list[MiningProposal]) -> list[EdgeProposal]:
     return edges
 
 
+# ─── Dialectic edges (CONFLICTS / TENSIONS) ──────────────────────────────
+
+
+DIALECTIC_PROMPT = """You are scanning a list of corpus proposals for FOIL PAIRS.
+
+A foil pair is two concepts where the text positions one against the other:
+  - one is the author's own concept; the other is the opposing force, default behaviour, or characterisation being argued against
+  - or both are equally-valid concepts that pull in different directions and must be balanced (e.g. mercy vs justice)
+
+Edge types you may emit:
+
+- **CONFLICTS** — Direct opposition. One concept rejects, contradicts, or refutes the other. The text takes a stance that one side is WRONG / incompatible / mutually exclusive with the other.
+  Examples: "individual sovereignty" CONFLICTS with "central authority mandate"; "Private Logic" CONFLICTS with "Internet Average"
+
+- **TENSIONS** — Productive tension. Two concepts pull against each other but BOTH remain valid; they counterbalance rather than reject. Use this for dialectical pairs, ethical counterweights, design tradeoffs where both sides have merit.
+  Examples: "mercy" TENSIONS with "justice"; "creative breadth" TENSIONS with "rigorous depth"; "user agency" TENSIONS with "system safety"
+
+CONFLICTS vs TENSIONS distinction:
+  - "X is wrong, Y is right" or "X and Y are incompatible" → CONFLICTS
+  - "X and Y are both true and we have to balance them" → TENSIONS
+
+Proposals (anchors only — slabs and bundles are not edge endpoints for this pass):
+{proposals_text}
+
+Return ONLY valid JSON. Do NOT emit other edge types — this pass is dialectic-only:
+
+{{
+  "edges": [
+    {{
+      "type": "CONFLICTS",
+      "from": "exact canonical_phrase of source anchor",
+      "to": "exact canonical_phrase of target anchor",
+      "justification": "what makes this a foil pair",
+      "confidence": 0.0-1.0
+    }}
+  ]
+}}
+
+If you find ZERO foil pairs, return ``{{"edges": []}}``. Don't manufacture pairs that aren't there — non-argumentative content (technical specs, descriptive narrative, declarative documents) often has no foil pairs at all. Returning [] is the correct answer for that content.
+
+Use EXACT canonical_phrase from the proposals list. Maximum 12 dialectic edges (real foil pairs are usually rare even in argumentative content).
+"""
+
+
+async def extract_dialectic_edges(
+    proposals: list[MiningProposal],
+) -> list[EdgeProposal]:
+    """Run a focused LLM pass to identify CONFLICTS / TENSIONS edges
+    between anchor proposals.
+
+    Distinct from the convo_miner's general extract_edges() — that
+    one produces ALL edge types (INVOKES, SEQUENCE, REGULATES,
+    SUPPORTS, CONFLICTS, TENSIONS) and is tuned for chat content.
+    Narrative miner already produces SEQUENCE via the spine and
+    LINKS via Pass-3 references, so a general edge extractor here
+    would emit duplicates. This dialectic-only pass focuses the
+    model on the foil-pair surface and keeps narrative miner's
+    existing edge generation intact.
+
+    Operates on anchors only. Slab-level dialectic isn't surfaced
+    by this pass; the foil-anchor extraction in Pass 1 is what
+    gives this pass material to work with.
+
+    Returns [] when:
+      - Fewer than 2 anchor proposals (nothing to pair)
+      - Model returns empty edge list (no foil pairs in content —
+        the right answer for non-argumentative content)
+      - LLM call or parse fails (logged, doesn't block the mine)
+    """
+    anchors = [p for p in proposals if p.proposal_type == "anchor"]
+    if len(anchors) < 2:
+        return []
+
+    # Build anchor list for the prompt — canonical_phrase + justification
+    # so the model can spot foil framing ("the opposing force the speaker
+    # is arguing against") without having to re-derive it from raw text.
+    lines = []
+    for a in anchors:
+        just = (a.justification or "").strip()[:120]
+        suffix = f"  — {just}" if just else ""
+        lines.append(f"  - \"{a.canonical_phrase}\"{suffix}")
+    prompt = DIALECTIC_PROMPT.replace(
+        "{proposals_text}", "\n".join(lines),
+    )
+
+    try:
+        resp = await ollama.structured_extract(prompt)
+    except Exception as exc:
+        logger.warning("Dialectic-edge pass failed: %r", exc)
+        return []
+
+    raw_edges = resp.get("edges") if isinstance(resp, dict) else None
+    if not isinstance(raw_edges, list):
+        return []
+
+    out: list[EdgeProposal] = []
+    for r in raw_edges:
+        if not isinstance(r, dict):
+            continue
+        etype = (r.get("type") or "").upper()
+        # Strict allowlist — even if model emits other types, drop them.
+        # narrative_miner has its own SEQUENCE / LINKS paths.
+        if etype not in {"CONFLICTS", "TENSIONS"}:
+            continue
+        from_label = (r.get("from") or "").strip()
+        to_label = (r.get("to") or "").strip()
+        if not from_label or not to_label or from_label == to_label:
+            continue
+        try:
+            conf = float(r.get("confidence", 0.65))
+        except Exception:
+            conf = 0.65
+        out.append(EdgeProposal(
+            edge_type=etype,
+            from_label=from_label,
+            to_label=to_label,
+            confidence=conf,
+            justification=(r.get("justification") or "").strip(),
+        ))
+
+    if out:
+        logger.info(
+            "Dialectic-edge pass: emitted %d edges (%d CONFLICTS, %d TENSIONS)",
+            len(out),
+            sum(1 for e in out if e.edge_type == "CONFLICTS"),
+            sum(1 for e in out if e.edge_type == "TENSIONS"),
+        )
+    return out
+
+
 # ─── Co-occurrence edges (slab ↔ anchor) ─────────────────────────────────
 
 
@@ -539,6 +669,17 @@ Granularity rules:
 Density:
   - Match the segment's information density. A compressed paragraph with many distinct named concepts may yield many anchors; a sparse segment may yield one or none.
   - Don't manufacture anchors to hit a target. Don't suppress real ones to stay terse.
+
+Foil / opposing anchors (REQUIRED when applicable):
+  When the text contrasts a concept with an OPPOSING force, characterization, or default behavior, extract BOTH SIDES as anchors. The text's own concept AND the foil it's arguing against are equally valid corpus hooks — without both, the dialectic edge pass downstream can't surface CONFLICTS / TENSIONS pairs.
+
+  Examples of foil-pair extraction:
+    - "fighting a statistical war against the Internet Average" → extract `statistical war` AND `Internet Average`
+    - "Neural Gravity pulls AI away from my Private Logic" → extract `Neural Gravity` (opposing force) AND `Private Logic` (the author's concept)
+    - "Standard AI treats *sadness* as a feeling, but my logic uses it as a generalized state" → extract both interpretations as separate anchors
+    - "mercy and justice both have moral weight" → extract `mercy` AND `justice` (productive tension, not conflict)
+
+  Foil anchors don't need to be coined explicitly — characterizations like "Probabilistic Engine", "Internet Average", "Neural Gravity", "Standard English" are valid foils when they appear as the thing being argued against. If the text positions itself against something, name that something so downstream edges can connect them.
 
 Confidence — categories first, numbers as scaffold:
   - HIGH (~0.85+) = explicitly named, defined, or distinctively coined in the text
@@ -1245,7 +1386,21 @@ class NarrativeMiner:
         # higher signal than phrase-match heuristics).
         links_edges = [e for e in all_links_edges if e.confidence >= min_confidence]
 
-        all_edges = seq_edges + links_edges
+        # ── Dialectic edges (CONFLICTS / TENSIONS) ─────────────────
+        # Focused LLM pass over the anchor set looking for foil pairs.
+        # Returns [] for non-argumentative content; produces the
+        # dialectic edges that convo_miner has been emitting for chat
+        # content but narrative miner was missing. Pass 1's foil-anchor
+        # extraction gives this pass the material to work with.
+        mining_progress.set_phase("dialectic_edges", total=1)
+        try:
+            dialectic_edges = await extract_dialectic_edges(all_proposals)
+        except Exception as exc:
+            logger.warning("Dialectic-edge pass failed: %r", exc)
+            dialectic_edges = []
+        mining_progress.increment()
+
+        all_edges = seq_edges + links_edges + dialectic_edges
 
         # Pipeline-integrated consolidation — see convo_miner.mine() for
         # the full rationale. Runs BEFORE the dict serialization so

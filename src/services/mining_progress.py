@@ -136,7 +136,8 @@ _PHASE_WEIGHTS = {
     "segmenting": 0.01,
     "anchor_extraction": 0.40,
     "bundle_synthesis": 0.05,
-    "slab_extraction": 0.45,
+    "slab_extraction": 0.43,
+    "dialectic_edges": 0.06,
     "consolidation": 0.05,
     # convo miner phases
     "normalizing": 0.01,
@@ -171,7 +172,7 @@ def _compute_overall_pct(snap: dict) -> float:
                  "edge_extraction", "consolidation"]
     else:
         order = ["segmenting", "anchor_extraction", "bundle_synthesis",
-                 "slab_extraction", "consolidation"]
+                 "slab_extraction", "dialectic_edges", "consolidation"]
 
     total_weight = sum(_PHASE_WEIGHTS.get(p, 0.0) for p in order)
     if total_weight <= 0:
