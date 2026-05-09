@@ -387,6 +387,7 @@
         <div class="dn-item" data-page="stale" onclick="dashNav('stale')"><span class="dn-icon">&#9888;</span> Stale Review</div>
         <div class="dn-item" data-page="mine" onclick="dashNav('mine')"><span class="dn-icon">&#9889;</span> AI Mine</div>
         <div class="dn-item" data-page="dream" onclick="dashNav('dream')"><span class="dn-icon">&#9790;</span> Dream</div>
+        <div class="dn-item" data-page="canonicalize" onclick="dashNav('canonicalize')"><span class="dn-icon">&#9930;</span> Canonicalize</div>
         <div class="dn-item" data-page="verify" onclick="dashNav('verify')"><span class="dn-icon">&#10003;</span> Verify</div>
         <div class="dn-item" data-page="tentative" onclick="dashNav('tentative')"><span class="dn-icon">&#9901;</span> Tentative</div>
         <div class="dn-item" data-page="export" onclick="dashNav('export')"><span class="dn-icon">&#8681;</span> Export</div>
@@ -1551,6 +1552,7 @@ function dashNav(page){
     stale:dashPageStale,
     mine:dashPageMine,
     dream:dashPageDream,
+    canonicalize:dashPageCanonicalize,
     verify:dashPageVerify,
     tentative:dashPageTentative,
     export:dashPageExport,
@@ -3307,6 +3309,222 @@ function _dreamStartPolling(){
 }
 function _dreamStopPolling(){
   if(_dreamPolling){clearInterval(_dreamPolling);_dreamPolling=null}
+}
+
+// ── Canonicalize page ──
+// Trajectory canonicalization for live-mined chat sessions. Walks the
+// ghost stack at end-of-conversation, classifies each tentative draft's
+// epistemic status (CONFIRMED / DRIFTED / RETRACTED / UNTOUCHED), and
+// applies the verdict via the lifecycle service. Dry-run by default;
+// user reviews the plan before applying. See services/live_mining.py
+// for the backend.
+let _canonInflightSession=null;     // session currently dry-running / applying
+let _canonPlanCache={};              // session_id → last plan response (for re-display)
+let _canonUseLLM=true;               // toggle whether single-ref drafts go through LLM disambig
+
+function dashPageCanonicalize(c){
+  c.innerHTML=`
+    <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:6px">Canonicalize <span style="font-size:13px;color:var(--text-dim);font-weight:400">trajectory analysis over live-mined drafts</span></div>
+    <div style="font-size:10px;color:var(--text-dim);margin-bottom:18px">Walks each session's ghost stack at end-of-conversation: drafts referenced 2+ times become <strong>CONFIRMED</strong> (promote to corpus); drafts never referenced after grace become <strong>UNTOUCHED</strong> (preserve or discard by salience); single-reference drafts go through an LLM disambiguation pass that classifies CONFIRMATION / RETRACTION / DRIFT / passing mention. Dry-run first; apply commits.</div>
+    <div id="canon-sessions-body"><div class="dpanel-empty">Loading sessions...</div></div>
+    <div id="canon-plan-body" style="margin-top:18px"></div>`;
+  _canonLoadSessions();
+}
+
+async function _canonLoadSessions(){
+  const body=document.getElementById('canon-sessions-body');
+  if(!body)return;
+  try{
+    const res=await fetch(`${API}/sessions`);
+    if(!res.ok)throw new Error(`HTTP ${res.status}`);
+    const data=await res.json();
+    const sessions=(data.sessions||[]).filter(s=>s.draft_count>0);
+    if(!sessions.length){
+      body.innerHTML='<div class="dpanel-empty">No workbench sessions with drafts found.</div>';
+      return;
+    }
+    body.innerHTML=`
+      <div class="dpanel" style="margin-bottom:14px;padding:10px 14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <span style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em">Sessions with active drafts</span>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--text)">${sessions.length}</span>
+        <div style="flex:1"></div>
+        <label style="font-size:10px;color:var(--text-dim);display:flex;gap:6px;align-items:center;cursor:pointer">
+          <input type="checkbox" ${_canonUseLLM?'checked':''} onchange="_canonUseLLM=this.checked">
+          Use LLM disambiguation
+        </label>
+      </div>
+      <table class="dtable">
+        <thead><tr>
+          <th>Session</th>
+          <th style="text-align:right">Drafts</th>
+          <th style="text-align:right">Last Activity</th>
+          <th style="text-align:right">Action</th>
+        </tr></thead>
+        <tbody>${sessions.map(s=>{
+          const ts=s.mtime?new Date(s.mtime*1000).toLocaleString():'—';
+          const isInflight=_canonInflightSession===s.id;
+          const btnLabel=isInflight?'Running...':'Dry-Run';
+          const btnDisabled=!!isInflight;
+          return `<tr>
+            <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text)">${_esc(s.id)}</td>
+            <td style="text-align:right;font-size:11px;color:var(--text-dim)">${s.draft_count}</td>
+            <td style="text-align:right;font-size:9px;color:var(--text-dim)">${ts}</td>
+            <td style="text-align:right">
+              <button class="dbtn dbtn-blue" style="padding:4px 12px;font-size:10px;${btnDisabled?'opacity:.4;cursor:not-allowed':''}" ${btnDisabled?'disabled':''} onclick="_canonRunDryRun('${s.id}')">${btnLabel}</button>
+            </td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>`;
+  }catch(e){
+    body.innerHTML=`<div class="dpanel-empty">Failed to load sessions: ${_esc(e.message)}</div>`;
+  }
+}
+
+// Fire the dry-run endpoint and render the plan inline.
+async function _canonRunDryRun(sessionId){
+  if(_canonInflightSession)return;
+  _canonInflightSession=sessionId;
+  _canonLoadSessions();   // re-render to show "Running..." state
+
+  const planBody=document.getElementById('canon-plan-body');
+  if(planBody)planBody.innerHTML=`<div class="dpanel" style="padding:14px"><span style="font-size:11px;color:var(--text-dim)">Running canonicalize for <code>${_esc(sessionId)}</code>...${_canonUseLLM?' (with LLM disambiguation, may take ~1-2s per single-ref draft)':''}</span></div>`;
+
+  try{
+    const res=await fetch(`${API}/sessions/${encodeURIComponent(sessionId)}/canonicalize-trajectory`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({confirm:false,sample_size:24,use_llm_disambiguation:_canonUseLLM}),
+    });
+    if(!res.ok){
+      const txt=await res.text().catch(()=>'unknown');
+      throw new Error(`HTTP ${res.status}: ${txt}`);
+    }
+    const plan=await res.json();
+    _canonPlanCache[sessionId]=plan;
+    _renderCanonPlan(plan);
+  }catch(e){
+    if(planBody)planBody.innerHTML=`<div class="dpanel-empty">Dry-run failed: ${_esc(e.message)}</div>`;
+  }finally{
+    _canonInflightSession=null;
+    _canonLoadSessions();
+  }
+}
+
+// Apply a previously-shown plan (i.e., dry-run already loaded for this
+// session) — fires the same endpoint with confirm=true.
+async function _canonApply(sessionId){
+  const plan=_canonPlanCache[sessionId];
+  if(!plan){alert('Run dry-run first.');return}
+  const summary=plan.summary||{};
+  const msg=`Apply canonicalization to ${sessionId}?\n\n` +
+            `${summary.confirmed||0} CONFIRMED → corpus\n` +
+            `${summary.retracted||0} RETRACTED → discard (audit trail kept)\n` +
+            `${summary.drifted||0} DRIFTED → discard (audit trail kept)\n` +
+            `${summary.untouched_keep||0} preserve as tentative\n` +
+            `${summary.untouched_drop||0} discard\n\n` +
+            `This mutates the corpus. Continue?`;
+  if(!confirm(msg))return;
+
+  if(_canonInflightSession)return;
+  _canonInflightSession=sessionId;
+  _canonLoadSessions();
+
+  try{
+    const res=await fetch(`${API}/sessions/${encodeURIComponent(sessionId)}/canonicalize-trajectory`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({confirm:true,sample_size:24,use_llm_disambiguation:_canonUseLLM}),
+    });
+    if(!res.ok){
+      const txt=await res.text().catch(()=>'unknown');
+      throw new Error(`HTTP ${res.status}: ${txt}`);
+    }
+    const result=await res.json();
+    delete _canonPlanCache[sessionId];   // cache stale post-apply
+    const planBody=document.getElementById('canon-plan-body');
+    const r=result.result||{};
+    const errMsg=r.errors>0?`<div style="color:#ff4444;font-size:11px;margin-top:6px">${r.errors} error(s) — see server logs</div>`:'';
+    if(planBody)planBody.innerHTML=`
+      <div class="dpanel" style="padding:14px">
+        <div style="font-size:13px;color:#0AAC00;font-weight:600;margin-bottom:8px">✓ Canonicalize applied</div>
+        <div style="font-size:10px;color:var(--text-dim);font-family:'JetBrains Mono',monospace">
+          confirmed_promoted: ${r.confirmed_promoted||0}<br>
+          retracted_demoted:  ${r.retracted_demoted||0}<br>
+          drifted_demoted:    ${r.drifted_demoted||0}<br>
+          untouched_preserved: ${r.untouched_preserved||0}<br>
+          untouched_discarded: ${r.untouched_discarded||0}<br>
+          edges_emitted:      ${r.edges_emitted||0}
+        </div>
+        ${errMsg}
+      </div>`;
+    pushEvent('proposal',`Canonicalized session ${sessionId}: ${r.confirmed_promoted||0} promoted, ${(r.retracted_demoted||0)+(r.drifted_demoted||0)} demoted`);
+  }catch(e){
+    const planBody=document.getElementById('canon-plan-body');
+    if(planBody)planBody.innerHTML=`<div class="dpanel-empty">Apply failed: ${_esc(e.message)}</div>`;
+  }finally{
+    _canonInflightSession=null;
+    _canonLoadSessions();
+  }
+}
+
+// Render the dry-run plan into #canon-plan-body. Shows summary cards
+// + per-bucket verdict tables + an Apply button.
+function _renderCanonPlan(plan){
+  const body=document.getElementById('canon-plan-body');
+  if(!body)return;
+  const s=plan.summary||{};
+  const samples=plan.samples||{};
+  const sessionId=plan.session_id;
+
+  const card=(label,count,color)=>`
+    <div style="text-align:center;padding:8px 14px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;min-width:90px">
+      <div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em">${label}</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:18px;color:${color};font-weight:600">${count}</div>
+    </div>`;
+
+  const verdictTable=(rows,color)=>{
+    if(!rows||!rows.length)return '<div style="font-size:10px;color:var(--text-dim);padding:8px">(none)</div>';
+    return `<table class="dtable" style="margin-top:6px">
+      <thead><tr>
+        <th>Phrase</th><th>Reason</th>
+        <th style="text-align:right">Raised</th>
+        <th style="text-align:right">Last ref</th>
+        <th style="text-align:right">Salience</th>
+      </tr></thead>
+      <tbody>${rows.map(v=>`<tr>
+        <td style="font-size:11px;color:${color};font-weight:500">${_esc(v.canonical_phrase||v.draft_id)}</td>
+        <td style="font-size:10px;color:var(--text-dim);max-width:380px">${_esc(v.reason||'')}</td>
+        <td style="text-align:right;font-size:10px;color:var(--text-dim)">${v.raised_at_turn??'—'}</td>
+        <td style="text-align:right;font-size:10px;color:var(--text-dim)">${v.last_referenced_turn??'—'}</td>
+        <td style="text-align:right;font-size:10px;color:var(--text-dim)">${(v.peak_salience??0).toFixed(2)}</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+  };
+
+  body.innerHTML=`
+    <div class="dpanel" style="padding:14px;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
+        <div>
+          <div style="font-size:13px;color:var(--text);font-weight:600">Canonicalize plan</div>
+          <div style="font-size:10px;color:var(--text-dim);font-family:'JetBrains Mono',monospace">session <code>${_esc(sessionId)}</code> · chat <code>${_esc(plan.chat_id||'?')}</code> · ${s.total_drafts||0} drafts</div>
+        </div>
+        <button class="dbtn dbtn-green" style="padding:8px 18px;font-size:11px" onclick="_canonApply('${sessionId}')">Apply</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${card('Confirmed',s.confirmed||0,'#0AAC00')}
+        ${card('Drifted',s.drifted||0,'#fbbf24')}
+        ${card('Retracted',s.retracted||0,'#ff4444')}
+        ${card('Untouched-Keep',s.untouched_keep||0,'#888')}
+        ${card('Untouched-Drop',s.untouched_drop||0,'#666')}
+      </div>
+    </div>
+
+    ${(s.confirmed||0)>0?`<div class="dpanel" style="padding:14px;margin-bottom:10px"><div style="font-size:12px;color:#0AAC00;font-weight:600;margin-bottom:4px">CONFIRMED → promote to corpus</div>${verdictTable(samples.confirmed||[],'#0AAC00')}</div>`:''}
+    ${(s.retracted||0)>0?`<div class="dpanel" style="padding:14px;margin-bottom:10px"><div style="font-size:12px;color:#ff4444;font-weight:600;margin-bottom:4px">RETRACTED → discard (audit trail kept)</div>${verdictTable(samples.retracted||[],'#ff4444')}</div>`:''}
+    ${(s.drifted||0)>0?`<div class="dpanel" style="padding:14px;margin-bottom:10px"><div style="font-size:12px;color:#fbbf24;font-weight:600;margin-bottom:4px">DRIFTED → discard (audit trail kept)</div>${verdictTable(samples.drifted||[],'#fbbf24')}</div>`:''}
+    ${(s.untouched_keep||0)>0?`<div class="dpanel" style="padding:14px;margin-bottom:10px"><div style="font-size:12px;color:#888;font-weight:600;margin-bottom:4px">UNTOUCHED-KEEP → preserve as tentative library</div>${verdictTable(samples.untouched_keep||[],'#888')}</div>`:''}
+    ${(s.untouched_drop||0)>0?`<div class="dpanel" style="padding:14px;margin-bottom:10px"><div style="font-size:12px;color:#666;font-weight:600;margin-bottom:4px">UNTOUCHED-DROP → discard (low salience)</div>${verdictTable(samples.untouched_drop||[],'#666')}</div>`:''}
+  `;
 }
 
 // ── Tentative library page ──
