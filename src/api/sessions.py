@@ -38,6 +38,18 @@ class PromoteToAnchorRequest(BaseModel):
     node_id: str
 
 
+class CanonicalizeTrajectoryRequest(BaseModel):
+    """Request body for /sessions/{id}/canonicalize-trajectory.
+
+    Dry-run by default. ``confirm=true`` applies the plan, mutating
+    corpus state via lifecycle.promote_draft_corpus / promote_draft_
+    tentative / discard_draft per verdict. Mirrors the dry-run/apply
+    pattern used by /corpora/{id}/consolidate.
+    """
+    confirm: bool = False
+    sample_size: int = 8  # how many verdicts to include per bucket in dry-run preview
+
+
 # --- Sessions & Frame ---
 
 
@@ -99,6 +111,80 @@ async def list_sessions():
 
     out.sort(key=lambda s: s["mtime"], reverse=True)
     return {"sessions": out}
+
+
+@router.post("/sessions/{session_id}/canonicalize-trajectory")
+async def canonicalize_trajectory(
+    session_id: str, req: CanonicalizeTrajectoryRequest,
+):
+    """End-of-conversation trajectory canonicalization.
+
+    Walks the ghost stack for this session, classifies each tentative
+    draft's epistemic trajectory (CONFIRMED / UNTOUCHED-keep /
+    UNTOUCHED-drop, with DRIFTED/RETRACTED stubbed for follow-up).
+    Returns the plan summary + per-bucket verdict samples.
+
+    Dry-run by default (idempotent + safe to call repeatedly to
+    inspect the plan). ``confirm=true`` applies it via the lifecycle
+    service: CONFIRMED → corpus, UNTOUCHED-keep → tentative library,
+    UNTOUCHED-drop → discard.
+
+    Recommended UX: dry-run → user reviews bucket samples → confirm
+    if the verdicts look reasonable. Mirror of /corpora/{id}/
+    consolidate's pattern.
+    """
+    from ..services import live_mining
+    # Resolve chat_id from session metadata so the plan includes
+    # provenance for any future per-chat analytics.
+    meta_path = session_store.session_dir(session_id) / "meta.json"
+    meta = session_store.read_json(meta_path) or {}
+    chat_id = meta.get("chat_id", session_id)
+
+    plan = await live_mining.canonicalize(session_id, chat_id)
+    summary = plan.summary()
+
+    if not req.confirm:
+        # Dry-run preview — return summary + small samples from each
+        # bucket so the UI can render the verdicts before commit.
+        def _sample(bucket):
+            return [
+                {
+                    "draft_id": v.draft_id,
+                    "canonical_phrase": v.canonical_phrase,
+                    "final_status": v.final_status.value,
+                    "reason": v.reason,
+                    "reference_count": v.reference_count,
+                    "raised_at_turn": v.raised_at_turn,
+                    "last_referenced_turn": v.last_referenced_turn,
+                    "peak_salience": v.peak_salience,
+                }
+                for v in bucket[: req.sample_size]
+            ]
+
+        return {
+            "session_id": session_id,
+            "chat_id": chat_id,
+            "applied": False,
+            "summary": summary,
+            "samples": {
+                "confirmed": _sample(plan.confirmed),
+                "drifted": _sample(plan.drifted),
+                "retracted": _sample(plan.retracted),
+                "untouched_keep": _sample(plan.untouched_keep),
+                "untouched_drop": _sample(plan.untouched_drop),
+            },
+        }
+
+    # Apply path — mutates corpus + workbench state.
+    apply_counts = await live_mining.apply_trajectory_plan(plan)
+    return {
+        "session_id": session_id,
+        "chat_id": chat_id,
+        "applied": True,
+        "summary": summary,
+        "result": apply_counts,
+    }
+
 
 @router.post("/sessions/{session_id}/frame/adjust-salience")
 async def adjust_salience(session_id: str, req: NodeSalienceRequest):
