@@ -523,6 +523,13 @@ What NOT to extract:
   - Extended arguments, hypotheses, findings, principles, claims expressed in 3+ sentences. Slab pass.
   - Single common words ("energy", "voice", "system") unless distinctively coined or used in a specific technical sense.
   - Surface mentions that don't have a clear referent (e.g. a passing "they said" without a named subject).
+  - **Section headings.** Phrases that look like a section/chapter/part TITLE rather than a named concept the text references repeatedly. Heuristics:
+    - Title Case across most words AND appears as a standalone line (not embedded in prose)
+    - Comma-separated compound headings ("Sound, Silence, and Acoustic Control", "Session Lifecycle, State Reset, and User Flow")
+    - Phrases that announce a section the text is about to discuss, rather than naming a concept used within that section
+    - Long enumerative lists ("geometry, water physics, air handling, scent control, hygiene")
+    - Parenthetical clarifications presented as labels ("light (neutral, low-flicker, non-extreme)")
+    Headings are STRUCTURAL markers — they tell the chunker where sections begin. They aren't concepts the corpus needs to address. Skip them. The slab pass will pick up the section's actual content, and the chunker uses headings as boundary signals only.
 
 Granularity rules:
   - Prefer ONE longer phrase over two shorter phrases when the longer phrase carries the concept.
@@ -638,6 +645,71 @@ def _normalize_phrase(s: str) -> str:
     return re.sub(r"\s+", " ", s)
 
 
+def _looks_like_section_heading(phrase: str) -> bool:
+    """Defense-in-depth filter for heading-shaped anchors.
+
+    The Pass-1 prompt asks the model to skip section headings, but
+    the model occasionally emits them anyway — particularly compound
+    list-shaped headings ("Sound, Silence, and Acoustic Control").
+    On the pod v3 mine these were 117 of 792 anchors (15%), all
+    orphaned because they had no slab-reach role.
+
+    Three signals, any one triggers the filter:
+      1. Two-or-more comma compound forms with conjunctions —
+         "Session Lifecycle, State Reset, and User Flow" pattern.
+         Real anchors are rarely this enumerative.
+      2. Long phrases (>8 words). Real anchor canonical_phrases are
+         typically 1-6 words; longer is almost always a heading or
+         a sentence fragment that should have been a slab.
+      3. Title-Case-everywhere phrases of >3 words AND no lower-case
+         function words (a/the/of/and/or/in/for/with/etc). Genuine
+         multi-word names hit at least one connector word.
+    """
+    p = phrase.strip()
+    if not p:
+        return True
+    # Rule 1: compound list with explicit conjunction
+    comma_count = p.count(",")
+    has_conj = bool(re.search(r"\b(and|or)\b", p, re.IGNORECASE))
+    if comma_count >= 2 and has_conj:
+        return True
+    # Rule 2: too long for an anchor
+    words = p.split()
+    if len(words) > 8:
+        return True
+    # Rule 3: Title-Case-everywhere with no lowercase connectors
+    # (long compound names like "International Standards Organization Reference Document")
+    lowercase_function_words = {
+        "a", "an", "the", "of", "and", "or", "in", "for", "to",
+        "with", "on", "at", "by", "from", "as",
+    }
+    if len(words) > 3:
+        all_titlecased = all(
+            (w[0].isupper() if w[0].isalpha() else True)
+            for w in words
+        )
+        has_function_word = any(
+            w.lower() in lowercase_function_words for w in words
+        )
+        if all_titlecased and not has_function_word:
+            return True
+    # Rule 4: Short compound-conjunction headings ("Intent and Scope",
+    # "Pilot and Validation"). 2-4 words, contains and/or as a
+    # connector, all non-conjunction words are Title-Case. Catches
+    # the heading shape that rule 3 misses because rule 3 requires
+    # NO function words. Real corpus anchors of this shape ("Black
+    # and White" as a metaphor) are extremely rare in narrative
+    # extraction; the false-positive risk is minimal.
+    if 2 <= len(words) <= 4:
+        non_conj = [w for w in words if w.lower() not in {"and", "or"}]
+        has_conj = any(w.lower() in {"and", "or"} for w in words)
+        if has_conj and non_conj and all(
+            (w[0].isupper() if w[0].isalpha() else True) for w in non_conj
+        ):
+            return True
+    return False
+
+
 # ─── Pass 1 — anchor-only extraction (parallel) ──────────────────────────
 
 
@@ -653,11 +725,17 @@ def _parse_pass1_response(resp, segment_order: int) -> list[MiningProposal]:
     else:
         return []
     out: list[MiningProposal] = []
+    headings_filtered = 0
     for r in raw:
         if not isinstance(r, dict):
             continue
         phrase = _strip_markup((r.get("canonical_phrase") or "").strip())
         if not phrase:
+            continue
+        # Defense-in-depth: drop heading-shaped anchors the prompt
+        # didn't catch. See _looks_like_section_heading docstring.
+        if _looks_like_section_heading(phrase):
+            headings_filtered += 1
             continue
         aliases = [
             _strip_markup(str(a).strip())
@@ -677,6 +755,11 @@ def _parse_pass1_response(resp, segment_order: int) -> list[MiningProposal]:
             source_pairs=[segment_order],
             justification=(r.get("justification") or "").strip(),
         ))
+    if headings_filtered:
+        logger.info(
+            "Pass 1 segment %d: filtered %d heading-shaped anchors",
+            segment_order, headings_filtered,
+        )
     return out
 
 
