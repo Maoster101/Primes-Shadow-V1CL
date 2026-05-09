@@ -799,9 +799,13 @@ def _looks_like_section_heading(phrase: str) -> bool:
       1. Two-or-more comma compound forms with conjunctions —
          "Session Lifecycle, State Reset, and User Flow" pattern.
          Real anchors are rarely this enumerative.
-      2. Long phrases (>8 words). Real anchor canonical_phrases are
-         typically 1-6 words; longer is almost always a heading or
-         a sentence fragment that should have been a slab.
+      2. Long Title-Case-dominant phrases (>8 words AND most words
+         capitalized) — section headings that span many words.
+         Length alone is NOT enough — the project specifically
+         preserves long verbatim quotes as anchors ("Family ain't
+         who you stack on top of the fire", "Nothing persists
+         without consent"), and those are SENTENCE-case, not
+         Title-case. Don't filter sentence-case prose by length.
       3. Title-Case-everywhere phrases of >3 words AND no lower-case
          function words (a/the/of/and/or/in/for/with/etc). Genuine
          multi-word names hit at least one connector word.
@@ -814,10 +818,22 @@ def _looks_like_section_heading(phrase: str) -> bool:
     has_conj = bool(re.search(r"\b(and|or)\b", p, re.IGNORECASE))
     if comma_count >= 2 and has_conj:
         return True
-    # Rule 2: too long for an anchor
     words = p.split()
+    # Rule 2: long phrase AND Title-Case-dominant. The Title-Case
+    # check distinguishes "Section Heading That Goes On A While"
+    # from "family ain't who you stack on top of the fire" — the
+    # latter is a verbatim sentence-case quote and must NOT filter.
     if len(words) > 8:
-        return True
+        # Count words starting with uppercase, ignoring contractions
+        # (a leading "n't" or apostrophe still keeps the word in its
+        # original case). Quotes are ~10-30% capitalized (sentence
+        # case starts one word). Title-case headings are 70%+.
+        uppercase_starts = sum(
+            1 for w in words
+            if w and w[0].isalpha() and w[0].isupper()
+        )
+        if uppercase_starts / len(words) >= 0.6:
+            return True
     # Rule 3: Title-Case-everywhere with no lowercase connectors
     # (long compound names like "International Standards Organization Reference Document")
     lowercase_function_words = {
