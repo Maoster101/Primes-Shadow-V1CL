@@ -20,6 +20,13 @@ from .atomic_io import atomic_write_yaml
 
 CORPUS_ROOT = Path("app/corpus")         # Legacy single-corpus path
 CORPORA_ROOT = Path("app/corpora")       # Multi-collection root
+ACTIVE_STATE_PATH = Path("app/state/registry/active_collections.json")
+# JSON file: {"active": ["collection_id", ...]}. Persists user
+# activate/deactivate toggles across server restarts. Without this,
+# every restart resets the active set to "all collections active",
+# wiping the user's curated active set. The file is rewritten on
+# every activate/deactivate; missing or malformed → falls back to
+# default-all-active behaviour.
 
 
 def _load_yaml(path: Path) -> list[dict]:
@@ -319,8 +326,13 @@ class CorpusRegistry:
         results = {}
         for cid in self.discover():
             results[cid] = self.load_collection(cid)
-        # Activate all by default
+        # Default: activate all. Then apply persisted user preferences
+        # if they exist — only collections actually discovered count
+        # (so a state file mentioning a deleted collection won't error).
         self.active_ids = set(self.collections.keys())
+        persisted = self._load_active_state()
+        if persisted is not None:
+            self.active_ids = persisted & set(self.collections.keys())
         # Self-heal: a slabify (collection → condensate slab) deactivates the
         # source collection in memory, but that state is not persisted. After
         # a server restart, the raw subnodes would leak back into the merged
@@ -330,6 +342,50 @@ class CorpusRegistry:
         # prefix that promote_collection bakes in (see routes.py ~line 1175).
         self._deactivate_absorbed_collections()
         return results
+
+    def _load_active_state(self) -> Optional[set[str]]:
+        """Read the persisted active-collection set from disk.
+
+        Returns None when the state file doesn't exist or fails to
+        parse — caller falls back to default-all-active in that case.
+        """
+        if not ACTIVE_STATE_PATH.exists():
+            return None
+        try:
+            import json
+            data = json.loads(ACTIVE_STATE_PATH.read_text(encoding="utf-8"))
+            active = data.get("active")
+            if not isinstance(active, list):
+                return None
+            return {str(x) for x in active}
+        except Exception as exc:
+            print(
+                f"[CORPUS] Failed to load active_collections state: {exc!r} "
+                f"— falling back to default-all-active",
+                flush=True,
+            )
+            return None
+
+    def _save_active_state(self) -> None:
+        """Persist the active-collection set to disk.
+
+        Called after every activate/deactivate so the user's curated
+        active set survives server restarts. Best-effort: failure to
+        persist is logged but non-fatal — active_ids in memory is
+        still authoritative for the running process.
+        """
+        try:
+            import json
+            ACTIVE_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            ACTIVE_STATE_PATH.write_text(
+                json.dumps({"active": sorted(self.active_ids)}, indent=2),
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            print(
+                f"[CORPUS] Failed to save active_collections state: {exc!r}",
+                flush=True,
+            )
 
     def _deactivate_absorbed_collections(self) -> None:
         """Auto-deactivate any collection whose content has been slabified.
@@ -375,17 +431,19 @@ class CorpusRegistry:
             )
 
     def activate(self, collection_id: str) -> bool:
-        """Add a collection to the active set."""
+        """Add a collection to the active set. Persists across restart."""
         if collection_id not in self.collections:
             return False
         self.active_ids.add(collection_id)
         self._merged_dirty = True
+        self._save_active_state()
         return True
 
     def deactivate(self, collection_id: str) -> bool:
-        """Remove a collection from the active set."""
+        """Remove a collection from the active set. Persists across restart."""
         self.active_ids.discard(collection_id)
         self._merged_dirty = True
+        self._save_active_state()
         return True
 
     def create_collection(self, collection_id: str) -> CorpusStore:
@@ -408,6 +466,7 @@ class CorpusRegistry:
         self.collections[collection_id] = store
         self.active_ids.add(collection_id)
         self._merged_dirty = True
+        self._save_active_state()
         return store
 
     def delete_collection(self, collection_id: str) -> bool:
@@ -417,6 +476,7 @@ class CorpusRegistry:
         self.collections.pop(collection_id, None)
         self.active_ids.discard(collection_id)
         self._merged_dirty = True
+        self._save_active_state()
         return True
 
     @property
