@@ -147,7 +147,20 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
         if not isinstance(prop, dict):
             continue
         prop_type = prop.get("type", "anchor")
-        text = prop.get("canonical_phrase") or prop.get("canonical_text", "") or prop.get("title", "")
+        # Bundle proposals carry their handle in `label`, not the
+        # other text fields. Adding it here was a pre-existing bug:
+        # without it, bundles slip through the empty-text guard
+        # below and never become DraftPackets — so Pass-2 thematic
+        # bundles silently fail to reach the workbench, and the
+        # corpus only ever holds the auto-generated coherence
+        # bundles (now removed). See draft_manager.extract_proposals
+        # for the canonical bundle-handling shape we mirror here.
+        text = (
+            prop.get("canonical_phrase")
+            or prop.get("canonical_text", "")
+            or prop.get("title", "")
+            or prop.get("label", "")
+        )
         if not text:
             continue
 
@@ -157,6 +170,7 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
         # (same pattern as DraftManager.extract_proposals).
         inline_anchor = None
         inline_slab = None
+        inline_bundle = None
         if prop_type == "anchor":
             inline_anchor = {
                 "id": draft_id,
@@ -187,6 +201,43 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
                 },
                 "version": "v1",
             }
+        elif prop_type == "bundle":
+            # Bundles are produced by Pass 2 (narrative miner clustering)
+            # and by convo_miner's main extraction pass. Their handle is
+            # `label`; their members live in `aliases` as a list of
+            # member anchor canonical_phrases. The DraftPacket-level
+            # representation maps these to a BundlePayload-shaped dict
+            # so promote-time conversion lands cleanly as a KeyBundle.
+            label = (prop.get("label") or "").strip()
+            members = list(prop.get("aliases") or [])
+            justification = (prop.get("justification") or "").strip()
+            # BundlePayload requires a non-empty intent list. Fall through
+            # ladder: justification → label → draft_id.
+            intent = (
+                [justification] if justification
+                else [label] if label
+                else [draft_id]
+            )
+            inline_bundle = {
+                "id": draft_id,
+                "payload": {
+                    "intent": intent[:3],
+                    "invariants": [],
+                    "non_assumptions": [],
+                    "warnings": [],
+                    "heuristics": [],
+                    "markers": [],
+                    "rules": [],
+                    "activation_clause": [],
+                    "canonical_quote_handles": [],
+                },
+                "version": "v1",
+                # Member anchor phrases stashed for the promote step;
+                # they get resolved to anchor IDs and emitted as
+                # INVOKES edges in the bundle→slab causality refactor.
+                # For now, just preserve the membership info.
+                "_member_phrases": members,
+            }
 
         packet = DraftPacket(
             id=draft_id,
@@ -200,6 +251,7 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
             fact_claims=[text] if prop.get("claim_tag") == "FACT" else [],
             anchor=inline_anchor,
             slab=inline_slab,
+            bundle=inline_bundle,
         )
 
         session_store.save_draft_packet(session_id, packet)
