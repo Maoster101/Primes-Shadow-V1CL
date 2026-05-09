@@ -45,9 +45,15 @@ class CanonicalizeTrajectoryRequest(BaseModel):
     corpus state via lifecycle.promote_draft_corpus / promote_draft_
     tentative / discard_draft per verdict. Mirrors the dry-run/apply
     pattern used by /corpora/{id}/consolidate.
+
+    ``use_llm_disambiguation=True`` (default) runs the LLM pass on
+    single-reference drafts to classify CONFIRMATION / RETRACTION /
+    DRIFT / PASSING_MENTION. Set False for fast preview without
+    burning LLM calls — single-ref drafts stay UNTOUCHED in that mode.
     """
     confirm: bool = False
     sample_size: int = 8  # how many verdicts to include per bucket in dry-run preview
+    use_llm_disambiguation: bool = True
 
 
 # --- Sessions & Frame ---
@@ -140,7 +146,10 @@ async def canonicalize_trajectory(
     meta = session_store.read_json(meta_path) or {}
     chat_id = meta.get("chat_id", session_id)
 
-    plan = await live_mining.canonicalize(session_id, chat_id)
+    plan = await live_mining.canonicalize(
+        session_id, chat_id,
+        use_llm_disambiguation=req.use_llm_disambiguation,
+    )
     summary = plan.summary()
 
     if not req.confirm:

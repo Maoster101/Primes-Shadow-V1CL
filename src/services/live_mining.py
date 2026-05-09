@@ -67,6 +67,47 @@ logger = logging.getLogger(__name__)
 REFERENCE_THRESHOLD = 0.55
 
 
+# Prompt for the LLM disambiguation pass — fires only on drafts with
+# reference_count == 1 where heuristics can't decide CONFIRMED vs
+# DRIFTED vs RETRACTED vs PASSING_MENTION. Compact enough for a
+# small LLM (gemma3:12b or smaller) to handle reliably; gives the
+# model the source turn + reference turn + draft phrase as context.
+_DISAMBIGUATION_PROMPT = """You're analyzing how a position raised in a conversation evolved across turns.
+
+A tentative position was raised at turn {raised_at}, then mentioned once at turn {reference_turn}. Classify how the reference relates to the original position.
+
+DRAFT POSITION:
+  Phrase: {canonical_phrase}
+  Context: {justification}
+
+ORIGINAL TURN (turn {raised_at}, where the position was raised):
+{source_turn_content}
+
+REFERENCE TURN (turn {reference_turn}, where the concept came up again):
+{reference_turn_content}
+
+Classify the reference turn's relationship to the original position. Choose ONE:
+
+- CONFIRMATION: the reference turn agrees with, restates, or validates the original position.
+  Examples: "yes, exactly", "right, that's the point", "this is why X matters", "I keep coming back to X".
+
+- RETRACTION: the reference turn explicitly withdraws the original position.
+  Examples: "actually no, X is wrong", "wait, I take that back", "scratch X, I was wrong", "X doesn't hold up".
+
+- DRIFT: the reference turn pivots to a related but revised position — partial agreement, modified framing, or a follow-on refinement.
+  Examples: "more precisely Y", "closer to Y than X", "X but with these caveats", "X works for case A, but case B needs Y".
+
+- PASSING_MENTION: the reference turn mentions the concept in passing without committing to it. The mention exists but doesn't engage with the position.
+  Examples: a casual reference in a list of topics, an aside, a clarifying mention while discussing something else.
+
+Return ONLY raw JSON:
+{{
+  "verdict": "CONFIRMATION" | "RETRACTION" | "DRIFT" | "PASSING_MENTION",
+  "justification": "short reason — quote the operative phrase from the reference turn if helpful"
+}}
+"""
+
+
 @dataclass
 class TrajectoryVerdict:
     """Per-draft classification produced by the canonicalizer.
@@ -456,30 +497,114 @@ def _classify_one_draft(
     )
 
 
+async def _llm_disambiguate_reference(
+    packet: DraftPacket,
+    raised_at: int,
+    reference_turn: int,
+    source_turn_content: str,
+    reference_turn_content: str,
+) -> tuple[EpistemicStatus, Optional[DialecticSubtype], str]:
+    """LLM call to classify how a reference turn relates to a draft.
+
+    Fires only on drafts with reference_count == 1 where the
+    heuristic classifier flagged the relationship as ambiguous.
+    Returns a tuple of (final_status, dialectic_subtype, reason)
+    where dialectic_subtype is set for RETRACTED / DRIFTED and None
+    for the others.
+
+    Verdict mapping:
+      CONFIRMATION    → CONFIRMED          (no edge subtype — promote)
+      RETRACTION      → RETRACTED          (subtype=RETRACTION)
+      DRIFT           → DRIFTED            (subtype=DRIFT)
+      PASSING_MENTION → UNTOUCHED          (no edge — leave as is)
+
+    Failure mode: LLM call exception or unparseable response leaves
+    the draft as UNTOUCHED with a "(LLM disambiguation failed)" note.
+    Worst-case behaviour is "fall back to heuristic" which is the
+    same as not running this pass at all.
+    """
+    from . import ollama
+
+    canonical = ""
+    justification = ""
+    if packet.packet_type == "anchor" and packet.anchor:
+        canonical = packet.anchor.get("canonical_phrase", "") or ""
+        justification = packet.anchor.get("notes", "") or ""
+    elif packet.packet_type == "slab" and packet.slab:
+        canonical = packet.slab.get("title", "") or ""
+        justification = (packet.slab.get("canonical_text") or "")[:200]
+    elif packet.packet_type == "bundle" and packet.bundle:
+        intent = (packet.bundle.get("payload") or {}).get("intent") or []
+        canonical = intent[0] if intent else ""
+        justification = " | ".join(intent[1:]) if len(intent) > 1 else ""
+
+    prompt = _DISAMBIGUATION_PROMPT.format(
+        raised_at=raised_at,
+        reference_turn=reference_turn,
+        canonical_phrase=canonical or "(no canonical phrase)",
+        justification=justification or "(no additional context)",
+        source_turn_content=source_turn_content[:1500],
+        reference_turn_content=reference_turn_content[:1500],
+    )
+
+    try:
+        resp = await ollama.structured_extract(prompt)
+    except Exception as exc:
+        logger.warning(
+            "[LIVE-MINE] LLM disambiguation failed for %s: %r",
+            packet.id, exc,
+        )
+        return EpistemicStatus.UNTOUCHED, None, "LLM disambiguation failed (fell back to UNTOUCHED)"
+
+    if not isinstance(resp, dict):
+        return EpistemicStatus.UNTOUCHED, None, "LLM returned non-JSON (fell back to UNTOUCHED)"
+
+    verdict = (resp.get("verdict") or "").strip().upper()
+    reason = (resp.get("justification") or "").strip() or "(no reason given)"
+
+    if verdict == "CONFIRMATION":
+        return EpistemicStatus.CONFIRMED, None, f"LLM: {reason}"
+    if verdict == "RETRACTION":
+        return EpistemicStatus.RETRACTED, DialecticSubtype.RETRACTION, f"LLM: {reason}"
+    if verdict == "DRIFT":
+        return EpistemicStatus.DRIFTED, DialecticSubtype.DRIFT, f"LLM: {reason}"
+    if verdict == "PASSING_MENTION":
+        return EpistemicStatus.UNTOUCHED, None, f"LLM: passing mention only — {reason}"
+
+    # Unknown verdict label — treat as ambiguous, leave UNTOUCHED.
+    logger.warning(
+        "[LIVE-MINE] LLM returned unknown verdict %r for %s — keeping UNTOUCHED",
+        verdict, packet.id,
+    )
+    return EpistemicStatus.UNTOUCHED, None, f"LLM returned unknown verdict {verdict!r}"
+
+
 async def canonicalize(
     session_id: str, chat_id: str,
+    *,
+    use_llm_disambiguation: bool = True,
 ) -> CanonicalizationPlan:
     """End-of-conversation trajectory analysis.
 
-    Walks the ghost stack for the session, classifies each tentative
-    draft's epistemic trajectory using pure heuristics (no LLM
-    calls), and returns a CanonicalizationPlan ready for
-    apply_trajectory_plan().
+    Two-pass classifier:
+      1. Pure-heuristic pass — reference count + salience peak.
+         Drafts with >= CONFIRM_REFERENCE_FLOOR references → CONFIRMED.
+         Drafts with 0 references after grace → UNTOUCHED.
+         Drafts with exactly 1 reference → UNTOUCHED with ambiguous flag.
+      2. LLM disambiguation pass (only on the ambiguous singles) —
+         compares source_turn vs reference_turn content and classifies
+         the relationship as CONFIRMATION / RETRACTION / DRIFT /
+         PASSING_MENTION. Reclassifies the verdict accordingly.
 
     Pure analysis: no corpus mutation, no draft state change. The
     plan is reviewable before commit (dry-run pattern mirrors
     anchor_consolidation.analyze).
 
-    First-cut implementation is heuristic-only: reference count +
-    salience peak determine CONFIRMED / UNTOUCHED-keep /
-    UNTOUCHED-drop. The DRIFTED and RETRACTED branches require
-    cross-draft comparison + LLM disambiguation — wired in but
-    return empty for now. Subsequent commits add:
-      - Population-level drift detection (anchors with high embedding
-        similarity raised in adjacent turns where the later one
-        succeeds the earlier in confirmation density)
-      - LLM-based retraction-language detection on the transcript
-        spans bracketing each draft's source_turn
+    Args:
+      use_llm_disambiguation: when True (default), single-reference
+        ambiguous drafts go through the LLM pass. When False, they
+        stay UNTOUCHED — useful for fast canonicalization without
+        burning LLM calls (e.g. for previewing).
 
     Drafts already in non-DRAFT_UNAUTHORIZED state (already promoted,
     already discarded) are skipped — they've been canonicalized
@@ -514,8 +639,14 @@ async def canonicalize(
             if t > final_turn:
                 final_turn = t
 
+    # ── Pass 1: heuristic classification ──
+    # Sort each verdict into its bucket. Single-reference drafts go
+    # to untouched_* buckets here but get re-routed by the LLM pass
+    # below if it's enabled.
+    verdict_by_packet: dict[str, TrajectoryVerdict] = {}
     for packet in candidates:
         verdict = _classify_one_draft(packet, final_turn)
+        verdict_by_packet[packet.id] = verdict
         if verdict.final_status == EpistemicStatus.CONFIRMED:
             plan.confirmed.append(verdict)
         elif verdict.final_status == EpistemicStatus.UNTOUCHED:
@@ -528,11 +659,107 @@ async def canonicalize(
         elif verdict.final_status == EpistemicStatus.RETRACTED:
             plan.retracted.append(verdict)
 
+    # ── Pass 2: LLM disambiguation for single-reference ambiguity ──
+    # The heuristic put reference_count==1 drafts into UNTOUCHED. The
+    # LLM call inspects each one's source_turn vs reference_turn
+    # content and reclassifies as CONFIRMED / DRIFTED / RETRACTED /
+    # leaves-as-UNTOUCHED-passing-mention.
+    if use_llm_disambiguation:
+        ambiguous_candidates = [
+            (p, verdict_by_packet[p.id])
+            for p in candidates
+            if verdict_by_packet[p.id].reference_count == 1
+        ]
+        if ambiguous_candidates:
+            await _run_llm_disambiguation_pass(
+                plan, ambiguous_candidates, chat_id,
+            )
+
     logger.info(
         "[LIVE-MINE] canonicalize plan for session %s: %s",
         session_id, plan.summary(),
     )
     return plan
+
+
+async def _run_llm_disambiguation_pass(
+    plan: CanonicalizationPlan,
+    ambiguous: list[tuple[DraftPacket, TrajectoryVerdict]],
+    chat_id: str,
+) -> None:
+    """Iterate ambiguous drafts, call the LLM disambiguator on each,
+    and move verdicts to their correct buckets in `plan`.
+
+    Loads chat messages once and indexes by turn so each LLM call
+    only fans out the exact two turn contents it needs (source +
+    reference). Mutates `plan` in place — verdicts get removed from
+    untouched_* buckets and reinserted into confirmed/drifted/
+    retracted as the LLM decides.
+    """
+    from ..api import deps
+    messages = deps.chat_store.get_messages(chat_id)
+    by_turn: dict[int, str] = {m.turn: m.content for m in messages}
+
+    for packet, verdict in ambiguous:
+        raised_at = packet.source_turns[0] if packet.source_turns else None
+        reference_turn = (
+            packet.referenced_in_turns[0]
+            if packet.referenced_in_turns else None
+        )
+        if raised_at is None or reference_turn is None:
+            continue  # shouldn't happen given filter, defensive
+        source_content = by_turn.get(raised_at) or ""
+        ref_content = by_turn.get(reference_turn) or ""
+        if not source_content or not ref_content:
+            # Can't disambiguate without both turn contents; leave
+            # the heuristic verdict in place.
+            continue
+
+        new_status, edge_subtype, llm_reason = await _llm_disambiguate_reference(
+            packet, raised_at, reference_turn,
+            source_content, ref_content,
+        )
+        if new_status == verdict.final_status:
+            # No reclassification needed (still UNTOUCHED).
+            verdict.reason = llm_reason
+            continue
+
+        # Capture previous status BEFORE mutation so the log line
+        # can show the actual transition.
+        prior_status = verdict.final_status
+
+        # Remove from current bucket
+        for bucket in (
+            plan.untouched_keep, plan.untouched_drop,
+            plan.confirmed, plan.drifted, plan.retracted,
+        ):
+            if verdict in bucket:
+                bucket.remove(verdict)
+                break
+
+        # Update verdict + reinsert into the right bucket
+        verdict.final_status = new_status
+        verdict.reason = llm_reason
+        verdict.edge_subtype = edge_subtype
+
+        if new_status == EpistemicStatus.CONFIRMED:
+            plan.confirmed.append(verdict)
+        elif new_status == EpistemicStatus.RETRACTED:
+            plan.retracted.append(verdict)
+        elif new_status == EpistemicStatus.DRIFTED:
+            plan.drifted.append(verdict)
+        else:
+            # PASSING_MENTION-like outcome — back to untouched buckets
+            # by salience.
+            if verdict.peak_salience >= UNTOUCHED_KEEP_SALIENCE:
+                plan.untouched_keep.append(verdict)
+            else:
+                plan.untouched_drop.append(verdict)
+
+        logger.info(
+            "[LIVE-MINE] LLM reclassified %s: %s → %s",
+            packet.id, prior_status.value, new_status.value,
+        )
 
 
 async def apply_trajectory_plan(
