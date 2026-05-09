@@ -49,6 +49,53 @@ class EdgeType(str, Enum):
     SEQUENCE = "SEQUENCE"  # Narrative ordering — A precedes B in the story spine
 
 
+class DialecticSubtype(str, Enum):
+    """Refines CONFLICTS / TENSIONS edges with the conversational
+    mechanism that produced them.
+
+    Edges from document mining are typically COUNTERBALANCE (the
+    document holds both views as valid simultaneously) or
+    OPPOSITION (the document positions one as wrong). Edges from
+    live conversation mining can also surface temporal patterns:
+    DRIFT (position evolved across turns), RETRACTION (position
+    explicitly withdrawn), LIVE_CORRECTION (mid-conversation
+    rephrasing without retraction).
+
+    Optional field — pre-live-mining edges have no subtype and the
+    field stays None.
+    """
+    # Document / static patterns
+    OPPOSITION = "OPPOSITION"          # Speaker positions one as wrong
+    COUNTERBALANCE = "COUNTERBALANCE"  # Both valid, must balance (mercy ↔ justice)
+    # Temporal / conversational patterns
+    DRIFT = "DRIFT"                    # Position evolved across turns
+    RETRACTION = "RETRACTION"          # Position explicitly withdrawn
+    LIVE_CORRECTION = "LIVE_CORRECTION"  # Mid-conversation rephrasing
+
+
+class EpistemicStatus(str, Enum):
+    """Trajectory state of a tentative draft across a chat session.
+
+    Used by live mining to track how a proposal evolves over the
+    conversation. The end-of-conversation canonicalization pass
+    classifies each draft into one of these states and decides
+    promote / demote / drop accordingly.
+
+    Lifecycle:
+      NEWLY_RAISED → CONFIRMED (referenced back, validated) → promote
+                  → DRIFTED (position evolved into another draft) → record DRIFT edge
+                  → RETRACTED (explicitly withdrawn) → record RETRACTION edge, demote
+                  → UNTOUCHED (never referenced again) → drop or preserve isolated
+                  → CANONICALIZED (final state — committed to corpus or archived)
+    """
+    NEWLY_RAISED = "NEWLY_RAISED"
+    CONFIRMED = "CONFIRMED"
+    DRIFTED = "DRIFTED"
+    RETRACTED = "RETRACTED"
+    UNTOUCHED = "UNTOUCHED"
+    CANONICALIZED = "CANONICALIZED"
+
+
 class OLIMode(str, Enum):
     ON = "ON"
     OFF = "OFF"
