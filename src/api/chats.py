@@ -294,6 +294,20 @@ async def send_message(chat_id: str, req: SendMessageRequest):
         # target the right subcorpus instead of defaulting to "default".
         _chat = chat_store.get_chat(chat_id)
         _chat_cid = (_chat.collection_id if _chat else None) or "default"
+
+        # Live mining — cross-reference matcher. Fires BEFORE the proposal
+        # extractor on this turn so the new turn's content gets matched
+        # against drafts that existed at turn-start. Drafts created on
+        # this same turn (by extract_proposals below) won't accidentally
+        # self-reference; future turns will pick them up. See
+        # services/live_mining.update_reference_history for the matcher
+        # contract. Failures must never block the post-stream pipeline.
+        try:
+            from ..services.live_mining import update_reference_history
+            await update_reference_history(session_id, actual_turn, req.content)
+        except Exception as e:
+            print(f"[LIVE-MINE] Reference matcher failed: {e}", flush=True)
+
         if cls.get("explicit"):
             print(f"[DRAFT] Explicit extraction at turn {actual_turn} (-> {_chat_cid})", flush=True)
             new_drafts = await draft_manager.extract_proposals(

@@ -15,6 +15,12 @@ The flow has two halves:
     surfaced — possibly to be confirmed, possibly to be retracted,
     possibly to drift into a different position.
 
+  Half 1.5 — per-turn cross-reference matcher (this module):
+    On each turn, check whether the new content semantically
+    references any existing tentative draft. If so, append the turn
+    number to draft.referenced_in_turns. Pure positive-signal
+    capture — doesn't try to classify confirm-vs-retract here.
+
   Half 2 — end-of-conversation canonicalization (this module):
     Walks the ghost stack with full transcript context. For each
     tentative draft:
@@ -34,17 +40,30 @@ extraction. That's what distinguishes this from the rejected
 correction signal because user retractions don't survive in raw
 text. Per-turn drafts captured those events when they happened;
 this pass just classifies them.
-
-This module is the data-structure scaffold. Implementation of the
-trajectory classifier, cross-turn reference matcher, and end-of-
-conversation canonicalization actions follow in subsequent commits.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
-from ..models.enums import EpistemicStatus, DialecticSubtype
+import numpy as np
+
+from ..models.enums import EpistemicStatus, DialecticSubtype, DraftStatus
+from ..models.schemas import DraftPacket
+
+logger = logging.getLogger(__name__)
+
+
+# Cosine similarity threshold for "this turn semantically references
+# this draft". Tuned for nomic-embed-text on chat-shaped text:
+# - 0.50 catches casual rewording (lots of false positives)
+# - 0.55 is a reasonable working threshold (current default)
+# - 0.65 is more conservative, may miss paraphrased references
+# Trajectory analysis at end-of-conversation can re-validate flagged
+# references via LLM, so leaning generous here is safer than stingy
+# — under-flagging means UNTOUCHED-misclassification later.
+REFERENCE_THRESHOLD = 0.55
 
 
 @dataclass
@@ -123,26 +142,134 @@ class CanonicalizationPlan:
 # ── Stubs for the analysis pipeline (filled in subsequent commits) ─
 
 
+def _draft_text_for_matching(packet: DraftPacket) -> str:
+    """Extract a comparable text representation from a draft packet.
+
+    Anchors → canonical_phrase + aliases (compact identity).
+    Slabs   → title + first 200 chars of canonical_text (the title
+              alone often isn't enough for embedding match; the lead
+              of the canonical_text disambiguates similar titles).
+    Bundles → joined intent strings (the bundle's purpose statement).
+
+    Returns "" when the draft has no usable text — caller skips
+    those entries rather than embedding empty strings.
+    """
+    if packet.packet_type == "anchor" and packet.anchor:
+        phrase = packet.anchor.get("canonical_phrase", "") or ""
+        aliases = packet.anchor.get("aliases") or []
+        return (phrase + " " + " ".join(aliases)).strip()
+    if packet.packet_type == "slab" and packet.slab:
+        title = packet.slab.get("title", "") or ""
+        body = (packet.slab.get("canonical_text") or "")[:200]
+        return (title + " " + body).strip()
+    if packet.packet_type == "bundle" and packet.bundle:
+        payload = packet.bundle.get("payload") or {}
+        intent = payload.get("intent") or []
+        return " ".join(intent).strip()
+    return ""
+
+
 async def update_reference_history(
     session_id: str, turn: int, turn_content: str,
 ) -> int:
-    """Per-turn cross-reference matcher — STUB.
+    """Per-turn cross-reference matcher.
 
-    When a new turn lands, walk the ghost stack and check whether
-    any tentative draft is being referenced by the new turn's
-    content. If so, append the turn to that draft's
-    referenced_in_turns list.
+    For each tentative draft (DRAFT_UNAUTHORIZED + status NEWLY_RAISED)
+    in the session's ghost stack, check whether the current turn
+    semantically references it. If similarity >= REFERENCE_THRESHOLD,
+    append the turn number to draft.referenced_in_turns.
 
-    Implementation will use embedding similarity (anchor_matcher
-    infrastructure) to detect when new turn content semantically
-    matches existing drafts, and a small LLM call to detect
-    retraction language ("actually no", "wait, that's wrong",
-    "I take that back" — explicit withdrawal markers).
+    Pure positive-signal capture — does not classify whether the
+    reference is a confirmation, retraction, or drift. The trajectory
+    canonicalizer at end-of-conversation makes that determination
+    with full context.
 
-    Returns: number of drafts whose reference history was updated.
+    Skips drafts where ``turn`` is already in source_turns (the turn
+    that *raised* the draft can't *reference* it — that would create
+    a self-loop in the trajectory analysis).
+
+    Returns: number of drafts whose reference_in_turns list was updated.
     """
-    # TODO: implementation in next commit
-    return 0
+    from . import ollama
+    from ..api import deps
+
+    if not turn_content or not turn_content.strip():
+        return 0
+
+    # Load and filter candidate drafts
+    packets = deps.session_store.list_draft_packets(session_id)
+    candidates: list[DraftPacket] = []
+    candidate_texts: list[str] = []
+    for p in packets:
+        if p.status != DraftStatus.DRAFT_UNAUTHORIZED:
+            continue
+        if p.epistemic_status != EpistemicStatus.NEWLY_RAISED:
+            continue
+        if turn in p.source_turns:
+            continue  # don't self-match the raising turn
+        if turn in p.referenced_in_turns:
+            continue  # already recorded for this turn
+        text = _draft_text_for_matching(p)
+        if not text:
+            continue
+        candidates.append(p)
+        candidate_texts.append(text)
+
+    if not candidates:
+        return 0
+
+    # One Ollama batch call: turn_content + all candidate texts.
+    # Batching avoids N+1 round-trips through nomic-embed-text.
+    try:
+        vecs = await ollama.embed([turn_content] + candidate_texts)
+    except Exception as exc:
+        logger.warning(
+            "[LIVE-MINE] Embedding for reference matching failed (turn %d): %r",
+            turn, exc,
+        )
+        return 0
+    if not vecs or len(vecs) != len(candidates) + 1:
+        logger.warning(
+            "[LIVE-MINE] Embed returned %d vecs for %d inputs (turn %d)",
+            len(vecs) if vecs else 0, len(candidates) + 1, turn,
+        )
+        return 0
+
+    # L2-normalize once for cosine via dot product. nomic-embed-text
+    # vectors aren't pre-normalized so we have to do this ourselves.
+    turn_arr = np.array(vecs[0], dtype=float)
+    turn_norm = float(np.linalg.norm(turn_arr))
+    if turn_norm == 0.0:
+        return 0
+    turn_arr = turn_arr / turn_norm
+
+    updated_count = 0
+    for packet, candidate_vec in zip(candidates, vecs[1:]):
+        cand_arr = np.array(candidate_vec, dtype=float)
+        cand_norm = float(np.linalg.norm(cand_arr))
+        if cand_norm == 0.0:
+            continue
+        cand_arr = cand_arr / cand_norm
+        sim = float(np.dot(turn_arr, cand_arr))
+        if sim < REFERENCE_THRESHOLD:
+            continue
+        # Append turn + persist the updated packet. Idempotent against
+        # double-fire (the `turn in p.referenced_in_turns` guard above
+        # filters re-runs).
+        packet.referenced_in_turns.append(turn)
+        deps.session_store.save_draft_packet(session_id, packet)
+        updated_count += 1
+        logger.debug(
+            "[LIVE-MINE] turn %d references draft %s (sim=%.2f)",
+            turn, packet.id, sim,
+        )
+
+    if updated_count:
+        logger.info(
+            "[LIVE-MINE] Turn %d cross-referenced %d existing draft(s)",
+            turn, updated_count,
+        )
+    return updated_count
 
 
 async def canonicalize(
