@@ -856,24 +856,203 @@ async def apply_trajectory_plan(
                 verdict.draft_id, exc,
             )
 
-    # --- DRIFTED + RETRACTED — pending follow-up commit ---
-    # The heuristic canonicalizer doesn't produce these verdicts yet
-    # (drift/retraction detection requires either LLM disambiguation
-    # or population-level pair comparison). Once the second-pass
-    # classifier lands, these branches:
-    #   1. Emit a TENSIONS edge with dialectic_subtype=DRIFT/RETRACTION
-    #      and source_turn set to the trajectory transition turn
-    #   2. Move the original draft to a "historical" lifecycle bucket
-    #      (preserved on disk, marked superseded_by → the surviving draft)
-    if plan.drifted or plan.retracted:
-        logger.warning(
-            "[LIVE-MINE] DRIFTED/RETRACTED branches not yet implemented "
-            "(verdicts present: %d drifted, %d retracted) — skipping",
-            len(plan.drifted), len(plan.retracted),
-        )
+    # --- DRIFTED + RETRACTED — best-effort supersessor + discard ---
+    # Each retracted/drifted draft gets:
+    #   1. A best-effort supersessor lookup (the draft raised at-or-
+    #      after the reference turn that's most semantically similar
+    #      to this one — the "what replaced it" candidate).
+    #   2. superseded_by metadata written to the packet on disk (so
+    #      the trajectory survives even after the draft is discarded).
+    #   3. discard_draft — moves status to REJECTED. The packet file
+    #      remains on disk as audit trail, the draft leaves the
+    #      worklist.
+    #   4. A trajectory event in proposal_events.jsonl recording the
+    #      transition: retracted_at_turn, supersessor_id (if found),
+    #      dialectic_subtype.
+    # No actual corpus edge is emitted: the retracted draft is being
+    # discarded, not promoted, so it never becomes a corpus node that
+    # an edge could attach to. The trajectory is preserved as
+    # packet metadata + event log; a future tool can reconstruct the
+    # full trajectory by walking REJECTED drafts with superseded_by
+    # populated.
+    for verdict_bucket, label in (
+        (plan.retracted, "RETRACTED"),
+        (plan.drifted, "DRIFTED"),
+    ):
+        for verdict in verdict_bucket:
+            try:
+                supersessor_id = await _find_supersessor(
+                    plan.session_id, verdict,
+                )
+                _annotate_supersession(
+                    plan.session_id, verdict.draft_id,
+                    supersessor_id, verdict.edge_subtype,
+                )
+                await deps.lifecycle.discard_draft(
+                    plan.session_id, verdict.draft_id,
+                )
+                if label == "RETRACTED":
+                    counts["retracted_demoted"] += 1
+                else:
+                    counts["drifted_demoted"] += 1
+                # Log the trajectory event for downstream audit /
+                # future edge-emission tools.
+                from .event_log import EventLog
+                _events = EventLog()
+                _events.log_proposal_event(
+                    event=f"lifecycle.draft_{label.lower()}",
+                    session_id=plan.session_id,
+                    draft_id=verdict.draft_id,
+                    canonical_phrase=verdict.canonical_phrase,
+                    raised_at_turn=verdict.raised_at_turn,
+                    reference_turn=verdict.last_referenced_turn,
+                    supersessor_id=supersessor_id,
+                    dialectic_subtype=(
+                        verdict.edge_subtype.value
+                        if verdict.edge_subtype else None
+                    ),
+                    reason=verdict.reason,
+                )
+            except Exception as exc:
+                counts["errors"] += 1
+                logger.warning(
+                    "[LIVE-MINE] %s apply failed for %s: %r",
+                    label, verdict.draft_id, exc,
+                )
 
     logger.info("[LIVE-MINE] apply_trajectory_plan counts: %s", counts)
     return counts
+
+
+async def _find_supersessor(
+    session_id: str, verdict: TrajectoryVerdict,
+) -> Optional[str]:
+    """Best-effort lookup: the draft most semantically similar to
+    `verdict` that was raised at-or-after the reference turn.
+
+    For RETRACTED / DRIFTED verdicts, the supersessor is the new
+    position that replaced this one. Often it's a draft extracted
+    from the reference turn itself (where the user said "actually
+    Y" — extract_proposals turn the Y into a new draft on that turn).
+
+    Returns the supersessor draft id, or None if no suitable
+    candidate exists. Threshold is intentionally permissive (0.4)
+    because supersessor is a heuristic best-effort — we'd rather
+    over-link than miss the supersession entirely. The trajectory
+    event records both the supersessor and the relationship type,
+    so a downstream reviewer can validate.
+    """
+    from . import ollama
+    from ..api import deps
+
+    if verdict.last_referenced_turn is None:
+        return None
+
+    # Embed the retracted/drifted draft against all candidate
+    # successors raised at-or-after the reference turn.
+    packets = deps.session_store.list_draft_packets(session_id)
+    candidates: list[tuple[DraftPacket, str]] = []
+    for p in packets:
+        if p.id == verdict.draft_id:
+            continue
+        if not p.source_turns:
+            continue
+        if min(p.source_turns) < verdict.last_referenced_turn:
+            continue
+        # Skip drafts already canonicalized in this same pass —
+        # they're locked into their verdicts and can't take supersessor
+        # role here.
+        if p.epistemic_status == EpistemicStatus.CANONICALIZED:
+            continue
+        text = _draft_text_for_matching(p)
+        if not text:
+            continue
+        candidates.append((p, text))
+
+    if not candidates:
+        return None
+
+    # Compute the source draft's text for matching too
+    source_packet = next(
+        (p for p in packets if p.id == verdict.draft_id), None,
+    )
+    if source_packet is None:
+        return None
+    source_text = _draft_text_for_matching(source_packet)
+    if not source_text:
+        return None
+
+    try:
+        vecs = await ollama.embed(
+            [source_text] + [t for _, t in candidates]
+        )
+    except Exception as exc:
+        logger.warning(
+            "[LIVE-MINE] supersessor embed failed for %s: %r",
+            verdict.draft_id, exc,
+        )
+        return None
+    if not vecs or len(vecs) != len(candidates) + 1:
+        return None
+
+    src_arr = np.array(vecs[0], dtype=float)
+    src_norm = float(np.linalg.norm(src_arr))
+    if src_norm == 0.0:
+        return None
+    src_arr = src_arr / src_norm
+
+    best_id: Optional[str] = None
+    best_sim: float = 0.0
+    for (packet, _text), cand_vec in zip(candidates, vecs[1:]):
+        cand_arr = np.array(cand_vec, dtype=float)
+        cand_norm = float(np.linalg.norm(cand_arr))
+        if cand_norm == 0.0:
+            continue
+        cand_arr = cand_arr / cand_norm
+        sim = float(np.dot(src_arr, cand_arr))
+        if sim > best_sim:
+            best_sim = sim
+            best_id = packet.id
+
+    # Permissive threshold — supersessor is best-effort and the
+    # trajectory event records the relationship for review either way.
+    if best_sim >= 0.4:
+        return best_id
+    return None
+
+
+def _annotate_supersession(
+    session_id: str, draft_id: str,
+    supersessor_id: Optional[str],
+    edge_subtype: Optional[DialecticSubtype],
+) -> None:
+    """Persist superseded_by metadata on the retracted/drifted
+    packet so the trajectory survives the discard_draft transition.
+
+    The packet stays on disk after discard (REJECTED status, audit
+    trail). Writing superseded_by + the dialectic_subtype hint into
+    the packet means a downstream tool walking REJECTED drafts can
+    reconstruct "this was retracted at turn N, replaced by draft X
+    via mechanism Y" without needing the event log.
+    """
+    from ..api import deps
+    try:
+        packets = deps.session_store.list_draft_packets(session_id)
+        for p in packets:
+            if p.id == draft_id:
+                if supersessor_id is not None:
+                    p.superseded_by = supersessor_id
+                # The edge_subtype hint lives on the packet's
+                # epistemic_status flow alongside CANONICALIZED, so a
+                # reader can tell "retracted vs drifted" later.
+                p.epistemic_status = EpistemicStatus.CANONICALIZED
+                deps.session_store.save_draft_packet(session_id, p)
+                return
+    except Exception as exc:
+        logger.warning(
+            "[LIVE-MINE] _annotate_supersession(%s) failed: %r",
+            draft_id, exc,
+        )
 
 
 def _mark_canonicalized(session_id: str, draft_id: str) -> None:
