@@ -479,6 +479,7 @@ class LifecycleService:
         self, session_id: str, draft_id: str,
         oli_mode: str = "OFF",
         drift_severity: str = "low",
+        defer_persist: bool = False,
     ) -> dict:
         """Promote a draft to corpus: write corpus object, mark packet
         COMMITTED, evict session-scope state, auto-accept any PROPOSED edges
@@ -494,7 +495,7 @@ class LifecycleService:
         """
         result = await self.draft_manager.review_draft(
             session_id, draft_id, "promote_corpus", oli_mode,
-            drift_severity=drift_severity,
+            drift_severity=drift_severity, defer_persist=defer_persist,
         )
         if "error" in result:
             return result

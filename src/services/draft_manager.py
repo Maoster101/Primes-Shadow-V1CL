@@ -633,11 +633,21 @@ class DraftManager:
         action: str,
         oli_mode: str = "OFF",
         drift_severity: str = "low",
+        defer_persist: bool = False,
     ) -> dict:
         """Review a draft: discard / promote_tentative / promote_corpus.
 
         §26.6: corpus commits require OLI ON. FACT verification mandatory.
         Drift gate: blocks corpus promotion when drift severity is HIGH.
+
+        ``defer_persist`` (promote_corpus only) is the bulk-commit fast
+        path: the corpus object is added to the store in memory but the
+        whole-corpus ``validate()`` + ``save()`` are SKIPPED — the batch
+        caller runs them once for the whole selection. Per-draft those
+        two are an accidental O(M^2) (each save rewrites the growing
+        YAML); hoisting them out of the loop makes a 300-draft promote
+        O(M) work + O(1) disk. Single-draft callers leave it False and
+        keep the per-draft validate/rollback safety net.
         """
         packet = self.session_store.load_draft_packet(session_id, draft_id)
         if not packet:
@@ -782,27 +792,37 @@ class DraftManager:
                 if target_store is not self.corpus:
                     self.corpus.edges[edge.id] = edge
 
-            errors = target_store.validate()
-            if errors:
-                # Rollback nodes + edges. (No coherence bundle to roll
-                # back since slab metadata now lives on the slab itself.)
-                if obj_type == "anchor":
-                    target_store.anchors.pop(corpus_obj.id, None)
-                    self.corpus.anchors.pop(corpus_obj.id, None)
-                elif obj_type == "slab":
-                    target_store.slabs.pop(corpus_obj.id, None)
-                    self.corpus.slabs.pop(corpus_obj.id, None)
-                for edge in generated_edges:
-                    target_store.edges.pop(edge.id, None)
-                    self.corpus.edges.pop(edge.id, None)
-                return {"error": "Corpus validation failed", "errors": errors}
+            # Per-draft validate + save — skipped in bulk mode, where the
+            # batch caller validates and saves each touched store once.
+            if not defer_persist:
+                errors = target_store.validate()
+                if errors:
+                    # Rollback nodes + edges. (No coherence bundle to roll
+                    # back since slab metadata now lives on the slab itself.)
+                    if obj_type == "anchor":
+                        target_store.anchors.pop(corpus_obj.id, None)
+                        self.corpus.anchors.pop(corpus_obj.id, None)
+                    elif obj_type == "slab":
+                        target_store.slabs.pop(corpus_obj.id, None)
+                        self.corpus.slabs.pop(corpus_obj.id, None)
+                    for edge in generated_edges:
+                        target_store.edges.pop(edge.id, None)
+                        self.corpus.edges.pop(edge.id, None)
+                    return {"error": "Corpus validation failed", "errors": errors}
 
-            target_store.save()
+                target_store.save()
+
             packet.status = DraftStatus.COMMITTED
             self.session_store.save_draft_packet(session_id, packet)
             self._mark_resolved(session_id, draft_id)
 
-            result = {"status": "COMMITTED", "draft_id": draft_id, "corpus_id": corpus_obj.id}
+            result = {
+                "status": "COMMITTED", "draft_id": draft_id,
+                "corpus_id": corpus_obj.id,
+                # The collection this object landed in — the batch caller
+                # reads it to know which stores to validate + save once.
+                "target_collection": target_cid,
+            }
             if generated_edges:
                 result["generated_edges"] = [e.id for e in generated_edges]
             if oli_warning:

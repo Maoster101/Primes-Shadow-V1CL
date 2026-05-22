@@ -30,6 +30,12 @@ class ReviewDraftRequest(BaseModel):
     oli_mode: str = "OFF"
 
 
+class ReviewBatchRequest(BaseModel):
+    draft_ids: list[str]                # drafts to act on, in one call
+    action: str  # "discard" | "promote_tentative" | "promote_corpus"
+    oli_mode: str = "OFF"
+
+
 class AmendDraftRequest(BaseModel):
     canonical_phrase: Optional[str] = None
     canonical_text: Optional[str] = None
@@ -432,6 +438,99 @@ async def review_draft(session_id: str, draft_id: str, req: ReviewDraftRequest):
     if result.get("status") == "COMMITTED" and "anchor" in draft_id:
         await anchor_matcher.warm_cache(only_new=True)
     return result
+
+
+@router.post("/sessions/{session_id}/drafts/review-batch")
+async def review_batch(session_id: str, req: ReviewBatchRequest):
+    """Review many drafts in one call — the bulk-promote fast path.
+
+    Per-draft semantics are identical to /review. The win is for
+    ``promote_corpus``: each draft mutates its target store in memory
+    with ``defer_persist=True``, then the batch runs ONE ``validate()``
+    + ONE ``save()`` per touched collection at the end, and warms the
+    anchor cache once. The per-draft path saves the whole (growing)
+    corpus YAML on every commit — an accidental O(M^2). This collapses
+    it to O(M) work + O(1) disk, turning a tens-of-seconds bulk promote
+    into ~1-3s.
+
+    ``discard`` / ``promote_tentative`` don't touch the corpus YAML, so
+    they just loop the normal lifecycle path — still a single HTTP round
+    trip, which alone removes the frontend's per-draft re-render storm.
+    """
+    if not req.draft_ids:
+        raise HTTPException(400, "No draft_ids given")
+    if req.action not in ("discard", "promote_tentative", "promote_corpus"):
+        raise HTTPException(400, f"Unknown action: {req.action}")
+
+    # Drift severity — computed ONCE for the whole batch (it's a
+    # session-level signal, identical for every draft in the call).
+    drift_severity = "low"
+    window = drift_monitor.get_window(session_id)
+    frame = frame_manager.get_frame(session_id)
+    if frame and frame.last_updated_turn > 0:
+        drift_state = window.compute(frame.last_updated_turn)
+        drift_severity = drift_state["severity"].value
+
+    defer = req.action == "promote_corpus"
+    results: list[dict] = []
+    committed = 0
+    failed = 0
+    touched_cids: set[str] = set()
+
+    for draft_id in req.draft_ids:
+        try:
+            if req.action == "discard":
+                r = await deps.lifecycle.discard_draft(session_id, draft_id)
+            elif req.action == "promote_tentative":
+                r = await deps.lifecycle.promote_draft_tentative(
+                    session_id, draft_id, drift_severity=drift_severity,
+                )
+            else:
+                r = await deps.lifecycle.promote_draft_corpus(
+                    session_id, draft_id, oli_mode=req.oli_mode,
+                    drift_severity=drift_severity, defer_persist=True,
+                )
+        except Exception as e:  # one bad draft must not abort the batch
+            r = {"error": str(e), "draft_id": draft_id}
+        results.append(r)
+        if "error" in r:
+            failed += 1
+        else:
+            committed += 1
+            cid = r.get("target_collection")
+            if cid:
+                touched_cids.add(cid)
+
+    # The whole point of the batch: one validate + one save per store.
+    validation_errors: dict[str, list[str]] = {}
+    saved: list[str] = []
+    if defer and committed:
+        # Empty set (target_collection absent) falls back to the merged
+        # corpus, mirroring review_draft's own default-store resolution.
+        for cid in (touched_cids or {""}):
+            store = registry.get_store(cid) if cid else None
+            if store is None:
+                store = deps.corpus
+            errs = store.validate()
+            if errs:
+                validation_errors[cid or "default"] = errs
+            store.save()
+            saved.append(cid or "default")
+        # Warm the anchor cache once, not once-per-anchor.
+        try:
+            await anchor_matcher.warm_cache(only_new=True)
+        except Exception as e:
+            print(f"[REVIEW-BATCH] cache warm failed: {e}", flush=True)
+
+    return {
+        "action": req.action,
+        "requested": len(req.draft_ids),
+        "committed": committed,
+        "failed": failed,
+        "saved_collections": saved,
+        "validation_errors": validation_errors,
+        "results": results,
+    }
 
 
 @router.post("/sessions/{session_id}/drafts/{draft_id}/verify")

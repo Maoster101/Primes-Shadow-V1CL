@@ -2206,14 +2206,57 @@ function dashPageDrafts(c){
   });
 }
 
-async function _draftsBulkAction(action){
-  const ids=[...document.querySelectorAll('.drafts-cb:checked')].map(cb=>cb.dataset.id);
+// Real bulk review — one /review-batch call per session (vs the old
+// per-draft loop that re-fetched the dashboard + re-rendered the page
+// after every single draft). The backend defers the whole-corpus
+// validate+save to one pass at the end, so a 300-draft promote is one
+// HTTP round trip and one disk write instead of 300 of each.
+async function _bulkReview(ids,action,refreshPage){
   if(!ids.length){alert('No drafts selected');return}
   if(!confirm(`${action.replace('_',' ')} ${ids.length} draft(s)?`))return;
+  const oliOn=document.getElementById('oli-toggle')?.checked;
+  // /review-batch is single-session; a mining push is one session, but
+  // the verify page can list drafts from several — bucket by session.
+  const bySession={};
   for(const id of ids){
-    try{await _reviewDraft(id,action)}catch(e){console.warn('Bulk action failed for',id,e)}
+    const sid=_draftSess(id);
+    (bySession[sid]=bySession[sid]||[]).push(id);
   }
-  dashNav('drafts');
+  let committed=0,failed=0;const vErrors=[];
+  const t0=performance.now();
+  try{
+    for(const[sid,sessionIds]of Object.entries(bySession)){
+      const res=await fetch(`${API}/sessions/${sid}/drafts/review-batch`,{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({draft_ids:sessionIds,action:action,oli_mode:oliOn?'ON':'OFF'})
+      });
+      if(!res.ok){const err=await res.json();throw new Error(err.detail||JSON.stringify(err))}
+      const r=await res.json();
+      committed+=r.committed||0;failed+=r.failed||0;
+      for(const[cid,errs]of Object.entries(r.validation_errors||{})){
+        vErrors.push(`${cid}: ${errs.length} validation error(s)`);
+      }
+    }
+  }catch(e){
+    alert('Bulk review failed: '+e.message);
+  }
+  const secs=((performance.now()-t0)/1000).toFixed(1);
+  const label=action==='discard'?'discarded':action==='promote_tentative'?'staged tentative':'committed';
+  let msg=`${committed} ${label} in ${secs}s`;
+  if(failed)msg+=` · ${failed} failed`;
+  if(vErrors.length)msg+=` · ${vErrors.join('; ')}`;
+  pushEvent('proposal',`Bulk ${action.replace('_',' ')}: ${msg}`);
+  // One refresh for the whole batch — not once per draft.
+  if(action==='promote_corpus'){
+    await _fetchDashData();
+    corpusLoaded=false;
+  }
+  dashNav(refreshPage);
+}
+
+async function _draftsBulkAction(action){
+  const ids=[...document.querySelectorAll('.drafts-cb:checked')].map(cb=>cb.dataset.id);
+  return _bulkReview(ids,action,'drafts');
 }
 
 // ── Gates page ──
@@ -3911,13 +3954,7 @@ function _verifyToggleAll(checked){
 
 async function _verifyBulkAction(action){
   const ids=[...document.querySelectorAll('.verify-cb:checked')].map(cb=>cb.dataset.id);
-  if(!ids.length){alert('No drafts selected');return}
-  if(!confirm(`${action.replace('_',' ')} ${ids.length} draft(s)?`))return;
-  for(const id of ids){
-    try{await _reviewDraft(id,action)}catch(e){console.warn('Bulk action failed for',id,e)}
-  }
-  // Refresh the page after all actions
-  dashNav('verify');
+  return _bulkReview(ids,action,'verify');
 }
 
 async function _verifyDraft(draftId){
