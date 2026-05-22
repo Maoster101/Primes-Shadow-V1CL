@@ -145,6 +145,12 @@ _PHASE_WEIGHTS = {
     "extracting": 0.85,
     "deduplicating": 0.01,
     "edge_extraction": 0.10,
+    # outline (doc/paper) miner phases
+    "outlining": 0.03,
+    "section_drill": 0.58,
+    "pillar_summaries": 0.31,
+    "cross_pillar": 0.04,
+    "outline_edges": 0.04,
     "starting": 0.0,
     "idle": 0.0,
     "error": 0.0,
@@ -170,6 +176,9 @@ def _compute_overall_pct(snap: dict) -> float:
     if miner_kind == "convo":
         order = ["normalizing", "chunking", "extracting", "deduplicating",
                  "edge_extraction", "consolidation"]
+    elif miner_kind == "outline":
+        order = ["outlining", "section_drill", "pillar_summaries",
+                 "cross_pillar", "outline_edges", "consolidation"]
     else:
         order = ["segmenting", "anchor_extraction", "bundle_synthesis",
                  "slab_extraction", "dialectic_edges", "consolidation"]

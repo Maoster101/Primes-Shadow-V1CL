@@ -10,6 +10,7 @@ from ..models.schemas import DraftPacket, DraftStack, ProposedEdge
 from ..models.enums import DraftStatus, EdgeType
 from ..services.convo_miner import ConversationMiner
 from ..services.narrative_miner import NarrativeMiner
+from ..services.outline_miner import OutlineMiner
 
 from . import deps
 from .deps import (
@@ -35,6 +36,14 @@ class MineNarrativeRequest(BaseModel):
     source_label: str = "narrative"    # Provenance label
     min_confidence: float = 0.4        # Minimum proposal confidence
     max_segment_chars: int = 1800      # Soft cap on segment size
+    target_collection: str = "default" # Which collection to mine into
+
+
+class MineOutlineRequest(BaseModel):
+    text: str                          # Structured document (paper, design doc)
+    source_label: str = "document"     # Provenance label
+    min_confidence: float = 0.4        # Minimum proposal confidence
+    max_segment_chars: int = 6000      # Soft cap on per-chapter span size
     target_collection: str = "default" # Which collection to mine into
 
 
@@ -100,6 +109,35 @@ async def mine_narrative(req: MineNarrativeRequest):
 
     target_store = registry.get_store(req.target_collection) or deps.corpus
     miner = NarrativeMiner(target_store)
+
+    result = await miner.mine(
+        raw_text=req.text,
+        source_label=req.source_label,
+        min_confidence=req.min_confidence,
+        max_segment_chars=req.max_segment_chars,
+    )
+    result["target_collection"] = req.target_collection
+    return result
+
+
+@router.post("/mine-outline")
+async def mine_outline(req: MineOutlineRequest):
+    """Mine a structured document (paper, design doc) outline-first.
+
+    Parses the document's heading tree (or, for headingless prose,
+    synthesizes an ordered outline via one LLM call), then drills each
+    section span into slabs + anchors. The response carries an
+    ``outline`` field — the ordered Part/chapter skeleton — which is the
+    pillar overlay by construction. Proposals match the /mine shape so
+    the same /push-mined flow accepts them.
+    """
+    if not req.text.strip():
+        raise HTTPException(400, "Empty text")
+    if len(req.text) > 5_000_000:
+        raise HTTPException(413, "Text too large (max 5MB)")
+
+    target_store = registry.get_store(req.target_collection) or deps.corpus
+    miner = OutlineMiner(target_store)
 
     result = await miner.mine(
         raw_text=req.text,

@@ -2303,6 +2303,7 @@ function dashPageMine(c){
             <button class="dbtn dbtn-grey" style="padding:3px 10px;font-size:9px" onclick="_mineNewCollection()">+ New Collection</button>
           </div>
           <div style="flex:1"></div>
+          <button class="dbtn dbtn-grey" style="padding:6px 14px;font-size:11px" id="mine-run-outline-btn" title="Treat input as a structured document (paper, design doc) — parses its heading outline into a pillar tree, mines each section in place" onclick="_mineRunOutline()">&#128196; Mine Doc/Paper</button>
           <button class="dbtn dbtn-grey" style="padding:6px 14px;font-size:11px" id="mine-run-narrative-btn" title="Treat input as a cohesive narrative/document — preserves ordering, emits SEQUENCE edges between beats" onclick="_mineRunNarrative()">&#128220; Mine Narrative</button>
           <button class="dbtn dbtn-blue" style="padding:6px 14px;font-size:11px" id="mine-run-btn" title="Treat input as a chat/conversation log — user/assistant exchanges" onclick="_mineRun()">&#9889; Mine Conversation</button>
         </div>
@@ -2550,6 +2551,41 @@ async function _mineRunNarrative(){
     _stopMineProgress();
     const b=document.getElementById('mine-run-narrative-btn');
     if(b){b.disabled=false;b.textContent='📜 Mine Narrative'}
+  }
+}
+
+async function _mineRunOutline(){
+  const text=document.getElementById('mine-text').value;
+  if(!text.trim()){alert('Paste or drop a structured document first.');return}
+  const btn=document.getElementById('mine-run-outline-btn');
+  btn.disabled=true;btn.textContent='Mining doc...';
+  _mineRunning=true;
+  _startMineProgress();
+
+  try{
+    const res=await fetch(`${API}/mine-outline`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        text:text,
+        source_label:document.getElementById('mine-source').value||'document',
+        min_confidence:parseFloat(document.getElementById('mine-conf').value)||0.4,
+        target_collection:document.getElementById('mine-collection').value||'default',
+      })
+    });
+    if(!res.ok){const err=await res.json();throw new Error(err.detail||JSON.stringify(err))}
+    _mineResults=await res.json();
+    if(_mineResults.error){throw new Error(_mineResults.error)}
+    const ec=_mineResults.edges?.length||0;
+    const route=_mineResults.outline_route==='headings'?'heading outline':'synthesized outline';
+    pushEvent('proposal',`Mined ${_mineResults.proposals.length} proposals + ${ec} edges from ${_mineResults.segments||0} sections (${route})`);
+    dashNav('mine');
+  }catch(e){
+    alert('Doc/paper mining failed: '+e.message);
+  }finally{
+    _mineRunning=false;
+    _stopMineProgress();
+    const b=document.getElementById('mine-run-outline-btn');
+    if(b){b.disabled=false;b.textContent='📄 Mine Doc/Paper'}
   }
 }
 

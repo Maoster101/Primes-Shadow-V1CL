@@ -192,6 +192,7 @@ async def generate(
     raw_json: bool = False,
     num_ctx: Optional[int] = None,
     model: Optional[str] = None,
+    timeout: Optional[float] = None,
 ) -> str:
     """Single-shot generation. Use for structured extraction tasks.
 
@@ -203,6 +204,11 @@ async def generate(
     model than the active chat model. Used by dream enrichment to run on
     a small/fast model (e.g. llama3.2:latest) without evicting the chat
     model from VRAM. Falls back to ``CHAT_MODEL`` when unset.
+
+    `timeout` override: per-call read-timeout in seconds. The shared
+    client defaults to 300s; a local model can exceed that on a large
+    synthesis prompt (e.g. whole-document outlining). Passing a larger
+    value lets the call finish rather than raising ReadTimeout.
     """
     opts = _opts(temperature)
     if num_ctx is not None:
@@ -216,7 +222,10 @@ async def generate(
     if raw_json:
         payload["format"] = "json"
 
-    resp = await _client.post("/api/generate", json=payload)
+    post_kwargs: dict = {"json": payload}
+    if timeout is not None:
+        post_kwargs["timeout"] = httpx.Timeout(timeout, connect=30.0)
+    resp = await _client.post("/api/generate", **post_kwargs)
     if resp.status_code != 200:
         print(f"[OLLAMA GENERATE ERROR] {resp.status_code}: {resp.text[:300]}")
     resp.raise_for_status()
@@ -425,6 +434,7 @@ async def structured_extract(
     system: Optional[str] = None,
     num_ctx: Optional[int] = None,
     model: Optional[str] = None,
+    timeout: Optional[float] = None,
 ) -> dict:
     """Generate and parse structured JSON from the model.
 
@@ -438,11 +448,16 @@ async def structured_extract(
 
     `model` override: optional per-call model swap (see ``generate``).
     Used by dream enrichment to route to a small fast model.
+
+    `timeout` override: per-call read-timeout in seconds (see
+    ``generate``). Large synthesis prompts on local models can exceed
+    the 300s default.
     """
     if num_ctx is None:
         num_ctx = _EXTRACT_NUM_CTX
     raw = await generate(
-        prompt, system=system, temperature=0.3, num_ctx=num_ctx, model=model,
+        prompt, system=system, temperature=0.3, num_ctx=num_ctx,
+        model=model, timeout=timeout,
     )
     return _parse_json_response(raw)
 
