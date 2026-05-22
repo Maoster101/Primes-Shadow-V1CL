@@ -132,12 +132,10 @@ def get() -> dict:
 # reflect the relative wall-time each phase typically takes on a
 # medium doc, so the overall bar moves at roughly steady pace.
 _PHASE_WEIGHTS = {
-    # narrative miner phases
-    "segmenting": 0.01,
-    "anchor_extraction": 0.40,
-    "bundle_synthesis": 0.05,
-    "slab_extraction": 0.43,
-    "dialectic_edges": 0.06,
+    # narrative miner phases — outline-first (beats)
+    "beat_drill": 0.60,
+    "beat_summaries": 0.28,
+    "narrative_edges": 0.04,
     "consolidation": 0.05,
     # convo miner phases
     "normalizing": 0.01,
@@ -180,8 +178,8 @@ def _compute_overall_pct(snap: dict) -> float:
         order = ["outlining", "section_drill", "pillar_summaries",
                  "cross_pillar", "outline_edges", "consolidation"]
     else:
-        order = ["segmenting", "anchor_extraction", "bundle_synthesis",
-                 "slab_extraction", "dialectic_edges", "consolidation"]
+        order = ["outlining", "beat_drill", "beat_summaries",
+                 "narrative_edges", "consolidation"]
 
     total_weight = sum(_PHASE_WEIGHTS.get(p, 0.0) for p in order)
     if total_weight <= 0:

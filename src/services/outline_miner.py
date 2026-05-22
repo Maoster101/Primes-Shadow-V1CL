@@ -40,7 +40,6 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .convo_miner import MiningProposal, EdgeProposal, deduplicate_proposals
-from .narrative_miner import build_sequence_edges
 from . import ollama, mining_progress
 from ..models.schemas import PillarDefinition, PillarCrossEdge
 from ..models.enums import EdgeType
@@ -138,6 +137,47 @@ def select_tiers(sections: list[Section]) -> tuple[int, int]:
     return (levels[0], levels[1])
 
 
+def resolve_chapters(
+    sections: list[Section], top_level: int, chapter_level: int,
+) -> tuple[list[Section], dict, list[str]]:
+    """Resolve the mining units ("chapters") from a parsed outline.
+
+    Chapters are the chapter_level sections — plus any top-level section
+    with no chapter-level descendant (an appendix whose subsections are
+    all one level deeper), which becomes its own chapter so its content
+    is still mined. Returns ``(chapters, chapter_top, chapter_paths)``:
+    ``chapter_top`` maps ``id(chapter)`` → its top-tier Section (or None),
+    ``chapter_paths`` is the "Top / Chapter" (or bare "Chapter") path.
+
+    Genre-neutral — the outline tiering is the same whether the units
+    are document sections or narrative beats.
+    """
+    def _top_of(sec: Section):
+        cur = sec
+        while cur.parent_idx >= 0:
+            cur = sections[cur.parent_idx]
+            if cur.level == top_level:
+                return cur
+        return None
+
+    chapters = [s for s in sections if s.level == chapter_level]
+    if top_level != chapter_level:
+        tops_with_chapters = {
+            id(t) for t in (_top_of(ch) for ch in chapters) if t is not None
+        }
+        for s in sections:
+            if s.level == top_level and id(s) not in tops_with_chapters:
+                chapters.append(s)
+        chapters.sort(key=lambda s: s.char_start)
+
+    chapter_top = {id(ch): _top_of(ch) for ch in chapters}
+    chapter_paths: list[str] = []
+    for ch in chapters:
+        t = chapter_top[id(ch)]
+        chapter_paths.append(f"{t.label} / {ch.label}" if t else ch.label)
+    return chapters, chapter_top, chapter_paths
+
+
 # ─── LLM-summarize fallback (headingless documents) ──────────────────────
 
 
@@ -228,8 +268,15 @@ def _locate_marker(raw_norm: str, marker: str, cursor: int) -> tuple[int, bool]:
     return -1, False
 
 
-async def _outline_via_llm(raw: str) -> list[Section]:
+async def _outline_via_llm(
+    raw: str, system: str = _OUTLINE_SUMMARIZE_SYSTEM,
+) -> list[Section]:
     """Fallback Pass 1 — synthesize an outline for a headingless document.
+
+    ``system`` selects the genre framing — the default treats the source
+    as a document (sections/arguments); the narrative miner passes a
+    beat-flavoured prompt. The marker-location + span-resolution logic
+    below is genre-neutral, so only the prompt changes.
 
     One LLM call over a paragraph-lede digest of the document. Outlining
     is retrospective (a section's place is clear only given what
@@ -247,7 +294,7 @@ async def _outline_via_llm(raw: str) -> list[Section]:
     user = f"DOCUMENT:\n\"\"\"\n{sample}\n\"\"\"\n\nProduce the ordered outline."
     try:
         resp = await ollama.structured_extract(
-            user, system=_OUTLINE_SUMMARIZE_SYSTEM, num_ctx=32768, timeout=600,
+            user, system=system, num_ctx=32768, timeout=600,
         )
     except Exception as exc:
         logger.warning("Outline LLM-summarize failed: %r", exc)
@@ -462,12 +509,17 @@ class ChapterResult:
 
 async def _drill_chapter(
     chapter: Section, section_path: str, order_base: int, min_confidence: float,
+    system: str = _CHAPTER_EXTRACT_SYSTEM,
 ) -> ChapterResult:
     """Pass 2 — mine one chapter span into slabs + anchors.
 
     ``order_base`` is the global monotonic position of this chapter; slab
     ``source_pairs`` are stamped order_base, order_base+1, ... so the
     downstream SEQUENCE-edge builder chains slabs in document order.
+
+    ``system`` selects the genre extraction prompt — the default mines a
+    document section; the narrative miner passes a beat-flavoured prompt.
+    The span → proposals plumbing is identical for both.
     """
     result = ChapterResult(section_path=section_path, order_base=order_base)
     body = chapter.text.strip()
@@ -481,7 +533,7 @@ async def _drill_chapter(
     )
     try:
         resp = await ollama.structured_extract(
-            user, system=_CHAPTER_EXTRACT_SYSTEM, num_ctx=16384,
+            user, system=system, num_ctx=16384,
         )
     except Exception as exc:
         logger.warning("Pass 2 extraction failed for %r: %r", section_path, exc)
@@ -537,6 +589,127 @@ async def _drill_chapter(
     return result
 
 
+# ─── SEQUENCE spine ──────────────────────────────────────────────────────
+
+
+def build_sequence_edges(proposals: list[MiningProposal]) -> list[EdgeProposal]:
+    """Emit SEQUENCE edges between consecutive slabs in document order.
+
+    Walks slabs sorted by ``(source_pairs[0], intra_segment_order)`` and
+    connects each to the next. Weight is lifted slightly when the two
+    slabs share capitalised entities (a continuity signal). This is the
+    ordered spine — the doc miner uses it for section flow, the narrative
+    miner for the beat-to-beat progression.
+
+    The two-key sort matters: ``source_pairs[0]`` alone collapses every
+    slab from one drill unit into a single bucket, so when a unit yields
+    several slabs ``intra_segment_order`` is the only thing preserving
+    their within-unit order.
+    """
+    slabs = [p for p in proposals if p.proposal_type == "slab"]
+    slabs.sort(key=lambda p: (
+        p.source_pairs[0] if p.source_pairs else 0,
+        p.intra_segment_order,
+    ))
+    edges: list[EdgeProposal] = []
+    for i in range(len(slabs) - 1):
+        a, b = slabs[i], slabs[i + 1]
+        a_label = a.title or a.canonical_text[:40]
+        b_label = b.title or b.canonical_text[:40]
+        # Continuity signal: shared capitalised tokens (cheap proxy).
+        a_tokens = set(re.findall(r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?", a.canonical_text))
+        b_tokens = set(re.findall(r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?", b.canonical_text))
+        shared = len(a_tokens & b_tokens)
+        weight = min(0.55 + 0.1 * shared, 0.95)
+        a_seg = a.source_pairs[0] if a.source_pairs else 0
+        b_seg = b.source_pairs[0] if b.source_pairs else 0
+        a_pos, b_pos = a.intra_segment_order, b.intra_segment_order
+        if a_pos or b_pos:
+            ordering_str = f"unit {a_seg}/{a_pos} → unit {b_seg}/{b_pos}"
+        else:
+            ordering_str = f"unit {a_seg} → unit {b_seg}"
+        edges.append(EdgeProposal(
+            edge_type="SEQUENCE",
+            from_label=a_label,
+            to_label=b_label,
+            confidence=weight,
+            justification=(
+                f"Ordering: {ordering_str}"
+                + (f" (shared entities: {shared})" if shared else "")
+            ),
+        ))
+    return edges
+
+
+# ─── Outline tree (the pillar skeleton) ──────────────────────────────────
+
+
+def build_outline_tree(
+    sections, top_level, chapter_level, chapters, chapter_top,
+    chapter_paths, slab_titles_by_path, chapter_summaries, top_summaries,
+    cross_edges,
+) -> list[dict]:
+    """Build the nested outline the response carries as the pillar skeleton.
+
+    Top headings → top-pillar nodes; chapter headings → sub-pillar nodes,
+    each carrying its summary, the titles of the slabs mined into it, and
+    its cross_edges to other pillars. An orphan top (its own chapter)
+    becomes a leaf top node carrying its slabs directly.
+
+    Genre-neutral: ``cross_edges`` is ``{}`` for the narrative miner,
+    which deliberately skips the cross-relevance pass.
+    """
+    path_of = {id(ch): p for ch, p in zip(chapters, chapter_paths)}
+    chapter_set = {id(ch) for ch in chapters}
+
+    # Group cross-edges by their home (from) pillar path.
+    cross_by_home: dict[str, list[dict]] = {}
+    for (home_path, cross_path), weight in cross_edges.items():
+        cross_by_home.setdefault(home_path, []).append({
+            "to": cross_path.split(" / ")[-1],
+            "to_path": cross_path,
+            "weight": weight,
+        })
+
+    def chapter_node(ch: Section) -> dict:
+        p = path_of[id(ch)]
+        return {
+            "label": ch.label,
+            "level": ch.level,
+            "section_path": p,
+            "summary": chapter_summaries.get(p, ""),
+            "slab_titles": slab_titles_by_path.get(p, []),
+            "cross_edges": sorted(
+                cross_by_home.get(p, []), key=lambda x: -x["weight"],
+            ),
+        }
+
+    if top_level == chapter_level:
+        # Single tier — chapters are the top pillars.
+        return [chapter_node(ch) for ch in chapters]
+
+    tree = []
+    for top in (s for s in sections if s.level == top_level):
+        kids = [chapter_node(ch) for ch in chapters
+                if chapter_top[id(ch)] is top]
+        node = {
+            "label": top.label,
+            "level": top.level,
+            "summary": top_summaries.get(id(top), ""),
+            "children": kids,
+        }
+        # Orphan top (no chapter children, but mined as its own
+        # chapter) — carry its slabs + summary directly.
+        if not kids and id(top) in chapter_set:
+            p = path_of[id(top)]
+            node["section_path"] = p
+            node["slab_titles"] = slab_titles_by_path.get(p, [])
+            node["summary"] = chapter_summaries.get(p, "") or node["summary"]
+        if kids or node.get("slab_titles"):
+            tree.append(node)
+    return tree
+
+
 # ─── Miner ───────────────────────────────────────────────────────────────
 
 
@@ -575,40 +748,13 @@ class OutlineMiner:
             }
 
         top_level, chapter_level = select_tiers(sections)
-
-        # Each section's top-tier ancestor (None if it has none).
-        def _top_of(sec: Section):
-            cur = sec
-            while cur.parent_idx >= 0:
-                cur = sections[cur.parent_idx]
-                if cur.level == top_level:
-                    return cur
-            return None
-
-        # Chapters = the mining unit. Normally the chapter_level sections.
-        # A top-level section with NO chapter-level descendant (e.g. an
-        # appendix whose subsections are all one level deeper) becomes
-        # its own chapter — otherwise its content would never be mined.
-        chapters = [s for s in sections if s.level == chapter_level]
-        if top_level != chapter_level:
-            tops_with_chapters = {
-                id(t) for t in (_top_of(ch) for ch in chapters) if t is not None
-            }
-            for s in sections:
-                if s.level == top_level and id(s) not in tops_with_chapters:
-                    chapters.append(s)
-            chapters.sort(key=lambda s: s.char_start)
-
+        chapters, chapter_top, chapter_paths = resolve_chapters(
+            sections, top_level, chapter_level,
+        )
         logger.info(
             "OutlineMiner: route=%s, %d sections, %d chapters (tiers %d/%d)",
             outline_route, len(sections), len(chapters), top_level, chapter_level,
         )
-
-        chapter_top = {id(ch): _top_of(ch) for ch in chapters}
-        chapter_paths: list[str] = []
-        for ch in chapters:
-            t = chapter_top[id(ch)]
-            chapter_paths.append(f"{t.label} / {ch.label}" if t else ch.label)
 
         # ── Pass 2 — drill each chapter (parallel) ───────────────────
         mining_progress.set_phase("section_drill", total=len(chapters))
@@ -710,7 +856,7 @@ class OutlineMiner:
         slab_titles_by_path = {
             p: [s.title for s in sl] for p, sl in slabs_by_path.items()
         }
-        outline_tree = self._build_outline_tree(
+        outline_tree = build_outline_tree(
             sections, top_level, chapter_level, chapters, chapter_top,
             chapter_paths, slab_titles_by_path, chapter_summaries,
             top_summaries, cross_edges,
@@ -758,69 +904,6 @@ class OutlineMiner:
             "_inline_anchors_per_slab": {},
             "_consolidation_summary": None,
         }
-
-    def _build_outline_tree(
-        self, sections, top_level, chapter_level, chapters, chapter_top,
-        chapter_paths, slab_titles_by_path, chapter_summaries, top_summaries,
-        cross_edges,
-    ) -> list[dict]:
-        """Build the nested outline the response carries as the pillar skeleton.
-
-        Top headings → top-pillar nodes; chapter headings → sub-pillar
-        nodes, each carrying its Pass-3 summary, the titles of the slabs
-        mined into it, and its Pass-4 cross_edges to other pillars. An
-        orphan top (its own chapter) becomes a leaf top node carrying
-        its slabs directly.
-        """
-        path_of = {id(ch): p for ch, p in zip(chapters, chapter_paths)}
-        chapter_set = {id(ch) for ch in chapters}
-
-        # Group Pass-4 cross-edges by their home (from) pillar path.
-        cross_by_home: dict[str, list[dict]] = {}
-        for (home_path, cross_path), weight in cross_edges.items():
-            cross_by_home.setdefault(home_path, []).append({
-                "to": cross_path.split(" / ")[-1],
-                "to_path": cross_path,
-                "weight": weight,
-            })
-
-        def chapter_node(ch: Section) -> dict:
-            p = path_of[id(ch)]
-            return {
-                "label": ch.label,
-                "level": ch.level,
-                "section_path": p,
-                "summary": chapter_summaries.get(p, ""),
-                "slab_titles": slab_titles_by_path.get(p, []),
-                "cross_edges": sorted(
-                    cross_by_home.get(p, []), key=lambda x: -x["weight"],
-                ),
-            }
-
-        if top_level == chapter_level:
-            # Single tier — chapters are the top pillars.
-            return [chapter_node(ch) for ch in chapters]
-
-        tree = []
-        for top in (s for s in sections if s.level == top_level):
-            kids = [chapter_node(ch) for ch in chapters
-                    if chapter_top[id(ch)] is top]
-            node = {
-                "label": top.label,
-                "level": top.level,
-                "summary": top_summaries.get(id(top), ""),
-                "children": kids,
-            }
-            # Orphan top (no chapter children, but mined as its own
-            # chapter) — carry its slabs + summary directly.
-            if not kids and id(top) in chapter_set:
-                p = path_of[id(top)]
-                node["section_path"] = p
-                node["slab_titles"] = slab_titles_by_path.get(p, [])
-                node["summary"] = chapter_summaries.get(p, "") or node["summary"]
-            if kids or node.get("slab_titles"):
-                tree.append(node)
-        return tree
 
     async def mine_file(self, path, **kwargs) -> dict:
         from pathlib import Path
