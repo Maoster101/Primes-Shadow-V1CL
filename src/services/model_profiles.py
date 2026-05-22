@@ -43,14 +43,20 @@ async def detect(model_name: str) -> ModelProfile:
 
     This is the ONLY place we need model-specific knowledge.
     Everything is derived from what Ollama tells us about the model.
+
+    Uses the same transport (host + auth) as the chat/embed client so this
+    Just Works against both local daemon and Ollama Cloud.
     """
     import httpx
+    from . import ollama as _ollama
 
     profile = ModelProfile(name=model_name)
 
     try:
         async with httpx.AsyncClient(
-            base_url="http://localhost:11434", timeout=10.0
+            base_url=_ollama.OLLAMA_BASE,
+            timeout=15.0,
+            headers=_ollama._auth_headers(),
         ) as client:
             resp = await client.post("/api/show", json={"name": model_name})
             resp.raise_for_status()

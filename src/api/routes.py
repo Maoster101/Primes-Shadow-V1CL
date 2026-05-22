@@ -105,9 +105,17 @@ def _friendly_model_label(tag: str) -> str:
         "gemma3": "Gemma 3",
         "gemma2": "Gemma 2",
         "gpt-oss": "GPT-OSS",
+        "kimi-k2.6": "Kimi K2.6",
+        "kimi-k2.5": "Kimi K2.5",
+        "kimi-k2-thinking": "Kimi K2 Thinking",
+        "qwen3-coder": "Qwen3 Coder",
         "qwen3-vl": "Qwen3 VL",
         "qwen3": "Qwen3",
         "deepseek-r1": "DeepSeek R1",
+        "deepseek-v3.1": "DeepSeek V3.1",
+        "glm-4.6": "GLM 4.6",
+        "glm-4": "GLM 4",
+        "kimi-k2": "Kimi K2",
         "llama3.2": "Llama 3.2",
         "llama3.1": "Llama 3.1",
     }
@@ -121,33 +129,113 @@ def _friendly_model_label(tag: str) -> str:
 _NON_CHAT_FAMILIES = ("embed", "rerank", "bge", "e5-")
 
 
+# ── Featured cloud models ─────────────────────────────────────
+# Shown in the chat dropdown even when not yet pulled to the local daemon.
+# Lets the user discover hosted options without having to remember tags.
+# Override via env: PS_FEATURED_CLOUD_MODELS=tag1,tag2,tag3
+#
+# Tag notes (as of 2026-05):
+#   qwen3-coder:480b-cloud   — Qwen3 Coder 480B, confirmed on Ollama Cloud
+#   glm-4.6:cloud            — GLM 4.6 (Zhipu), hosted via Ollama Cloud
+#   gemma3:27b-cloud         — strongest Gemma on cloud at time of writing.
+#                              Swap to gemma4 tag when it ships hosted.
+import os as _os
+_DEFAULT_FEATURED = (
+    "qwen3-coder:480b-cloud,"
+    "glm-4.6:cloud,"
+    "gemma3:27b-cloud,"
+    "kimi-k2.6:cloud"  # Kimi K2.6 (Moonshot); tag may need adjustment if upstream uses kimi-k2-thinking:cloud
+)
+_FEATURED_CLOUD_MODELS = [
+    t.strip()
+    for t in _os.environ.get("PS_FEATURED_CLOUD_MODELS", _DEFAULT_FEATURED).split(",")
+    if t.strip()
+]
+
+
+def _is_cloud_tag(name: str) -> bool:
+    """Detect Ollama Cloud tag conventions.
+
+    Ollama uses two patterns for cloud-hosted model tags:
+      - <model>:<size>-cloud   e.g. qwen3-coder:480b-cloud, gemma3:27b-cloud
+      - <model>:cloud          e.g. glm-4.6:cloud, kimi-k2.6:cloud
+
+    Both have "cloud" as a tag suffix after the colon. We treat anything
+    whose post-colon part ends in "cloud" as hosted.
+    """
+    tag = name.split(":", 1)[-1] if ":" in name else ""
+    return tag == "cloud" or tag.endswith("-cloud")
+
+
 @router.get("/models")
 async def list_models():
-    """List all locally available Ollama chat models + which one is active.
+    """List available Ollama chat models + which one is active.
+
+    Talks to whichever Ollama host the rest of the app uses (local daemon
+    or Ollama Cloud — see PS_OLLAMA_HOST / PS_OLLAMA_API_KEY).
 
     Embedding / rerank models are filtered out — they're not valid chat
     targets. Each entry carries a `label` (human-friendly) and the raw
-    `name` (what gets sent to /models/switch).
+    `name` (what gets sent to /models/switch). Cloud models (tag suffix
+    `-cloud`) are labeled distinctly so the UI can show them as hosted.
     """
     import httpx
     try:
-        async with httpx.AsyncClient(base_url="http://localhost:11434") as client:
+        async with httpx.AsyncClient(
+            base_url=ollama.OLLAMA_BASE,
+            headers=ollama._auth_headers(),
+            timeout=30.0,
+        ) as client:
             resp = await client.get("/api/tags")
             resp.raise_for_status()
             models = resp.json().get("models", [])
             model_list = []
+            seen_names: set[str] = set()
             for m in models:
                 name = m["name"]
                 if any(tok in name.lower() for tok in _NON_CHAT_FAMILIES):
                     continue
+                is_cloud = _is_cloud_tag(name)
+                label = _friendly_model_label(name)
+                if is_cloud:
+                    label = f"{label} ☁"
                 model_list.append({
                     "name": name,
-                    "label": _friendly_model_label(name),
+                    "label": label,
                     "size": m.get("size", 0),
+                    "cloud": is_cloud,
+                    "featured": name in _FEATURED_CLOUD_MODELS,
+                    "pulled": True,
                 })
-            # Sort by label for stable UX
-            model_list.sort(key=lambda x: x["label"].lower())
-            return {"models": model_list, "active": ollama.CHAT_MODEL}
+                seen_names.add(name)
+
+            # Merge featured cloud models that aren't pulled locally yet so
+            # they're still discoverable in the dropdown. Marked `pulled:false`
+            # so the UI can hint that a pull is required before switching.
+            for tag in _FEATURED_CLOUD_MODELS:
+                if tag in seen_names:
+                    continue
+                model_list.append({
+                    "name": tag,
+                    "label": f"{_friendly_model_label(tag)} ☁",
+                    "size": 0,
+                    "cloud": True,
+                    "featured": True,
+                    "pulled": False,
+                })
+
+            # Sort: featured-pulled first, then locals alpha, then featured-not-pulled
+            def _sort_key(x):
+                tier = 0 if (x["featured"] and x["pulled"]) else (2 if not x["pulled"] else 1)
+                return (tier, x["label"].lower())
+            model_list.sort(key=_sort_key)
+            return {
+                "models": model_list,
+                "active": ollama.CHAT_MODEL,
+                "transport": "cloud" if ollama.IS_CLOUD else "local",
+                "host": ollama.OLLAMA_BASE,
+                "featured_cloud": _FEATURED_CLOUD_MODELS,
+            }
     except Exception as e:
         return {"models": [], "active": ollama.CHAT_MODEL, "error": str(e)}
 
@@ -168,22 +256,29 @@ async def switch_model(req: SwitchModelRequest):
     new_model = req.model
 
     try:
-        async with httpx.AsyncClient(base_url="http://localhost:11434",
-                                      timeout=httpx.Timeout(120.0)) as client:
-            # Unload old model
-            if old_model != new_model:
+        async with httpx.AsyncClient(
+            base_url=ollama.OLLAMA_BASE,
+            headers=ollama._auth_headers(),
+            timeout=httpx.Timeout(120.0),
+        ) as client:
+            # Local: unload the old model so the new one has room in VRAM.
+            # Cloud: no-op — there's no local VRAM to free.
+            if old_model != new_model and not ollama.IS_CLOUD:
                 await client.post("/api/generate", json={
                     "model": old_model, "prompt": "", "keep_alive": 0,
                 })
 
-            # Load new model with max GPU + pinned
-            resp = await client.post("/api/generate", json={
+            # Load new model. On local, pin in VRAM with max GPU offload.
+            # On cloud, just validate availability (no runtime flags apply).
+            load_payload: dict = {
                 "model": new_model,
                 "prompt": "",
                 "stream": False,
-                "keep_alive": -1,
-                "options": {"num_gpu": 99, "num_ctx": ollama._NUM_CTX},
-            })
+            }
+            if not ollama.IS_CLOUD:
+                load_payload["keep_alive"] = -1
+                load_payload["options"] = {"num_gpu": 99, "num_ctx": ollama._NUM_CTX}
+            resp = await client.post("/api/generate", json=load_payload)
             resp.raise_for_status()
 
             # Update the global model reference + auto-detect capabilities
@@ -223,22 +318,34 @@ async def switch_model(req: SwitchModelRequest):
                 "vision": profile.supports_vision if profile else False,
             }
 
-            # Check actual VRAM usage
-            ps_resp = await client.get("/api/ps")
-            ps_data = ps_resp.json()
-            for m in ps_data.get("models", []):
-                if m["name"] == new_model:
-                    return {
-                        "ok": True,
-                        "model": new_model,
-                        "profile": profile_info,
-                        "size_vram": m.get("size_vram", 0),
-                        "size": m.get("size", 0),
-                        "gpu_pct": round(
-                            m.get("size_vram", 0) / max(1, m.get("size", 1)) * 100
-                        ),
-                    }
-            return {"ok": True, "model": new_model, "profile": profile_info, "size_vram": 0, "size": 0, "gpu_pct": 0}
+            # Local: poll /api/ps for actual VRAM split. Cloud: skip — the
+            # endpoint reports only locally-loaded models, which is always
+            # empty when transport is cloud.
+            if not ollama.IS_CLOUD:
+                ps_resp = await client.get("/api/ps")
+                ps_data = ps_resp.json()
+                for m in ps_data.get("models", []):
+                    if m["name"] == new_model:
+                        return {
+                            "ok": True,
+                            "model": new_model,
+                            "profile": profile_info,
+                            "transport": "local",
+                            "size_vram": m.get("size_vram", 0),
+                            "size": m.get("size", 0),
+                            "gpu_pct": round(
+                                m.get("size_vram", 0) / max(1, m.get("size", 1)) * 100
+                            ),
+                        }
+            return {
+                "ok": True,
+                "model": new_model,
+                "profile": profile_info,
+                "transport": "cloud" if ollama.IS_CLOUD else "local",
+                "size_vram": 0,
+                "size": 0,
+                "gpu_pct": 0,
+            }
     except Exception as e:
         # Rollback on failure
         ollama.CHAT_MODEL = old_model

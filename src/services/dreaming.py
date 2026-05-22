@@ -61,8 +61,24 @@ from . import ollama
 #
 # Overridable via env var for easy experimentation without editing code.
 # Set to empty string to disable override (fall back to main chat model).
+#
+# Cloud-mode guard: when transport is cloud (PS_OLLAMA_HOST=ollama.com),
+# the default "llama3.2:latest" tag won't exist on the hosted account and
+# would 404. In that case we silently fall back to the chat model — on
+# cloud there's no VRAM-contention reason to use a smaller dream model,
+# so running both passes on the chat model is fine.
 import os as _os
-DREAM_MODEL: Optional[str] = _os.environ.get("PS_DREAM_MODEL", "llama3.2:latest") or None
+from . import ollama as _ollama_mod
+_RAW_DREAM_MODEL: Optional[str] = _os.environ.get("PS_DREAM_MODEL", "llama3.2:latest") or None
+if _ollama_mod.IS_CLOUD and _RAW_DREAM_MODEL and not _RAW_DREAM_MODEL.endswith("-cloud"):
+    print(
+        f"[DREAM] Cloud transport detected; ignoring PS_DREAM_MODEL="
+        f"{_RAW_DREAM_MODEL!r} (local tag) and falling back to chat model "
+        f"for dream passes."
+    )
+    DREAM_MODEL = None
+else:
+    DREAM_MODEL = _RAW_DREAM_MODEL
 
 # Dreaming prompts (audit + rewrite) are STRUCTURALLY LARGER than mining
 # prompts — they pack draft content + audit result + reference material

@@ -13,9 +13,57 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-OLLAMA_BASE = "http://localhost:11434"
+# ── Host / auth ────────────────────────────────────────────────
+# Two deployment modes:
+#   LOCAL  (default): talk to ollama daemon on this machine.
+#                     PS_OLLAMA_HOST=http://localhost:11434 (default)
+#                     PS_OLLAMA_API_KEY unset.
+#   CLOUD:            talk to Ollama-hosted inference.
+#                     PS_OLLAMA_HOST=https://ollama.com
+#                     PS_OLLAMA_API_KEY=<your key from ollama.com>
+#                     Model tags must end in `-cloud` (e.g. gpt-oss:120b-cloud).
+#
+# Cloud silently ignores inference-engine flags (num_ctx, num_gpu, num_batch,
+# keep_alive) — those are llama.cpp knobs on a local daemon. We strip them
+# from cloud payloads so logs aren't misleading and payloads stay small.
+OLLAMA_BASE = os.environ.get("PS_OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+OLLAMA_API_KEY = os.environ.get("PS_OLLAMA_API_KEY", "").strip()
+IS_CLOUD = "ollama.com" in OLLAMA_BASE or bool(OLLAMA_API_KEY)
+
+# Embeddings can target a different host than chat. Common case: chat in
+# cloud, embeddings on local daemon (Ollama Cloud doesn't host
+# nomic-embed-text, and per-request embed latency adds up fast in matching).
+# Defaults to the primary host so the simple case stays simple.
+OLLAMA_EMBED_BASE = os.environ.get("PS_OLLAMA_EMBED_HOST", OLLAMA_BASE).rstrip("/")
+# Embed key defaults: same as chat key UNLESS the embed host is local — in
+# that case sending a cloud Bearer token to localhost is wasteful (the local
+# daemon silently ignores it). Explicitly override with PS_OLLAMA_EMBED_API_KEY.
+_explicit_embed_key = os.environ.get("PS_OLLAMA_EMBED_API_KEY")
+if _explicit_embed_key is not None:
+    OLLAMA_EMBED_API_KEY = _explicit_embed_key.strip()
+elif "ollama.com" in OLLAMA_EMBED_BASE:
+    OLLAMA_EMBED_API_KEY = OLLAMA_API_KEY
+else:
+    OLLAMA_EMBED_API_KEY = ""
+
 CHAT_MODEL = os.environ.get("PS_CHAT_MODEL", "gemma3:12b")
 EMBED_MODEL = os.environ.get("PS_EMBED_MODEL", "nomic-embed-text")
+
+
+def _auth_headers() -> dict:
+    """HTTP headers for chat requests. Adds bearer auth when key is set."""
+    headers = {}
+    if OLLAMA_API_KEY:
+        headers["Authorization"] = f"Bearer {OLLAMA_API_KEY}"
+    return headers
+
+
+def _embed_auth_headers() -> dict:
+    """HTTP headers for embed requests. May differ from chat headers."""
+    headers = {}
+    if OLLAMA_EMBED_API_KEY:
+        headers["Authorization"] = f"Bearer {OLLAMA_EMBED_API_KEY}"
+    return headers
 
 # ── Performance tuning ─────────────────────────────────────────
 # These options are merged into every Ollama request.
@@ -77,23 +125,64 @@ logger.info(
 )
 
 # Reusable client — partial GPU offload means slow cold starts (~60s model load)
-# connect=30s, read=300s (5 min for first-token during cold load + slow CPU layers)
-_client = httpx.AsyncClient(base_url=OLLAMA_BASE, timeout=httpx.Timeout(300.0, connect=30.0))
+# connect=30s, read=300s (5 min for first-token during cold load + slow CPU layers).
+# Cloud calls go over TLS to ollama.com; the same timeout works for both.
+_client = httpx.AsyncClient(
+    base_url=OLLAMA_BASE,
+    timeout=httpx.Timeout(300.0, connect=30.0),
+    headers=_auth_headers(),
+)
+
+# Separate client for embeddings — usually points at the same host, but lets
+# you keep embeddings local while chat goes to cloud (see PS_OLLAMA_EMBED_HOST).
+_embed_client = (
+    _client
+    if OLLAMA_EMBED_BASE == OLLAMA_BASE and OLLAMA_EMBED_API_KEY == OLLAMA_API_KEY
+    else httpx.AsyncClient(
+        base_url=OLLAMA_EMBED_BASE,
+        timeout=httpx.Timeout(60.0, connect=10.0),
+        headers=_embed_auth_headers(),
+    )
+)
+
+logger.info(
+    "Ollama transport: chat_host=%s embed_host=%s cloud=%s auth=%s",
+    OLLAMA_BASE, OLLAMA_EMBED_BASE, IS_CLOUD, "yes" if OLLAMA_API_KEY else "no",
+)
 
 
 from . import model_profiles
 
 
 def _opts(temperature: float = 0.7, **extra) -> dict:
-    """Build options dict: MODEL_OPTIONS + per-call overrides."""
-    o = {**MODEL_OPTIONS, "temperature": temperature}
+    """Build options dict: MODEL_OPTIONS + per-call overrides.
+
+    In cloud mode, llama.cpp-runtime flags (num_ctx, num_gpu, num_batch,
+    num_thread) are stripped — the hosted runtime ignores them anyway,
+    and stripping keeps payloads small + logs honest.
+    """
+    if IS_CLOUD:
+        o = {"temperature": temperature}
+    else:
+        o = {**MODEL_OPTIONS, "temperature": temperature}
+    # Per-call overrides win — but cloud still won't honor runtime flags.
+    # We let callers pass num_ctx etc. through (no-op on cloud) so call
+    # sites don't need to branch on IS_CLOUD.
     o.update(extra)
     return o
 
 
 def _payload_base(**fields) -> dict:
-    """Build a request payload with model + keep_alive already set."""
-    return {"model": CHAT_MODEL, "keep_alive": -1, **fields}
+    """Build a request payload with model (and keep_alive for local) set.
+
+    `keep_alive=-1` pins the model in VRAM on a local daemon. Cloud manages
+    its own lifecycle, so we omit it there.
+    """
+    base: dict = {"model": CHAT_MODEL}
+    if not IS_CLOUD:
+        base["keep_alive"] = -1
+    base.update(fields)
+    return base
 
 
 async def generate(
@@ -371,8 +460,12 @@ def _parse_json_response(raw: str) -> dict:
 
 
 async def embed(texts: list[str]) -> list[list[float]]:
-    """Get embeddings from nomic-embed-text. Returns list of 768-dim vectors."""
-    resp = await _client.post("/api/embed", json={
+    """Get embeddings from nomic-embed-text. Returns list of 768-dim vectors.
+
+    Uses the embed-specific transport (which may differ from chat — see
+    PS_OLLAMA_EMBED_HOST). Defaults to the same host as chat.
+    """
+    resp = await _embed_client.post("/api/embed", json={
         "model": EMBED_MODEL,
         "input": texts,
     })
@@ -387,47 +480,76 @@ async def embed_single(text: str) -> list[float]:
 
 
 async def preload_model() -> None:
-    """Preload the chat model into VRAM so the first request isn't cold.
+    """Warm the chat model so the first user request isn't cold.
 
-    Sends a minimal generate request with keep_alive=-1 (never unload).
-    This loads model weights + allocates KV cache upfront.
+    On local: sends a minimal generate with keep_alive=-1 (pin in VRAM).
+    On cloud: still hits /api/generate to validate auth + model availability,
+              but skips local-only diagnostics (/api/ps, GPU split).
     """
     try:
-        resp = await _client.post("/api/generate", json=_payload_base(
-            prompt="",
-            stream=False,
-            options=MODEL_OPTIONS,
-        ))
-        resp.raise_for_status()
-        # Check actual GPU split from Ollama
-        try:
-            ps_resp = await _client.get("/api/ps")
-            ps_data = ps_resp.json()
-            for m in ps_data.get("models", []):
-                total = m.get("size", 0) / 1e9
-                vram = m.get("size_vram", 0) / 1e9
-                pct = (vram / total * 100) if total > 0 else 0
-                print(f"[OLLAMA] Model loaded: {m['name']} — "
-                      f"{vram:.1f}GB VRAM / {total:.1f}GB total ({pct:.0f}% GPU)")
-        except Exception:
-            pass
-        print(f"[OLLAMA] Config: ctx={_NUM_CTX}, num_gpu={_NUM_GPU}, batch={MODEL_OPTIONS['num_batch']}")
-        # Auto-detect model capabilities from Ollama
+        if IS_CLOUD:
+            # Cloud: cheap validation call. No options, no keep_alive.
+            payload = {"model": CHAT_MODEL, "prompt": "", "stream": False}
+            resp = await _client.post("/api/generate", json=payload)
+            resp.raise_for_status()
+            print(f"[OLLAMA] Cloud transport ready: host={OLLAMA_BASE} model={CHAT_MODEL}")
+        else:
+            resp = await _client.post("/api/generate", json=_payload_base(
+                prompt="",
+                stream=False,
+                options=MODEL_OPTIONS,
+            ))
+            resp.raise_for_status()
+            # Check actual GPU split from Ollama
+            try:
+                ps_resp = await _client.get("/api/ps")
+                ps_data = ps_resp.json()
+                for m in ps_data.get("models", []):
+                    total = m.get("size", 0) / 1e9
+                    vram = m.get("size_vram", 0) / 1e9
+                    pct = (vram / total * 100) if total > 0 else 0
+                    print(f"[OLLAMA] Model loaded: {m['name']} — "
+                          f"{vram:.1f}GB VRAM / {total:.1f}GB total ({pct:.0f}% GPU)")
+            except Exception:
+                pass
+            print(f"[OLLAMA] Config: ctx={_NUM_CTX}, num_gpu={_NUM_GPU}, batch={MODEL_OPTIONS['num_batch']}")
+
+        # Auto-detect model capabilities from Ollama (works on both transports)
         profile = await model_profiles.set_active(CHAT_MODEL)
         print(f"[OLLAMA] Profile: family={profile.family}, params={profile.parameter_size}, "
               f"think={profile.supports_think}, tools={profile.supports_tools}, "
               f"vision={profile.supports_vision}, layers={profile.block_count}")
     except Exception as e:
-        print(f"[OLLAMA] Preload failed (num_gpu={_NUM_GPU}): {e}")
+        print(f"[OLLAMA] Preload failed (cloud={IS_CLOUD}, num_gpu={_NUM_GPU}): {e}")
 
 
 async def health_check() -> dict:
-    """Verify Ollama is running and models are available."""
+    """Verify Ollama is reachable and the configured models are available.
+
+    When chat and embed are on different hosts (cloud + local hybrid), each
+    is checked against its own /api/tags. Empty model lists from cloud are
+    expected — cloud /api/tags returns only models pulled to the account,
+    so we treat "any model containing the name" as a soft match.
+    """
     resp = await _client.get("/api/tags")
     resp.raise_for_status()
-    models = {m["name"] for m in resp.json().get("models", [])}
+    chat_models = {m["name"] for m in resp.json().get("models", [])}
+
+    if _embed_client is _client:
+        embed_models = chat_models
+    else:
+        try:
+            r2 = await _embed_client.get("/api/tags")
+            r2.raise_for_status()
+            embed_models = {m["name"] for m in r2.json().get("models", [])}
+        except Exception:
+            embed_models = set()
+
     return {
         "ollama": True,
-        "chat_model": CHAT_MODEL in models or any(CHAT_MODEL in m for m in models),
-        "embed_model": EMBED_MODEL in models or any(EMBED_MODEL in m for m in models),
+        "transport": "cloud" if IS_CLOUD else "local",
+        "chat_host": OLLAMA_BASE,
+        "embed_host": OLLAMA_EMBED_BASE,
+        "chat_model": CHAT_MODEL in chat_models or any(CHAT_MODEL in m for m in chat_models),
+        "embed_model": EMBED_MODEL in embed_models or any(EMBED_MODEL in m for m in embed_models),
     }

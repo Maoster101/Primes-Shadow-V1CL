@@ -44,6 +44,11 @@
   select option{background:#151520;color:#e8e8f0}
   select option:checked{background:#2a2a3e;color:#ffffff}
   select option:hover{background:#2a2a3e}
+  /* Cloud-hosted models — green so the eye picks them out of a list of locals.
+     Two shades: bright green when the model is pulled+ready, dim green when
+     it's a featured suggestion that still needs `ollama pull`. */
+  select option.cloud-model{color:#5fd47a}
+  select option.cloud-model-pending{color:#3a8a4d;font-style:italic}
   /* Inspection drawer (AI Mine) — slides in from the right over dash content */
   #mine-inspect-drawer{position:absolute;top:0;right:-460px;bottom:0;width:440px;background:linear-gradient(180deg,#0e0e18 0%,#0a0a14 100%);border-left:1px solid var(--border);box-shadow:-6px 0 24px rgba(0,0,0,0.45);z-index:20;transition:right .22s ease;display:flex;flex-direction:column;overflow:hidden}
   #mine-inspect-drawer.open{right:0}
@@ -544,6 +549,7 @@ let pendingAttachment=null; // {filename, chars, truncated, content}
 // ═══════════════════════════════════════════════════════════════
 //  MODEL SELECTOR — queries Ollama for available models
 // ═══════════════════════════════════════════════════════════════
+let _activeModelName='';
 async function loadModelList(){
   const sel=document.getElementById('model-select');
   if(!sel)return;
@@ -552,6 +558,7 @@ async function loadModelList(){
     const tags=await fetch(`${API}/models`).then(r=>r.json());
     const models=tags.models||[];
     const active=tags.active||'';
+    _activeModelName=active;
     sel.innerHTML='';
     models.forEach(m=>{
       const opt=document.createElement('option');
@@ -559,8 +566,23 @@ async function loadModelList(){
       const gb=(m.size/1e9).toFixed(1);
       // Prefer server-emitted friendly label; fall back to raw tag.
       const label=m.label||m.name;
-      opt.textContent=`${label} (${gb}GB)`;
-      opt.title=m.name;  // hover shows the raw Ollama tag for verification
+      // Cloud models: green text, pulled vs pending distinction.
+      // Pulled local cloud / cloud transport: solid green.
+      // Featured but not pulled yet: dim italic green + size hidden + hint.
+      if(m.cloud){
+        if(m.pulled===false){
+          opt.className='cloud-model-pending';
+          opt.textContent=`${label} — pull required`;
+          opt.title=`${m.name}\n\nNot yet on this machine. Run:\n  ollama pull ${m.name}`;
+        }else{
+          opt.className='cloud-model';
+          opt.textContent=gb>0?`${label} (hosted)`:`${label} (hosted)`;
+          opt.title=`${m.name}\n\nHosted on Ollama Cloud`;
+        }
+      }else{
+        opt.textContent=`${label} (${gb}GB)`;
+        opt.title=m.name;  // hover shows the raw Ollama tag for verification
+      }
       if(m.name===active)opt.selected=true;
       sel.appendChild(opt);
     });
@@ -574,6 +596,15 @@ async function loadModelList(){
 async function switchModel(name){
   if(!name)return;
   const sel=document.getElementById('model-select');
+  // If the picked option is a not-yet-pulled featured cloud model, short-circuit
+  // with a friendly instruction instead of letting the server 404.
+  const picked=sel.querySelector(`option[value="${CSS.escape(name)}"]`);
+  if(picked && picked.classList.contains('cloud-model-pending')){
+    pushEvent('system',`${name} not on this machine yet. Run in a terminal:  ollama pull ${name}`);
+    // Snap back to the previously-active model so the dropdown reflects reality.
+    if(_activeModelName)sel.value=_activeModelName;
+    return;
+  }
   try{
     sel.disabled=true;
     pushEvent('system',`Switching to ${name}...`);
@@ -584,10 +615,15 @@ async function switchModel(name){
     });
     const data=await res.json();
     if(data.ok){
-      const vram=(data.size_vram/1e9).toFixed(1);
+      _activeModelName=name;
       const prof=data.profile||{};
       const caps=[prof.think&&'think',prof.tools&&'tools',prof.vision&&'vision'].filter(Boolean).join(', ')||'none';
-      pushEvent('system',`Model switched: ${name} — ${vram}GB VRAM, ${data.gpu_pct}% GPU, caps: ${caps}`);
+      if(data.transport==='cloud'||(data.size_vram||0)===0){
+        pushEvent('system',`Model switched: ${name} — hosted (cloud), caps: ${caps}`);
+      }else{
+        const vram=(data.size_vram/1e9).toFixed(1);
+        pushEvent('system',`Model switched: ${name} — ${vram}GB VRAM, ${data.gpu_pct}% GPU, caps: ${caps}`);
+      }
     }else{
       pushEvent('error',`Model switch failed: ${data.error||'unknown'}`);
     }

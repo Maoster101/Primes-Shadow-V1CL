@@ -737,6 +737,15 @@ class DraftManager:
                 # Also add to merged view so validation sees it
                 if target_store is not self.corpus:
                     self.corpus.anchors[corpus_obj.id] = corpus_obj
+            elif obj_type == "bundle":
+                # Pass-2 thematic bundle commit. Lives in target_store.bundles
+                # (KeyBundle objects). Member-anchor resolution is deferred to
+                # edge-commit time: the label resolver consumes the bundle's
+                # _member_phrases from the raw sidecar and emits bundle→anchor
+                # INVOKES edges as the referenced anchors commit (now or later).
+                target_store.bundles[corpus_obj.id] = corpus_obj
+                if target_store is not self.corpus:
+                    self.corpus.bundles[corpus_obj.id] = corpus_obj
             elif obj_type == "slab":
                 # Populate slab.intent + slab.invariants from the slab's
                 # own content BEFORE adding to store, so validation sees
@@ -939,6 +948,62 @@ class DraftManager:
                 ],
             )
             return ("slab", slab)
+
+        if prop_type == "bundle":
+            # Pass-2 thematic bundle from convo/narrative miner clustering.
+            # Distinct from the (now-removed) auto-generated 1:1 coherence
+            # bundles — these are real cross-slab thematic clusters with
+            # a curated label + member-anchor list.
+            #
+            # Shape contract (set by mining.py push-mined handler):
+            #   packet.bundle = {
+            #     "id": draft_id,
+            #     "payload": {intent, invariants, non_assumptions, ...},
+            #     "version": "v1",
+            #     "_member_phrases": [list of member anchor canonical_phrases],
+            #   }
+            # Member phrases stay as phrases here; they get resolved to
+            # anchor IDs at edge-commit time via the label resolver, which
+            # produces INVOKES edges from bundle → anchors.
+            from ..models.schemas import BundlePayload, KeyBundle
+
+            p_bundle = packet.bundle if packet else None
+            p_payload = (p_bundle or {}).get("payload") or {}
+
+            # Intent is required (min_length=1) by BundlePayload. Fall-through
+            # ladder: inline payload intent → packet.justification → raw label/justification → draft_id.
+            intent = list(p_payload.get("intent") or [])
+            if not intent:
+                if p_justification:
+                    intent = [p_justification]
+                elif raw.get("justification"):
+                    intent = [raw["justification"]]
+                elif raw.get("label"):
+                    intent = [raw["label"]]
+                else:
+                    intent = [draft_id]
+            # Schema cap is 5 entries; truncate defensively.
+            intent = intent[:5]
+
+            payload = BundlePayload(
+                intent=intent,
+                invariants=list(p_payload.get("invariants") or []),
+                non_assumptions=list(p_payload.get("non_assumptions") or []),
+                warnings=list(p_payload.get("warnings") or []),
+                heuristics=list(p_payload.get("heuristics") or []),
+                markers=list(p_payload.get("markers") or []),
+                rules=list(p_payload.get("rules") or []),
+                activation_clause=list(p_payload.get("activation_clause") or []),
+                canonical_quote_handles=list(p_payload.get("canonical_quote_handles") or []),
+                closing_clause=p_payload.get("closing_clause"),
+            )
+            bundle = KeyBundle(
+                id=draft_id,
+                payload=payload,
+                version="v1",
+                meta=AnchorMeta(version="v1"),
+            )
+            return ("bundle", bundle)
 
         return None
 

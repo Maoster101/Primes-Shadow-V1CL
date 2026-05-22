@@ -219,6 +219,33 @@ python -m uvicorn src.app:app --host 0.0.0.0 --port 8420
 
 Open `http://localhost:8420` in your browser.
 
+### Optional: Ollama Cloud (hosted inference)
+
+To run chat against Ollama-hosted large models (e.g. `gpt-oss:120b-cloud`,
+`qwen3-coder:480b-cloud`, `kimi-k2:1t-cloud`) without local GPU:
+
+```bash
+# 1. Pull a cloud model with the local CLI (one-time auth):
+ollama signin
+ollama pull gpt-oss:120b-cloud
+
+# 2a. EASY PATH — local daemon proxies to cloud transparently.
+#     No env vars needed. Just pick the -cloud model in the UI dropdown.
+python -m uvicorn src.app:app --host 0.0.0.0 --port 8420
+
+# 2b. DIRECT PATH — talk to ollama.com without a local daemon.
+#     Embeddings stay local (cloud doesn't host nomic-embed-text cheaply):
+export PS_OLLAMA_HOST=https://ollama.com
+export PS_OLLAMA_API_KEY=<your-key-from-ollama.com>
+export PS_OLLAMA_EMBED_HOST=http://localhost:11434
+export PS_CHAT_MODEL=gpt-oss:120b-cloud
+python -m uvicorn src.app:app --host 0.0.0.0 --port 8420
+```
+
+In cloud mode the runtime flags (`PS_NUM_CTX`, `PS_NUM_GPU`, `PS_NUM_BATCH`,
+`keep_alive`) are stripped from outgoing requests — the hosted runtime
+manages its own context window and scheduling.
+
 ---
 
 ## Relation to Mirror
