@@ -133,6 +133,102 @@ class CorpusStore:
             | set(self.gates) | set(self.pillars)
         )
 
+    def deduplicate(self) -> dict:
+        """Collapse exact-duplicate slabs and anchors to a single survivor.
+
+        Identity is exact content — slabs by ``canonical_text``, anchors
+        by ``canonical_phrase``. The survivor of each group is the one
+        with the lexicographically-smallest id (deterministic, stable).
+        Every reference to a removed id — edge endpoints, anchor.invokes,
+        depends_on lists, slab.links — is remapped to the survivor; an
+        edge that becomes a self-loop or a duplicate (same type+from+to)
+        after remapping is dropped.
+
+        Pillars are deliberately NOT remapped — their members would point
+        at removed slabs, so the caller must rebuild the overlay after.
+
+        The caller owns validate() + save(). Returns a report.
+        """
+        remap: dict[str, str] = {}
+
+        def _group(items: dict, key_fn) -> None:
+            seen: dict[str, str] = {}
+            for nid in sorted(items):
+                k = key_fn(items[nid])
+                if not k:
+                    continue
+                if k in seen:
+                    remap[nid] = seen[k]  # nid is redundant -> seen[k] survives
+                else:
+                    seen[k] = nid
+
+        _group(self.slabs, lambda s: (s.canonical_text or "").strip())
+        _group(self.anchors, lambda a: (a.canonical_phrase or "").strip())
+
+        slabs_removed = sum(1 for r in remap if r in self.slabs)
+        anchors_removed = sum(1 for r in remap if r in self.anchors)
+        if not remap:
+            return {"remapped": 0, "slabs_removed": 0, "anchors_removed": 0,
+                    "edges_dropped": 0}
+
+        for rid in remap:
+            self.slabs.pop(rid, None)
+            self.anchors.pop(rid, None)
+
+        def _r(x: str) -> str:
+            return remap.get(x, x)
+
+        def _uniq(seq) -> list:
+            out: list = []
+            seen: set = set()
+            for x in seq:
+                if x not in seen:
+                    seen.add(x)
+                    out.append(x)
+            return out
+
+        # Remap edge endpoints; drop self-loops and edges that collapse
+        # onto an already-kept (type, from, to).
+        new_edges: dict = {}
+        sigs: set = set()
+        edges_dropped = 0
+        for eid, e in self.edges.items():
+            fn, tn = _r(e.from_node), _r(e.to_node)
+            if fn == tn:
+                edges_dropped += 1
+                continue
+            sig = (e.type, fn, tn)
+            if sig in sigs:
+                edges_dropped += 1
+                continue
+            sigs.add(sig)
+            e.from_node, e.to_node = fn, tn
+            new_edges[eid] = e
+        self.edges = new_edges
+
+        # Remap reference lists carried on the surviving nodes.
+        for a in self.anchors.values():
+            a.invokes = _uniq(_r(x) for x in a.invokes)
+            a.depends_on = _uniq(_r(x) for x in a.depends_on)
+        for s in self.slabs.values():
+            s.depends_on = _uniq(_r(x) for x in s.depends_on)
+            if s.links:
+                s.links.anchors = _uniq(_r(x) for x in s.links.anchors)
+                s.links.bundles = _uniq(_r(x) for x in s.links.bundles)
+        for b in self.bundles.values():
+            b.supports = _uniq(_r(x) for x in b.supports)
+            b.depends_on = _uniq(_r(x) for x in b.depends_on)
+
+        return {
+            "remapped": len(remap),
+            "slabs_removed": slabs_removed,
+            "anchors_removed": anchors_removed,
+            "edges_dropped": edges_dropped,
+            "edges_remaining": len(self.edges),
+            "slabs_remaining": len(self.slabs),
+            "anchors_remaining": len(self.anchors),
+        }
+
     def validate(self) -> list[str]:
         """Run the 6 checks from §24.1. Returns list of errors."""
         errors: list[str] = []

@@ -200,6 +200,49 @@ async def build_outline_pillars(req: BuildOutlinePillarsRequest):
     return report
 
 
+class DedupCorpusRequest(BaseModel):
+    target_collection: str = "default"
+    rebuild_pillars: bool = True   # rebuild the overlay after (dedup voids it)
+
+
+@router.post("/corpus/dedup")
+async def dedup_corpus(req: DedupCorpusRequest):
+    """Collapse exact-duplicate slabs/anchors in a collection to one each.
+
+    Exact-content dedup — slabs by canonical_text, anchors by
+    canonical_phrase. The cleanup for an accidental double-push, where
+    the same mine result was committed twice and every node landed 2x.
+    Edges are remapped onto the survivors and de-duplicated; the pillar
+    overlay is rebuilt afterward, since dedup removes slabs it referenced.
+    """
+    store = registry.get_store(req.target_collection) or deps.corpus
+    report = store.deduplicate()
+    if report.get("remapped", 0) == 0:
+        report["status"] = "already clean — nothing to dedup"
+        report["target_collection"] = req.target_collection
+        return report
+
+    pillar_report = None
+    if req.rebuild_pillars:
+        from ..services.outline_miner import build_pillars_from_collection
+        pillar_report = await build_pillars_from_collection(
+            store, session_store, origin=req.target_collection,
+        )
+
+    if not pillar_report or pillar_report.get("pillars_created", 0) == 0:
+        # No overlay rebuilt — a stale one would now dangle on removed
+        # slabs, so drop it. Then persist the deduped corpus ourselves
+        # (build_pillars_from_collection saves only when it builds).
+        store.pillars = {}
+        report["validation_errors"] = store.validate()
+        store.save()
+    else:
+        report["validation_errors"] = pillar_report.get("validation_errors", [])
+    report["pillars"] = pillar_report
+    report["target_collection"] = req.target_collection
+    return report
+
+
 @router.get("/mining-progress")
 async def get_mining_progress():
     """Snapshot of the current mine's progress.

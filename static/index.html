@@ -359,6 +359,7 @@
           </span>
           <span id="corpus-breadcrumb" style="display:none;font-size:10px;color:#ff8c00;font-family:'JetBrains Mono',monospace;cursor:pointer;background:rgba(255,140,0,0.08);border:1px solid rgba(255,140,0,0.35);border-radius:4px;padding:2px 8px" onclick="_exitDrilledCluster()" title="Click to exit drilled cluster and return to overview"></span>
           <button id="corpus-rebuild-pillars" onclick="_corpusRebuildPillars()" title="Rebuild this collection's pillar overlay from its committed doc/paper-mined slabs. Scans draft sidecars on disk — no mine result needed, works after any refresh." style="background:rgba(180,0,158,0.12);border:1px solid rgba(180,0,158,0.4);border-radius:4px;color:#d97cce;padding:2px 8px;cursor:pointer;font-family:inherit;font-size:10px">&#127963; Rebuild Pillars</button>
+          <button id="corpus-dedup" onclick="_corpusDedup()" title="Collapse exact-duplicate slabs/anchors in this collection to one each (cleanup for an accidental double-push), remap edges, then rebuild the pillar overlay." style="background:rgba(255,140,0,0.1);border:1px solid rgba(255,140,0,0.4);border-radius:4px;color:#ff8c00;padding:2px 8px;cursor:pointer;font-family:inherit;font-size:10px">&#10697; Dedup</button>
           <span id="corpus-filter-stats" style="font-size:9px;color:var(--text-dim);margin-left:auto"></span>
         </div>
         <canvas id="corpus-canvas"></canvas>
@@ -1397,10 +1398,17 @@ async function showInspect(n){
 
   el.innerHTML=html;
 
-  // Fetch full corpus data for deep content + dashboard controls
+  // Fetch full corpus data for deep content + dashboard controls.
+  // Scope the fetch to the collection currently in the View dropdown —
+  // /corpus/full with no param returns only the merged (active) view,
+  // so a node from an inactive collection would silently not be found
+  // and the deep panel (title / canonical_text / links) would be blank.
   if(n.status==='corpus' && n.id){
     try{
-      const full=await fetch(`${API}/corpus/full`).then(r=>r.json());
+      const _cf=document.getElementById('corpus-collection-filter');
+      const _collParam=(_cf&&_cf.value&&_cf.value!=='__all__')
+        ?('?collection='+encodeURIComponent(_cf.value)):'';
+      const full=await fetch(`${API}/corpus/full${_collParam}`).then(r=>r.json());
       const anchor=(full.anchors||[]).find(a=>a.id===n.id);
       const bundle=(full.bundles||[]).find(b=>b.id===n.id);
       const slab=(full.slabs||[]).find(s=>s.id===n.id);
@@ -2711,7 +2719,7 @@ function _mineRenderProposals(){
     <button class="dbtn dbtn-red" style="padding:5px 14px;font-size:10px" onclick="_mineClear()" title="Discard all mined proposals and edges (drafts already pushed are unaffected)">Clear Results</button>
     <div style="flex:1"></div>
     <span id="mine-push-status" style="font-size:10px;color:var(--text-dim)"></span>
-    <button class="dbtn dbtn-green" style="padding:6px 18px;font-size:11px" onclick="_minePushSelected()">Push Selected to Drafts</button>
+    <button id="mine-push-btn" class="dbtn dbtn-green" style="padding:6px 18px;font-size:11px" onclick="_minePushSelected()">Push Selected to Drafts</button>
   </div>`;
   return html;
 }
@@ -3112,6 +3120,13 @@ function _mineToggleEdit(){_inspToggleEdit()}
 
 async function _minePushSelected(){
   if(!_mineResults){alert('No mining results');return}
+  // Double-push guard: the button is disabled for the whole request
+  // and stays disabled after success. Without this a double-click (or
+  // an impatient re-click while the ~hundreds-of-drafts request is in
+  // flight) silently commits the entire mine result twice — every slab
+  // and anchor lands 2x. Mirrors _minePushOne's post-push lockout.
+  const pushBtn=document.getElementById('mine-push-btn');
+  if(pushBtn&&pushBtn.disabled)return;
   const statusEl=document.getElementById('mine-push-status');
   if(!await _ensureMiningSession(statusEl))return;
   const sel=[];
@@ -3120,6 +3135,7 @@ async function _minePushSelected(){
   });
   if(!sel.length){alert('No proposals selected');return}
 
+  if(pushBtn){pushBtn.disabled=true;pushBtn.textContent='Pushing…';}
   statusEl.textContent=`Pushing ${sel.length} proposals...`;
 
   const proposals=sel.map(i=>_mineResults.proposals[i]).filter(Boolean);
@@ -3172,8 +3188,13 @@ async function _minePushSelected(){
     const edgeNote=(result.edges_persisted||0)>0?` + ${result.edges_persisted} edge(s)`:'';
     statusEl.innerHTML=`<span style="color:#0AAC00">✓ Created ${result.created||0} draft(s)${edgeNote}</span> · <a href="#" onclick="dashNav('verify');return false" style="color:var(--accent)">Verify & Promote</a> · <a href="#" onclick="_mineClear();return false" style="color:var(--text-dim)">Clear Results</a>`;
     pushEvent('proposal',`Pushed ${result.created||0} mined proposals${edgeNote} to drafts`);
+    // Stays disabled — re-pushing the same result would duplicate every
+    // draft. "Clear Results" resets the panel for a fresh mine.
+    if(pushBtn)pushBtn.textContent='✓ Pushed';
   }catch(e){
     statusEl.innerHTML=`<span style="color:#ff4444">Error: ${e.message}</span>`;
+    // Push failed — re-enable so the user can retry.
+    if(pushBtn){pushBtn.disabled=false;pushBtn.textContent='Push Selected to Drafts';}
   }
 }
 
@@ -4673,6 +4694,37 @@ async function _corpusRebuildPillars(){
     alert('Pillar rebuild failed: '+e.message);
   }finally{
     if(btn){btn.disabled=false;btn.innerHTML='&#127963; Rebuild Pillars';}
+  }
+}
+
+// Collapse exact-duplicate slabs/anchors in the viewed collection to one
+// each — cleanup for an accidental double-push — then rebuild pillars.
+async function _corpusDedup(){
+  const sel=document.getElementById('corpus-collection-filter');
+  const cid=sel?sel.value:'__all__';
+  if(!cid||cid==='__all__'){
+    alert('Pick a specific collection in the View dropdown — dedup runs per collection.');
+    return;
+  }
+  if(!confirm(`Dedup '${cid}'?\n\nExact-duplicate slabs and anchors will be collapsed to one each, edges remapped, and the pillar overlay rebuilt.`))return;
+  const btn=document.getElementById('corpus-dedup');
+  if(btn){btn.disabled=true;btn.textContent='Dedup…';}
+  try{
+    const res=await fetch(`${API}/corpus/dedup`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({target_collection:cid})
+    });
+    if(!res.ok){const err=await res.json();throw new Error(err.detail||JSON.stringify(err))}
+    const r=await res.json();
+    if(r.status){alert(`${cid}: ${r.status}`);return;}
+    pushEvent('proposal',`Dedup ${cid}: removed ${r.slabs_removed} slab + ${r.anchors_removed} anchor duplicate(s), dropped ${r.edges_dropped} edge(s)`);
+    for(const k in _communitiesCache)delete _communitiesCache[k];
+    corpusLoaded=false;
+    if(_corpusViewMode==='clusters'){await loadCorpusGraph();}else{await _setCorpusMode('clusters');}
+  }catch(e){
+    alert('Dedup failed: '+e.message);
+  }finally{
+    if(btn){btn.disabled=false;btn.innerHTML='&#10697; Dedup';}
   }
 }
 
