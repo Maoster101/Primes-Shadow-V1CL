@@ -42,6 +42,8 @@ import numpy as np
 from .convo_miner import MiningProposal, EdgeProposal, deduplicate_proposals
 from .narrative_miner import build_sequence_edges
 from . import ollama, mining_progress
+from ..models.schemas import PillarDefinition, PillarCrossEdge
+from ..models.enums import EdgeType
 
 logger = logging.getLogger(__name__)
 
@@ -828,3 +830,397 @@ class OutlineMiner:
         raw = path.read_text(encoding="utf-8")
         kwargs.setdefault("source_label", path.name)
         return await self.mine(raw, **kwargs)
+
+
+# ─── Last mile — outline tree → committed PillarDefinitions ───────────────
+
+
+_PILLAR_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _pillar_slug(s: str, max_len: int = 40) -> str:
+    return _PILLAR_SLUG_RE.sub("_", s.lower()).strip("_")[:max_len] or "pillar"
+
+
+def _index_slabs_by_title(store) -> dict[str, list[str]]:
+    """{normalized title -> [slab_id, ...]} for resolving outline slab_titles.
+
+    A list per title, not a single ID: two slabs can carry the same
+    title, and greedy resolution pops from the list so each committed
+    slab is claimed by at most one pillar.
+    """
+    index: dict[str, list[str]] = {}
+    for sid, slab in store.slabs.items():
+        key = (getattr(slab, "title", "") or "").strip().lower()
+        if key:
+            index.setdefault(key, []).append(sid)
+    return index
+
+
+def build_pillars_from_outline(
+    store, outline_tree: list[dict], origin: str = "", replace: bool = True,
+) -> dict:
+    """Last mile — turn a mined outline tree into committed PillarDefinitions.
+
+    Run AFTER the outline miner's slabs have been pushed and committed to
+    ``store``. The outline tree (the ``outline`` field of
+    ``OutlineMiner.mine``) is the Part/chapter skeleton: each chapter node
+    carries its Pass-3 summary, the *titles* of the slabs mined into it,
+    and its Pass-4 cross-edges. This resolves those titles to the
+    committed slab IDs and writes the pillar overlay to ``store.pillars``
+    (persisted to pillars.yaml).
+
+    Why title-based resolution: the miner emits *proposals*, /push-mined
+    mints draft IDs, and the commit step mints final node IDs — the slab's
+    ID is not stable across that boundary, but its title is. So the
+    outline tree records titles and we re-join here. Greedy with a
+    claimed-ID ``used`` set so duplicate titles disambiguate by order.
+
+    The pillar tier is a pure overlay (§ schema PillarDefinition): it
+    references content nodes by ID and never copies their text. A chapter
+    that resolves to zero committed slabs is dropped — a pillar with no
+    members is navigationally dead weight, and an empty Part (all
+    children dropped) is dropped with it.
+
+    Returns a report dict: counts, unresolved titles, validation errors.
+    """
+    title_index = _index_slabs_by_title(store)
+    used: set[str] = set()
+    seen_ids: set[str] = set()
+    unresolved: list[str] = []
+
+    def _new_id(label: str) -> str:
+        slug = _pillar_slug(label)
+        pid = f"pillar_{slug}_v1"
+        n = 2
+        while pid in seen_ids:
+            pid = f"pillar_{slug}_{n}_v1"
+            n += 1
+        seen_ids.add(pid)
+        return pid
+
+    def _resolve(titles: list[str]) -> list[str]:
+        ids: list[str] = []
+        for t in titles or []:
+            key = (t or "").strip().lower()
+            picked = None
+            for sid in title_index.get(key, []):
+                if sid not in used:
+                    picked = sid
+                    break
+            if picked:
+                used.add(picked)
+                ids.append(picked)
+            else:
+                unresolved.append(t)
+        return ids
+
+    pillars: dict[str, PillarDefinition] = {}
+    path_to_pillar: dict[str, str] = {}        # section_path -> pillar id
+    deferred_cross: dict[str, list[dict]] = {}  # pillar id -> raw cross_edges
+
+    def _make_chapter(node: dict, parent_id: str | None) -> str | None:
+        """Build one leaf/chapter pillar. Returns its id, or None if it
+        resolved to zero members (caller drops it from any parent).
+
+        A node may carry ``slab_ids`` (exact committed IDs — used by the
+        session-rebuild path, which knows them) or ``slab_titles`` (used
+        by the fresh-mine path, resolved by title). slab_ids win when
+        present: no lossy title round-trip."""
+        ids = node.get("slab_ids")
+        if ids:
+            members = [s for s in ids if s in store.slabs and s not in used]
+            used.update(members)
+        else:
+            members = _resolve(node.get("slab_titles", []))
+        if not members:
+            return None
+        pid = _new_id(node.get("label") or "Section")
+        pillars[pid] = PillarDefinition(
+            id=pid,
+            label=(node.get("label") or "Section").strip(),
+            summary=(node.get("summary") or "").strip(),
+            members=members,
+            parent=parent_id,
+            origin=origin,
+            pillar_role="chapter" if parent_id else "section",
+        )
+        path = node.get("section_path")
+        if path:
+            path_to_pillar[path] = pid
+        if node.get("cross_edges"):
+            deferred_cross[pid] = node["cross_edges"]
+        return pid
+
+    # First pass — build the tier nodes. Top IDs are minted before their
+    # children so each child can carry a ``parent`` pointer.
+    for top in outline_tree:
+        kids = top.get("children")
+        if kids:
+            top_id = _new_id(top.get("label") or "Part")
+            child_ids = [
+                cid for cid in
+                (_make_chapter(ch, parent_id=top_id) for ch in kids)
+                if cid is not None
+            ]
+            if not child_ids:
+                continue  # every child resolved empty — drop the Part
+            pillars[top_id] = PillarDefinition(
+                id=top_id,
+                label=(top.get("label") or "Part").strip(),
+                summary=(top.get("summary") or "").strip(),
+                children=child_ids,
+                origin=origin,
+                pillar_role="section",
+            )
+        else:
+            # Single-tier chapter, or an orphan top carrying slabs direct.
+            _make_chapter(top, parent_id=None)
+
+    # Second pass — lift cross-edges. The outline's per-chapter
+    # ``cross_edges`` weight is a slab COUNT; PillarCrossEdge.weight is a
+    # 0-1 strength, so normalize (5+ shared slabs = full weight).
+    cross_count = 0
+    for pid, raw_edges in deferred_cross.items():
+        lifted: list[PillarCrossEdge] = []
+        for ce in raw_edges:
+            target = path_to_pillar.get(ce.get("to_path"))
+            if not target or target == pid:
+                continue
+            count = int(ce.get("weight") or 1)
+            lifted.append(PillarCrossEdge(
+                to_pillar=target,
+                type=EdgeType.LINKS,
+                weight=min(1.0, count / 5.0),
+                confidence=0.7,
+                rationale=f"{count} slab(s) cross-relevant between pillars",
+            ))
+        if lifted:
+            pillars[pid].cross_edges = lifted
+            cross_count += len(lifted)
+
+    if not pillars:
+        return {
+            "pillars_created": 0,
+            "error": "No pillars built — no outline slab titles resolved to "
+                     "committed slabs. Push and commit the mined slabs "
+                     "before building pillars.",
+            "unresolved_titles": unresolved,
+        }
+
+    if replace:
+        store.pillars = pillars
+    else:
+        store.pillars.update(pillars)
+
+    errors = store.validate()
+    store.save()
+
+    logger.info(
+        "build_pillars_from_outline: %d pillars (%d top, %d sub), "
+        "%d slabs placed, %d cross-edges, %d unresolved titles",
+        len(pillars),
+        sum(1 for p in pillars.values() if not p.parent),
+        sum(1 for p in pillars.values() if p.parent),
+        len(used), cross_count, len(unresolved),
+    )
+    return {
+        "pillars_created": len(pillars),
+        "top_pillars": sum(1 for p in pillars.values() if not p.parent),
+        "sub_pillars": sum(1 for p in pillars.values() if p.parent),
+        "members_resolved": len(used),
+        "cross_edges": cross_count,
+        "unresolved_titles": unresolved,
+        "validation_errors": errors,
+    }
+
+
+def _collect_slab_records(store, raw_paths: list[str]) -> list[dict]:
+    """Read draft raw sidecars into outline-rebuild records.
+
+    Keeps a sidecar only if it is a slab proposal, carries a
+    ``source_topic`` (i.e. came from the outline miner), and the slab
+    actually committed into ``store`` — so discarded / still-pending /
+    other-collection drafts are filtered out. The id↔draft_id identity
+    (``_convert_to_corpus_object``) is what lets us match committed
+    slabs to their sidecars by filename.
+    """
+    import json as _json
+    from pathlib import Path
+
+    recs: list[dict] = []
+    for raw_path in raw_paths:
+        try:
+            d = _json.loads(Path(raw_path).read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if d.get("type") != "slab":
+            continue
+        slab_id = Path(raw_path).name[:-len("_raw.json")]
+        if slab_id not in store.slabs:
+            continue  # discarded, still pending, or committed elsewhere
+        topic = (d.get("source_topic") or "").strip()
+        if not topic:
+            continue  # not outline-mined (no section tag)
+        sp = d.get("source_pairs") or []
+        recs.append({
+            "id": slab_id,
+            "topic": topic,
+            "cross": [c for c in (d.get("cross_pillars") or []) if c],
+            "order": sp[0] if sp else 10 ** 9,
+        })
+    return recs
+
+
+async def _pillars_from_slab_records(
+    store, recs: list[dict], origin: str, source_tag: str,
+    regenerate_summaries: bool = True, replace: bool = True,
+) -> dict:
+    """Shared core: turn outline-rebuild records into a committed overlay.
+
+    ``recs`` come from ``_collect_slab_records`` (one session's drafts or
+    a whole collection's). Groups them back into their sections by
+    ``source_topic``, regenerates the Pass-3 summaries (the one field the
+    sidecars don't carry), lifts ``cross_pillars`` to section-level
+    cross-edges, and delegates to ``build_pillars_from_outline``.
+    """
+    if not recs:
+        return {
+            "pillars_created": 0,
+            "error": "No committed outline-mined slabs found. Push and "
+                     "promote a doc/paper mine into this collection first.",
+        }
+
+    # Regroup into sections, ordered by document position (source_pairs).
+    sections: dict[str, dict] = {}
+    for r in recs:
+        sec = sections.setdefault(r["topic"], {"ids": [], "order": r["order"]})
+        sec["ids"].append(r["id"])
+        sec["order"] = min(sec["order"], r["order"])
+    ordered_topics = [
+        t for t, _ in sorted(sections.items(), key=lambda kv: kv[1]["order"])
+    ]
+
+    # Pass 3 redo — summaries are the one field not in the sidecars.
+    summaries: dict[str, str] = {t: "" for t in ordered_topics}
+    if regenerate_summaries:
+        sem = asyncio.Semaphore(_PASS_PARALLEL)
+
+        async def _resummarize(topic: str):
+            async with sem:
+                items = []
+                for sid in sections[topic]["ids"]:
+                    sl = store.slabs.get(sid)
+                    if sl:
+                        items.append(
+                            f"{sl.title}: {(sl.canonical_text or '')[:160]}"
+                        )
+                summaries[topic] = await _summarize_pillar(
+                    topic.split(" / ")[-1], items
+                )
+
+        await asyncio.gather(*[_resummarize(t) for t in ordered_topics])
+
+    # Aggregate per-slab cross_pillars up to section-level cross-edges.
+    cross_by_home: dict[str, dict[str, int]] = {}
+    for r in recs:
+        for to_topic in r["cross"]:
+            if to_topic and to_topic != r["topic"]:
+                tally = cross_by_home.setdefault(r["topic"], {})
+                tally[to_topic] = tally.get(to_topic, 0) + 1
+
+    def _edges_for(topic: str) -> list[dict]:
+        return sorted(
+            ({"to": to.split(" / ")[-1], "to_path": to, "weight": n}
+             for to, n in cross_by_home.get(topic, {}).items()),
+            key=lambda x: -x["weight"],
+        )
+
+    # Assemble an outline tree (slab_ids carried — exact, no title round
+    # trip) and hand it to the shared builder. " / " in a topic means the
+    # source was two-tier (Part / Chapter); a flat topic is its own top.
+    two_tier = any(" / " in t for t in ordered_topics)
+    outline_tree: list[dict] = []
+    if two_tier:
+        parts: dict[str, list[str]] = {}
+        part_order: list[str] = []
+        for t in ordered_topics:
+            part = t.split(" / ")[0]
+            if part not in parts:
+                parts[part] = []
+                part_order.append(part)
+            parts[part].append(t)
+        for part in part_order:
+            outline_tree.append({
+                "label": part, "level": 1, "summary": "",
+                "children": [{
+                    "label": t.split(" / ")[-1], "level": 2,
+                    "section_path": t, "summary": summaries.get(t, ""),
+                    "slab_ids": sections[t]["ids"],
+                    "cross_edges": _edges_for(t),
+                } for t in parts[part]],
+            })
+    else:
+        for t in ordered_topics:
+            outline_tree.append({
+                "label": t, "level": 1, "section_path": t,
+                "summary": summaries.get(t, ""),
+                "slab_ids": sections[t]["ids"],
+                "cross_edges": _edges_for(t),
+            })
+
+    report = build_pillars_from_outline(
+        store, outline_tree, origin=origin, replace=replace,
+    )
+    report["sections"] = len(ordered_topics)
+    report["source"] = source_tag
+    return report
+
+
+async def build_pillars_from_session(
+    store, session_store, session_id: str, origin: str = "",
+    regenerate_summaries: bool = True, replace: bool = True,
+) -> dict:
+    """Rebuild the pillar overlay from ONE mining session's committed drafts.
+
+    The ``outline`` tree /mine-outline returns lives only in browser
+    memory; a refresh between mining and committing wipes it. But every
+    pushed draft writes a raw sidecar (``{id}_raw.json``) persisting
+    ``source_topic`` + ``cross_pillars`` — so the overlay is rebuildable
+    from disk with nothing but a session id.
+    """
+    import glob
+    from pathlib import Path
+
+    drafts_dir = Path(session_store.drafts_dir(session_id))
+    recs = _collect_slab_records(store, glob.glob(str(drafts_dir / "*_raw.json")))
+    return await _pillars_from_slab_records(
+        store, recs, origin, "session_sidecars",
+        regenerate_summaries=regenerate_summaries, replace=replace,
+    )
+
+
+async def build_pillars_from_collection(
+    store, session_store, origin: str = "",
+    regenerate_summaries: bool = True, replace: bool = True,
+) -> dict:
+    """Rebuild the overlay from EVERY session's drafts — needs only the store.
+
+    The fully stateless path: the corpus-view "Rebuild Pillar Overlay"
+    button calls this for whatever collection is on screen. It scans all
+    session draft sidecars and keeps the ones whose slab committed into
+    ``store`` (the ``slab_id in store.slabs`` filter), so a collection
+    mined across several sessions still reassembles correctly. ~thousands
+    of small JSON reads — fine for a manual one-shot action.
+    """
+    import glob
+    from pathlib import Path
+
+    root = Path(session_store.root)
+    recs = _collect_slab_records(
+        store, glob.glob(str(root / "*" / "drafts" / "*_raw.json"))
+    )
+    return await _pillars_from_slab_records(
+        store, recs, origin, "collection_sidecars",
+        regenerate_summaries=regenerate_summaries, replace=replace,
+    )

@@ -358,6 +358,7 @@
             <button id="corpus-mode-clusters" onclick="_setCorpusMode('clusters')" style="background:transparent;border:none;color:var(--text-dim);padding:2px 8px;cursor:pointer;font-family:inherit;font-size:10px">Clusters</button>
           </span>
           <span id="corpus-breadcrumb" style="display:none;font-size:10px;color:#ff8c00;font-family:'JetBrains Mono',monospace;cursor:pointer;background:rgba(255,140,0,0.08);border:1px solid rgba(255,140,0,0.35);border-radius:4px;padding:2px 8px" onclick="_exitDrilledCluster()" title="Click to exit drilled cluster and return to overview"></span>
+          <button id="corpus-rebuild-pillars" onclick="_corpusRebuildPillars()" title="Rebuild this collection's pillar overlay from its committed doc/paper-mined slabs. Scans draft sidecars on disk — no mine result needed, works after any refresh." style="background:rgba(180,0,158,0.12);border:1px solid rgba(180,0,158,0.4);border-radius:4px;color:#d97cce;padding:2px 8px;cursor:pointer;font-family:inherit;font-size:10px">&#127963; Rebuild Pillars</button>
           <span id="corpus-filter-stats" style="font-size:9px;color:var(--text-dim);margin-left:auto"></span>
         </div>
         <canvas id="corpus-canvas"></canvas>
@@ -2699,6 +2700,11 @@ function _mineRenderProposals(){
     </div>`;
   }
 
+  // Doc/paper mines also produce a pillar overlay, but that's built
+  // AFTER the slabs commit — via the "🏛 Rebuild Pillars" button on the
+  // corpus view, which scans committed draft sidecars (no browser state
+  // needed). It deliberately doesn't live here: this panel is gone once
+  // you navigate to Verify to promote.
   html+=`<div style="display:flex;gap:10px;margin-top:14px;align-items:center">
     <button class="dbtn dbtn-blue" style="padding:5px 14px;font-size:10px" onclick="_mineSelectAll(true)">Select All</button>
     <button class="dbtn dbtn-grey" style="padding:5px 14px;font-size:10px" onclick="_mineSelectAll(false)">Deselect All</button>
@@ -4629,6 +4635,44 @@ async function _setCorpusMode(mode){
     _updateCorpusBreadcrumb();
     corpusLoaded=false;
     await loadCorpusGraph();
+  }
+}
+
+// Rebuild the pillar overlay for the collection currently in the View
+// dropdown. Stateless: the backend scans committed draft sidecars on
+// disk, so this works after any refresh and needs no mine result —
+// the fix for "the build button was stuck on the Mine page".
+async function _corpusRebuildPillars(){
+  const sel=document.getElementById('corpus-collection-filter');
+  const cid=sel?sel.value:'__all__';
+  if(!cid||cid==='__all__'){
+    alert('Pick a specific collection in the View dropdown — pillars are rebuilt per collection, not on the merged view.');
+    return;
+  }
+  const btn=document.getElementById('corpus-rebuild-pillars');
+  if(btn){btn.disabled=true;btn.textContent='Rebuilding…';}
+  try{
+    const res=await fetch(`${API}/build-outline-pillars`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({target_collection:cid})
+    });
+    if(!res.ok){const err=await res.json();throw new Error(err.detail||JSON.stringify(err))}
+    const r=await res.json();
+    if(r.error){alert('Rebuild: '+r.error);return;}
+    pushEvent('proposal',`Rebuilt ${cid} pillar overlay: ${r.pillars_created} pillars · ${r.members_resolved} slabs · ${r.cross_edges} cross-edges`);
+    // Bust the client-side cluster/pillar cache so the rebuilt overlay shows.
+    for(const k in _communitiesCache)delete _communitiesCache[k];
+    corpusLoaded=false;
+    // Pillars live at the top of the Clusters view — switch there if needed.
+    if(_corpusViewMode==='clusters'){
+      await loadCorpusGraph();
+    }else{
+      await _setCorpusMode('clusters');
+    }
+  }catch(e){
+    alert('Pillar rebuild failed: '+e.message);
+  }finally{
+    if(btn){btn.disabled=false;btn.innerHTML='&#127963; Rebuild Pillars';}
   }
 }
 

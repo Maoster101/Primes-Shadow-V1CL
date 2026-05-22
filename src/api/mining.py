@@ -47,6 +47,17 @@ class MineOutlineRequest(BaseModel):
     target_collection: str = "default" # Which collection to mine into
 
 
+class BuildOutlinePillarsRequest(BaseModel):
+    target_collection: str = "default"  # Collection whose slabs were committed
+    outline: list[dict] = []            # `outline` field from /mine-outline
+    origin: str = ""                    # Source document label for provenance
+    # Rebuild mode: when set, the outline is reconstructed server-side
+    # from this session's committed draft sidecars (source_topic +
+    # cross_pillars), so the build survives a page refresh and doesn't
+    # need the browser to still hold the mine result. Preferred path.
+    session_id: str = ""
+
+
 class PushMinedRequest(BaseModel):
     proposals: list[dict]           # Raw mined proposal dicts from /mine response
     edges: list[dict] = []          # Raw mined edge dicts from /mine response (Phase 3)
@@ -147,6 +158,46 @@ async def mine_outline(req: MineOutlineRequest):
     )
     result["target_collection"] = req.target_collection
     return result
+
+
+@router.post("/build-outline-pillars")
+async def build_outline_pillars(req: BuildOutlinePillarsRequest):
+    """Write the pillar overlay from a mined outline tree — the last mile.
+
+    Call AFTER the outline miner's slabs have been pushed and committed
+    into the target collection. The outline tree (the ``outline`` field
+    of /mine-outline) is the Part/chapter skeleton; this resolves each
+    chapter's slab titles to the committed slab IDs and writes
+    PillarDefinitions — with Pass-3 summaries and Pass-4 cross-edges — to
+    the collection's pillars.yaml. That overlay is what the corpus view
+    renders at top zoom.
+
+    Separate from /push-mined because pillars reference *committed* slab
+    IDs: the overlay can only be built once the content nodes exist.
+    """
+    store = registry.get_store(req.target_collection) or deps.corpus
+    from ..services.outline_miner import (
+        build_pillars_from_outline, build_pillars_from_session,
+        build_pillars_from_collection,
+    )
+
+    origin = req.origin or req.target_collection
+    if req.session_id:
+        # Rebuild from one mining session's committed draft sidecars.
+        report = await build_pillars_from_session(
+            store, session_store, req.session_id, origin=origin,
+        )
+    elif req.outline:
+        # Fresh mine result handed straight from the browser.
+        report = build_pillars_from_outline(store, req.outline, origin=origin)
+    else:
+        # Fully stateless: scan every session's drafts for slabs that
+        # committed into this collection. The corpus-view button's path.
+        report = await build_pillars_from_collection(
+            store, session_store, origin=origin,
+        )
+    report["target_collection"] = req.target_collection
+    return report
 
 
 @router.get("/mining-progress")
