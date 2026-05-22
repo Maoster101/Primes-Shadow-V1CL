@@ -4625,6 +4625,27 @@ async function _ensureCommunitiesPayload(){
   const scope=_currentCommunityScope();
   let payload=_communitiesCache[scope];
   if(payload)return {scope,payload};
+  // ── Tier-0 overlay: prefer the curated PILLAR tree ──────────────
+  // When the collection carries a persisted pillar overlay, the top
+  // zoom should be the curated "what is this corpus about" view, not
+  // the algorithmic Leiden partition. /corpus/pillars returns the
+  // SAME {tree,labels} shape as /corpus/communities, so the rest of
+  // the cluster machinery (drill stack, cross-fade, leaf view) is
+  // identical — only the source of the tree differs. has_pillars=false
+  // (or any fetch failure) falls through to the algorithmic partition.
+  try{
+    const pres=await fetch(`${API}/corpus/pillars?scope=${encodeURIComponent(scope)}`);
+    if(pres.ok){
+      const pp=await pres.json();
+      if(pp&&pp.has_pillars&&Array.isArray(pp.tree)&&pp.tree.length){
+        pp._isPillarOverlay=true;
+        _communitiesCache[scope]=pp;
+        return {scope,payload:pp};
+      }
+    }
+  }catch(err){
+    console.warn('pillar fetch failed, falling back to communities:',err);
+  }
   try{
     const res=await fetch(`${API}/corpus/communities?scope=${encodeURIComponent(scope)}`);
     if(!res.ok)throw new Error(`communities API returned ${res.status}`);
@@ -4666,6 +4687,10 @@ async function _loadClusterView(parentPath=''){
   }
 
   const labels=payload.labels||{};
+  // Pillar overlays ship per-path summaries (the curated 1-3 sentence
+  // distillation). Algorithmic community payloads have none — the {} is
+  // a harmless no-op there.
+  const summaries=payload.summaries||{};
   const metaEdges=parentPath ? [] : (payload.meta_edges||[]);
 
   // Build synthetic nodes: one per cluster at this level.
@@ -4724,6 +4749,10 @@ async function _loadClusterView(parentPath=''){
       _clusterLabel: label,
       _clusterScope: scope,
       _clusterHasChildren: hasChildren,
+      // Curated distillation (pillar overlays only; '' for algorithmic
+      // clusters). Surfaced in the hover tooltip.
+      _clusterSummary: summaries[pathKey]||'',
+      _isPillar: !!payload._isPillarOverlay,
     });
   });
 
@@ -4750,7 +4779,11 @@ async function _loadClusterView(parentPath=''){
   if(statsEl){
     const clusterLabel=scope==='__merged__'?'all collections':scope;
     const depthHint=parentPath?` (depth ${parentPath.split(',').length})`:'';
-    statsEl.textContent=`${N} clusters${depthHint} · ${edges.length} inter-cluster edges · ${clusterLabel}`;
+    // "pillars" when rendering the curated overlay, "clusters" for the
+    // algorithmic partition — keeps the user oriented on which tier
+    // they're navigating.
+    const noun=payload._isPillarOverlay?'pillars':'clusters';
+    statsEl.textContent=`${N} ${noun}${depthHint} · ${edges.length} inter-cluster edges · ${clusterLabel}`;
   }
   return N;
 }
@@ -5644,11 +5677,18 @@ cCanvas.addEventListener('mousemove',e=>{
     const n=cHitTest(e.clientX-rect.left,e.clientY-rect.top);
     if(n){
       if(n._isCluster){
-        // Cluster tooltip: label + member count + drill affordance
+        // Cluster tooltip: label + member count + drill affordance.
+        // Pillar overlays add the curated summary; algorithmic clusters
+        // keep the terse "cluster · N nodes" line.
         const mc=(n._clusterMembers||[]).length;
         const bonds=cEdges.filter(e=>e.from===n.id||e.to===n.id).length;
+        const kind=n._isPillar?'pillar':'cluster';
+        const summaryLine=(n._isPillar&&n._clusterSummary)
+          ?`<div style="color:var(--text);font-size:10px;margin-top:4px;line-height:1.45;max-width:300px">${_esc(n._clusterSummary)}</div>`
+          :'';
         tooltipEl.innerHTML=`<div style="color:#ff8c00;font-size:12px;font-weight:500;margin-bottom:4px">${_esc(n._clusterLabel)}</div>`
-          +`<div style="color:var(--text-dim)">cluster · ${mc} nodes · ${bonds} inter-cluster edges</div>`
+          +`<div style="color:var(--text-dim)">${kind} · ${mc} nodes · ${bonds} inter-cluster edges</div>`
+          +summaryLine
           +`<div style="color:#7fb3ff;font-size:10px;margin-top:4px">zoom in (or click) to drill · zoom out past limit to exit</div>`;
       }else{
         const bonds=cEdges.filter(e=>e.from===n.id||e.to===n.id).length;

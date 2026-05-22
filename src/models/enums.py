@@ -32,6 +32,10 @@ class NodeType(str, Enum):
     ANCHOR = "anchor"
     KEY_BUNDLE = "key_bundle"
     CONCEPT = "concept"
+    # Persisted navigational overlay (Tier-0). References content nodes
+    # via members + children. Does not store substantive content itself;
+    # its summary is a curated distillation produced at construction.
+    PILLAR_DEFINITION = "pillar_definition"
 
 
 class NodeStatus(str, Enum):

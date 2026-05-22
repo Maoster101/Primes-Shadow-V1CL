@@ -177,6 +177,82 @@ class KeyBundle(BaseModel):
     assumptions: list[str] = Field(default_factory=list)
 
 
+# §6 (graph-of-graphs WIP) — Pillar overlay (Tier-0)
+# A persisted cluster meta-node that sits ABOVE the Anchor/Bundle/Slab
+# content graph as a curated navigational overlay. Pillars reference
+# content nodes by id via ``members`` and ``children``; they never
+# store substantive content. The ``summary`` is a curated distillation
+# produced at construction time — persisted because regenerating from
+# members on every render is expensive.
+#
+# Pillars are scarce by design: paper ~5-10, narrative ~3-7 major
+# beats, docs ~5-15. A multi-tier hierarchy (paper > section >
+# sub-claim) is supported via ``children`` pointing at deeper pillars.
+#
+# Provenance distinction: synthesized algorithmic clusters are
+# computed at view time from a backend partition; PillarDefinitions
+# are curated, persisted, and ingestion-authored. The frontend
+# renderer doesn't distinguish them — both present via the existing
+# ``_isCluster`` machinery.
+class PillarCrossEdge(BaseModel):
+    """A lifted pillar-to-pillar relation.
+
+    Cross-pillar edges aggregate underlying Tier-1 edges (SUPPORTS,
+    SEQUENCE, CONFLICTS, TENSIONS) when a pattern is strong enough
+    to surface at the pillar tier. Lifting is lossy by design — the
+    pillar tier is a compression layer, not a complete view.
+
+    ``underlying_edge_ids`` traces the lift back to the source Edge
+    records so the rationale is auditable.
+    """
+    to_pillar: str
+    type: EdgeType
+    weight: float = Field(ge=0.0, le=1.0, default=0.5)
+    confidence: float = Field(ge=0.0, le=1.0, default=0.5)
+    rationale: str = ""
+    underlying_edge_ids: list[str] = Field(default_factory=list)
+
+
+class PillarDefinition(BaseModel):
+    """A curated cluster meta-node at the navigational tier.
+
+    Identity contract:
+      - ``members`` and ``children`` reference existing node IDs.
+        members are content nodes (slabs / bundles / anchors);
+        children are deeper PillarDefinition IDs for nested tiers.
+      - ``parent`` is the immediate-parent pillar ID (or None at the
+        top tier). Redundant with ``children`` reverse-lookup, but
+        persisted explicitly because navigation queries walk up
+        the tier far more often than they walk down.
+      - ``origin`` records the source document / ingestion event
+        that produced this pillar, so regeneration can be scoped.
+      - ``pillar_role`` is genre-dependent ("section" / "chapter" /
+        "act" / "claim" / "concept"). Free-text — schema does not
+        constrain because the right vocabulary depends on the
+        miner that produced it.
+
+    The Anchor/Bundle/Slab graph is untouched by adding pillars;
+    they are a pure overlay. Re-running the tier-construction pass
+    produces a fresh set with ``meta.supersedes`` linking back to
+    the prior version.
+    """
+    id: str
+    label: str                                                    # short navigable headline
+    summary: str = ""                                             # 1-3 sentences shown at top zoom
+    members: list[str] = Field(default_factory=list)              # content node IDs at the next tier down
+    children: list[str] = Field(default_factory=list)             # nested PillarDefinition IDs
+    parent: Optional[str] = None                                  # immediate-parent pillar ID
+    cross_edges: list[PillarCrossEdge] = Field(default_factory=list)
+    origin: str = ""                                              # source document / ingestion event
+    pillar_role: Optional[str] = None                             # "section" / "chapter" / "act" / "claim" / etc.
+    user_curated: bool = False                                    # protects manual label/summary edits from regeneration
+    version: str = "v1"
+    lifecycle_status: SlabLifecycleStatus = SlabLifecycleStatus.ACTIVE
+    meta: AnchorMeta = Field(default_factory=AnchorMeta)
+    depends_on: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+
+
 # §8.4 — Gate + GateRule (v3 declarative gate engine)
 # Gates reify the imperative gate logic currently living in
 # anchor_matcher.gate_check() and the classifier's confidence checks

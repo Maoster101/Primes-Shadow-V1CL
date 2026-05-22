@@ -1088,3 +1088,122 @@ async def get_corpus_communities(
         "meta_nodes": meta_nodes,
         "meta_edges": meta_edges,
     }
+
+
+# ── Pillar overlay (Tier-0 navigational tree) ──────────────────
+#
+# /corpus/pillars serves the persisted PillarDefinition overlay in the
+# SAME {tree, labels} shape as /corpus/communities, so the frontend's
+# _loadClusterView renders pillars through the identical cluster-node
+# machinery. has_pillars=false signals the caller to fall back to the
+# algorithmic community partition.
+
+
+def _pillar_to_tree_node(pillar, pillars_by_id, visited):
+    """Recursively build a {members, children} tree node from a pillar.
+
+    ``members`` is the union of the pillar's own slab members plus all
+    descendant members — so drilling into a parent pillar shows the
+    aggregate, matching how community clusters carry recursive members.
+    ``visited`` guards against malformed children cycles.
+    """
+    if pillar.id in visited:
+        return None
+    visited = visited | {pillar.id}
+    children = []
+    for cid in pillar.children:
+        child = pillars_by_id.get(cid)
+        if child is None:
+            continue
+        cn = _pillar_to_tree_node(child, pillars_by_id, visited)
+        if cn is not None:
+            children.append(cn)
+    member_set = set(pillar.members)
+    for cn in children:
+        member_set.update(cn["members"])
+    return {
+        "members": sorted(member_set),
+        "children": children,
+        "_pillar_id": pillar.id,
+    }
+
+
+def _assign_pillar_labels(tree, pillars_by_id, labels, summaries, parent_path=""):
+    """Walk the built tree assigning path-indexed labels + summaries.
+
+    The frontend keys labels by tree position ("0", "0,1", ...), not by
+    pillar id — so labels must be assigned after the tree array order is
+    finalized, in a second pass.
+    """
+    for i, node in enumerate(tree):
+        path = f"{parent_path},{i}" if parent_path else str(i)
+        pillar = pillars_by_id.get(node.get("_pillar_id"))
+        if pillar is not None:
+            labels[path] = pillar.label
+            summaries[path] = pillar.summary
+        _assign_pillar_labels(node["children"], pillars_by_id, labels, summaries, path)
+
+
+@router.get("/corpus/pillars")
+async def get_corpus_pillars(scope: Optional[str] = None):
+    """Return the persisted pillar overlay as a cluster-tree payload.
+
+    ``scope`` resolves like /corpus/communities: a collection id, or
+    ``"__merged__"`` (default) for the active-set union.
+
+    Response shape mirrors /corpus/communities so _loadClusterView can
+    consume it unchanged::
+
+        {
+          "scope": "podv5",
+          "has_pillars": true,
+          "tree": [ {"members": [...], "children": [...]}, ... ],
+          "labels": {"0": "Project Foundation & Design", "0,1": "...", ...},
+          "summaries": {"0": "1-3 sentence distillation", ...},
+          "meta_edges": []
+        }
+
+    ``has_pillars: false`` (with empty tree) signals the caller to fall
+    back to the algorithmic /corpus/communities partition.
+    """
+    scope = scope or "__merged__"
+    if scope == "__merged__":
+        corpus = deps.corpus
+    else:
+        store = registry.get_store(scope)
+        if store is None:
+            raise HTTPException(404, f"Collection '{scope}' not found")
+        corpus = store
+
+    pillars = getattr(corpus, "pillars", {}) or {}
+    if not pillars:
+        return {
+            "scope": scope, "has_pillars": False,
+            "tree": [], "labels": {}, "summaries": {}, "meta_edges": [],
+        }
+
+    pillars_by_id = dict(pillars)
+    # Roots = pillars with no parent. Sort by id for stable tree order
+    # across requests (the path indices must be deterministic).
+    roots = sorted(
+        (p for p in pillars.values() if not p.parent),
+        key=lambda p: p.id,
+    )
+    tree = []
+    for root in roots:
+        node = _pillar_to_tree_node(root, pillars_by_id, frozenset())
+        if node is not None:
+            tree.append(node)
+
+    labels: dict[str, str] = {}
+    summaries: dict[str, str] = {}
+    _assign_pillar_labels(tree, pillars_by_id, labels, summaries)
+
+    return {
+        "scope": scope,
+        "has_pillars": True,
+        "tree": tree,
+        "labels": labels,
+        "summaries": summaries,
+        "meta_edges": [],
+    }

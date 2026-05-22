@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional
 import yaml
 
-from ..models.schemas import Anchor, Slab, KeyBundle, Edge, Gate
+from ..models.schemas import Anchor, Slab, KeyBundle, Edge, Gate, PillarDefinition
 from ..models.enums import OLIMode, SlabType, SlabLifecycleStatus
 from .atomic_io import atomic_write_yaml
 
@@ -67,6 +67,10 @@ class CorpusStore:
         self.bundles: dict[str, KeyBundle] = {}
         self.edges: dict[str, Edge] = {}
         self.gates: dict[str, Gate] = {}
+        # Tier-0 navigational overlay. Pre-existing corpora have no
+        # pillars.yaml; load() treats a missing file as an empty dict
+        # so legacy collections remain readable without migration.
+        self.pillars: dict[str, PillarDefinition] = {}
 
     def load(self) -> list[str]:
         """Load corpus from disk. Returns list of validation errors (empty = OK)."""
@@ -75,6 +79,10 @@ class CorpusStore:
         raw_bundles = _load_yaml(self.objects / "key_bundles.yaml")
         raw_edges = _load_yaml(self.objects / "edges.yaml")
         raw_gates = _load_yaml(self.objects / "gates.yaml")
+        # pillars.yaml is optional — pre-overlay corpora simply have
+        # no file. _load_yaml returns [] for missing paths, which
+        # collapses to an empty pillars dict.
+        raw_pillars = _load_yaml(self.objects / "pillars.yaml")
 
         self.anchors = {a["id"]: Anchor(**a) for a in raw_anchors}
         self.slabs = {s["id"]: Slab(**s) for s in raw_slabs}
@@ -84,6 +92,7 @@ class CorpusStore:
             edge = Edge.model_validate(e)
             self.edges[edge.id] = edge
         self.gates = {g["id"]: Gate(**g) for g in raw_gates}
+        self.pillars = {p["id"]: PillarDefinition(**p) for p in raw_pillars}
 
         return self.validate()
 
@@ -109,9 +118,20 @@ class CorpusStore:
             self.objects / "gates.yaml",
             [g.model_dump(mode="json") for g in self.gates.values()],
         )
+        # Only write pillars.yaml when the overlay is populated.
+        # Empty-file persistence is fine but creates noise on disk
+        # for pre-overlay corpora; the load path tolerates absence.
+        if self.pillars:
+            _save_yaml(
+                self.objects / "pillars.yaml",
+                [p.model_dump(mode="json") for p in self.pillars.values()],
+            )
 
     def all_ids(self) -> set[str]:
-        return set(self.anchors) | set(self.slabs) | set(self.bundles) | set(self.gates)
+        return (
+            set(self.anchors) | set(self.slabs) | set(self.bundles)
+            | set(self.gates) | set(self.pillars)
+        )
 
     def validate(self) -> list[str]:
         """Run the 6 checks from §24.1. Returns list of errors."""
@@ -124,6 +144,7 @@ class CorpusStore:
             "slab":   set(self.slabs),
             "bundle": set(self.bundles),
             "gate":   set(self.gates),
+            "pillar": set(self.pillars),
         }
         type_names = list(id_sets)
         for i, a in enumerate(type_names):
@@ -147,6 +168,7 @@ class CorpusStore:
         for obj_id, obj in [
             *self.anchors.items(), *self.slabs.items(),
             *self.bundles.items(), *self.gates.items(),
+            *self.pillars.items(),
         ]:
             version = obj.meta.version if hasattr(obj, "meta") else getattr(obj, "version", None)
             if version:
@@ -160,6 +182,7 @@ class CorpusStore:
         for obj_id, obj in [
             *self.anchors.items(), *self.slabs.items(),
             *self.bundles.items(), *self.gates.items(),
+            *self.pillars.items(),
         ]:
             for dep in getattr(obj, "depends_on", []):
                 if dep not in all_ids:
@@ -169,10 +192,37 @@ class CorpusStore:
         for obj_id, obj in [
             *self.anchors.items(), *self.slabs.items(),
             *self.bundles.items(), *self.gates.items(),
+            *self.pillars.items(),
         ]:
             meta = getattr(obj, "meta", None)
             if meta and meta.supersedes and meta.supersedes not in all_ids:
                 errors.append(f"{obj_id} supersedes missing target: {meta.supersedes}")
+
+        # Check 7: Pillar references resolve.
+        # members must point at content nodes (slabs/bundles/anchors)
+        # OR at other pillars (for tier-internal grouping). children
+        # must point at PillarDefinition IDs. parent (if set) must
+        # exist as a pillar. cross_edges.to_pillar must be a pillar.
+        # Lifted edges may reference now-pruned underlying edges, so
+        # underlying_edge_ids are NOT validated against current edges.
+        for pid, pillar in self.pillars.items():
+            for mid in pillar.members:
+                if mid not in all_ids:
+                    errors.append(f"Pillar {pid} member missing target: {mid}")
+            for cid in pillar.children:
+                if cid not in self.pillars:
+                    errors.append(
+                        f"Pillar {pid} child {cid} is not a PillarDefinition"
+                    )
+            if pillar.parent and pillar.parent not in self.pillars:
+                errors.append(
+                    f"Pillar {pid} parent {pillar.parent} is not a PillarDefinition"
+                )
+            for xe in pillar.cross_edges:
+                if xe.to_pillar not in self.pillars:
+                    errors.append(
+                        f"Pillar {pid} cross_edge target {xe.to_pillar} is not a PillarDefinition"
+                    )
 
         return errors
 
@@ -515,6 +565,9 @@ class CorpusRegistry:
             for gid, g in store.gates.items():
                 if gid not in merged.gates:
                     merged.gates[gid] = g
+            for pid, p in store.pillars.items():
+                if pid not in merged.pillars:
+                    merged.pillars[pid] = p
 
         self._merged = merged
         self._merged_dirty = False
@@ -555,6 +608,7 @@ class CorpusRegistry:
                 "bundles": len(store.bundles),
                 "edges": len(store.edges),
                 "gates": len(store.gates),
+                "pillars": len(store.pillars),
                 "path": str(store.root),
             })
         return result
