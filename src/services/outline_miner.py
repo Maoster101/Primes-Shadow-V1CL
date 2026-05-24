@@ -1162,10 +1162,19 @@ async def _pillars_from_slab_records(
     """Shared core: turn outline-rebuild records into a committed overlay.
 
     ``recs`` come from ``_collect_slab_records`` (one session's drafts or
-    a whole collection's). Groups them back into their sections by
-    ``source_topic``, regenerates the Pass-3 summaries (the one field the
-    sidecars don't carry), lifts ``cross_pillars`` to section-level
-    cross-edges, and delegates to ``build_pillars_from_outline``.
+    a whole collection's). Each carries a ``source_topic`` that is a
+    " / "-separated path through the hierarchy ("Part / Chapter / Sub /
+    Leaf" for paper-mined corpora; "Section" or "Part / Chapter" for the
+    doc/narrative miners).
+
+    The path itself encodes the tree — every prefix of a leaf's path is
+    a node in the hierarchy, the deepest segment is the leaf carrying
+    slabs. This function synthesises that **prefix tree** as a list of
+    ``Section`` objects with ``parent_idx`` chained back, regenerates
+    leaf summaries from slabs and non-leaf summaries bottom-up, then
+    hands off to ``build_outline_tree_recursive`` / ``build_pillars_recursive``
+    — which handle arbitrary depth in one shape, collapsing what used to
+    be flat / 2-tier / N-tier branches into one path.
     """
     if not recs:
         return {
@@ -1174,88 +1183,127 @@ async def _pillars_from_slab_records(
                      "promote a doc/paper mine into this collection first.",
         }
 
-    # Regroup into sections, ordered by document position (source_pairs).
-    sections: dict[str, dict] = {}
+    # ── Group records by leaf path. Every distinct topic IS a leaf —
+    # the outline miners only stamp source_topic at the leaf level.
+    leaf_data: dict[str, dict] = {}
     for r in recs:
-        sec = sections.setdefault(r["topic"], {"ids": [], "order": r["order"]})
-        sec["ids"].append(r["id"])
-        sec["order"] = min(sec["order"], r["order"])
-    ordered_topics = [
-        t for t, _ in sorted(sections.items(), key=lambda kv: kv[1]["order"])
-    ]
+        d = leaf_data.setdefault(
+            r["topic"], {"ids": [], "order": r["order"], "cross": {}},
+        )
+        d["ids"].append(r["id"])
+        d["order"] = min(d["order"], r["order"])
+        for to_topic in r["cross"]:
+            if to_topic and to_topic != r["topic"]:
+                d["cross"][to_topic] = d["cross"].get(to_topic, 0) + 1
 
-    # Pass 3 redo — summaries are the one field not in the sidecars.
-    summaries: dict[str, str] = {t: "" for t in ordered_topics}
+    leaf_paths = set(leaf_data.keys())
+
+    # ── Synthesise the prefix tree. Every prefix of every leaf path is
+    # a Section node; sort shallow-first so each child's parent_idx is
+    # already in ``sections`` when the child is appended.
+    all_prefixes: set[str] = set()
+    for p in leaf_paths:
+        parts = p.split(" / ")
+        for i in range(1, len(parts) + 1):
+            all_prefixes.add(" / ".join(parts[:i]))
+
+    sections: list[Section] = []
+    section_idx: dict[str, int] = {}
+    # Sort by (depth, document_order). Leaves carry an order from
+    # source_pairs; non-leaves inherit the min order of their leaf
+    # descendants so sibling ordering stays in document order.
+    def _prefix_order(prefix: str) -> int:
+        depth_orders = [
+            leaf_data[p]["order"] for p in leaf_paths
+            if p == prefix or p.startswith(prefix + " / ")
+        ]
+        return min(depth_orders) if depth_orders else 10 ** 9
+
+    for prefix in sorted(all_prefixes, key=lambda p: (p.count(" / "), _prefix_order(p), p)):
+        parts = prefix.split(" / ")
+        depth = len(parts)
+        parent_path = " / ".join(parts[:-1]) if depth > 1 else None
+        parent_idx = section_idx.get(parent_path, -1) if parent_path else -1
+        sec = Section(
+            level=depth, label=parts[-1],
+            char_start=_prefix_order(prefix),
+            body_start=0, char_end=0,
+            parent_idx=parent_idx, text="",
+        )
+        section_idx[prefix] = len(sections)
+        sections.append(sec)
+
+    leaf_ids: set[int] = {id(sections[section_idx[p]]) for p in leaf_paths}
+
+    # ── Summaries: leaves from their slabs (parallel), non-leaves from
+    # their children's summaries walked bottom-up.
+    summaries: dict[int, str] = {}
     if regenerate_summaries:
         sem = asyncio.Semaphore(_PASS_PARALLEL)
 
-        async def _resummarize(topic: str):
+        async def _leaf_summ(path: str) -> tuple[str, str]:
             async with sem:
                 items = []
-                for sid in sections[topic]["ids"]:
+                for sid in leaf_data[path]["ids"]:
                     sl = store.slabs.get(sid)
                     if sl:
                         items.append(
                             f"{sl.title}: {(sl.canonical_text or '')[:160]}"
                         )
-                summaries[topic] = await _summarize_pillar(
-                    topic.split(" / ")[-1], items
-                )
+                summ = await _summarize_pillar(path.split(" / ")[-1], items)
+                return path, summ
 
-        await asyncio.gather(*[_resummarize(t) for t in ordered_topics])
+        leaf_pairs = await asyncio.gather(*[_leaf_summ(p) for p in leaf_paths])
+        for path, summ in leaf_pairs:
+            summaries[id(sections[section_idx[path]])] = summ
 
-    # Aggregate per-slab cross_pillars up to section-level cross-edges.
-    cross_by_home: dict[str, dict[str, int]] = {}
-    for r in recs:
-        for to_topic in r["cross"]:
-            if to_topic and to_topic != r["topic"]:
-                tally = cross_by_home.setdefault(r["topic"], {})
-                tally[to_topic] = tally.get(to_topic, 0) + 1
-
-    def _edges_for(topic: str) -> list[dict]:
-        return sorted(
-            ({"to": to.split(" / ")[-1], "to_path": to, "weight": n}
-             for to, n in cross_by_home.get(topic, {}).items()),
-            key=lambda x: -x["weight"],
+        # Non-leaves bottom-up (deepest first) — each non-leaf's children
+        # are ready before it's summarised.
+        non_leaves_by_depth = sorted(
+            ((i, s) for i, s in enumerate(sections) if id(s) not in leaf_ids),
+            key=lambda pair: -pair[1].level,
         )
+        for idx, nl in non_leaves_by_depth:
+            child_items: list[str] = []
+            for c in sections:
+                if c.parent_idx == idx:
+                    child_items.append(
+                        f"{c.label}: {summaries.get(id(c), '')}"
+                    )
+            if child_items:
+                summaries[id(nl)] = await _summarize_pillar(nl.label, child_items)
 
-    # Assemble an outline tree (slab_ids carried — exact, no title round
-    # trip) and hand it to the shared builder. " / " in a topic means the
-    # source was two-tier (Part / Chapter); a flat topic is its own top.
-    two_tier = any(" / " in t for t in ordered_topics)
-    outline_tree: list[dict] = []
-    if two_tier:
-        parts: dict[str, list[str]] = {}
-        part_order: list[str] = []
-        for t in ordered_topics:
-            part = t.split(" / ")[0]
-            if part not in parts:
-                parts[part] = []
-                part_order.append(part)
-            parts[part].append(t)
-        for part in part_order:
-            outline_tree.append({
-                "label": part, "level": 1, "summary": "",
-                "children": [{
-                    "label": t.split(" / ")[-1], "level": 2,
-                    "section_path": t, "summary": summaries.get(t, ""),
-                    "slab_ids": sections[t]["ids"],
-                    "cross_edges": _edges_for(t),
-                } for t in parts[part]],
-            })
-    else:
-        for t in ordered_topics:
-            outline_tree.append({
-                "label": t, "level": 1, "section_path": t,
-                "summary": summaries.get(t, ""),
-                "slab_ids": sections[t]["ids"],
-                "cross_edges": _edges_for(t),
-            })
+    # ── Aggregate per-slab cross_pillars to leaf-level cross-edges.
+    cross_edges: dict[tuple[str, str], int] = {}
+    for path, d in leaf_data.items():
+        for to_topic, count in d["cross"].items():
+            cross_edges[(path, to_topic)] = count
 
-    report = build_pillars_from_outline(
+    # ── Slab data per leaf path, for the build.
+    slab_ids_by_path = {p: leaf_data[p]["ids"] for p in leaf_paths}
+    slab_titles_by_path: dict[str, list[str]] = {}
+    for p in leaf_paths:
+        titles: list[str] = []
+        for sid in leaf_data[p]["ids"]:
+            sl = store.slabs.get(sid)
+            if sl:
+                titles.append(getattr(sl, "title", "") or "")
+        slab_titles_by_path[p] = titles
+
+    # ── Build the outline tree (N-tier capable) and the pillars
+    # recursively. These functions handle 1-tier, 2-tier, and N-tier
+    # inputs uniformly — that's the whole point of the recursive build.
+    outline_tree = build_outline_tree_recursive(
+        sections, leaf_ids, summaries,
+        slab_titles_by_path, cross_edges,
+        slab_ids_by_path=slab_ids_by_path,
+    )
+    report = build_pillars_recursive(
         store, outline_tree, origin=origin, replace=replace,
     )
-    report["sections"] = len(ordered_topics)
+    report["sections"] = len(leaf_paths)
+    report["total_sections"] = len(sections)
+    report["max_depth"] = max((s.level for s in sections), default=1)
     report["source"] = source_tag
     return report
 
@@ -1307,3 +1355,272 @@ async def build_pillars_from_collection(
         store, recs, origin, "collection_sidecars",
         regenerate_summaries=regenerate_summaries, replace=replace,
     )
+
+
+# ─── N-tier recursive build (for the paper miner) ────────────────────────
+#
+# Counterparts to build_outline_tree / build_pillars_from_outline. The
+# 2-tier versions stay live for the doc and narrative miners; these
+# handle arbitrary-depth trees produced by the paper miner's Stage A
+# recursive density audit. The section tree carries depth implicitly via
+# parent_idx (same shape parse_heading_outline produces for nested
+# markdown headings — the data model was always N-tier capable; only
+# the build was capped).
+
+
+def _compute_section_paths(sections: list[Section]) -> dict[int, str]:
+    """For each section, compute its " / "-joined ancestor-label path."""
+    paths: dict[int, str] = {}
+    for sec in sections:
+        labels: list[str] = []
+        cur = sec
+        while True:
+            labels.append(cur.label)
+            if cur.parent_idx < 0:
+                break
+            cur = sections[cur.parent_idx]
+        paths[id(sec)] = " / ".join(reversed(labels))
+    return paths
+
+
+def build_outline_tree_recursive(
+    sections: list[Section],
+    leaf_ids: set[int],
+    summaries: dict[int, str],
+    slab_titles_by_path: dict[str, list[str]],
+    cross_edges: dict[tuple[str, str], int],
+    slab_ids_by_path: dict[str, list[str]] | None = None,
+) -> list[dict]:
+    """Build a nested-dict outline tree from an N-tier section forest.
+
+    Recursive counterpart of ``build_outline_tree``. Each section emits
+    a node:
+      - **Leaf** (id in ``leaf_ids``) — carries section_path, slab_titles,
+        cross_edges. This is where slabs were drilled in Stage B.
+      - **Non-leaf** — carries ``children`` (recursive). No slabs of its
+        own; it groups sub-pillars.
+
+    Top-level sections (``parent_idx < 0``) form the return list. The
+    section tree is taken as-is from Stage A's recursive density audit;
+    this function is pure plumbing.
+    """
+    paths = _compute_section_paths(sections)
+
+    cross_by_home: dict[str, list[dict]] = {}
+    for (home_path, target_path), weight in cross_edges.items():
+        cross_by_home.setdefault(home_path, []).append({
+            "to": target_path.split(" / ")[-1],
+            "to_path": target_path,
+            "weight": weight,
+        })
+
+    children_of: dict[int, list[Section]] = {}
+    for sec in sections:
+        if sec.parent_idx >= 0:
+            parent = sections[sec.parent_idx]
+            children_of.setdefault(id(parent), []).append(sec)
+    # Children in document order — the SEQUENCE spine depends on it.
+    for k in children_of:
+        children_of[k].sort(key=lambda s: s.char_start)
+
+    def _to_node(sec: Section) -> dict:
+        path = paths[id(sec)]
+        node = {
+            "label": sec.label,
+            "level": sec.level,
+            "summary": summaries.get(id(sec), ""),
+        }
+        if id(sec) in leaf_ids:
+            node["section_path"] = path
+            node["slab_titles"] = slab_titles_by_path.get(path, [])
+            # slab_ids takes precedence in build_pillars_recursive (exact,
+            # no greedy-by-title round-trip) — emit it when the caller
+            # has resolved IDs already, as the rebuild path does.
+            if slab_ids_by_path is not None:
+                node["slab_ids"] = slab_ids_by_path.get(path, [])
+            node["cross_edges"] = sorted(
+                cross_by_home.get(path, []), key=lambda x: -x["weight"],
+            )
+        else:
+            node["children"] = [_to_node(c) for c in children_of.get(id(sec), [])]
+        return node
+
+    tops = sorted(
+        (s for s in sections if s.parent_idx < 0),
+        key=lambda s: s.char_start,
+    )
+    return [_to_node(t) for t in tops]
+
+
+def build_pillars_recursive(
+    store, outline_tree: list[dict], origin: str = "",
+    replace: bool = True,
+) -> dict:
+    """Build PillarDefinitions from an N-tier nested outline tree.
+
+    Recursive counterpart of ``build_pillars_from_outline``. Walks the
+    tree once depth-first, minting a PillarDefinition per node:
+      - **Leaf** — ``members`` = resolved slab IDs (greedy by title).
+      - **Non-leaf** — ``children`` = sub-pillar IDs.
+    Every pillar's ``parent`` is set, threading the tree back up.
+
+    A second pass lifts cross-edges (per-leaf in the tree) to
+    PillarCrossEdge objects — same machinery as the 2-tier version.
+
+    Pillars whose subtree resolves to zero members are dropped, with
+    their parent's child list pruned to match.
+    """
+    title_index = _index_slabs_by_title(store)
+    used: set[str] = set()
+    seen_ids: set[str] = set()
+    unresolved: list[str] = []
+    pillars: dict[str, PillarDefinition] = {}
+    path_to_pillar: dict[str, str] = {}
+    deferred_cross: dict[str, list[dict]] = {}
+
+    def _new_id(label: str) -> str:
+        slug = _pillar_slug(label)
+        pid = f"pillar_{slug}_v1"
+        n = 2
+        while pid in seen_ids:
+            pid = f"pillar_{slug}_{n}_v1"
+            n += 1
+        seen_ids.add(pid)
+        return pid
+
+    def _resolve(titles: list[str]) -> list[str]:
+        ids: list[str] = []
+        for t in titles or []:
+            key = (t or "").strip().lower()
+            picked = None
+            for sid in title_index.get(key, []):
+                if sid not in used:
+                    picked = sid
+                    break
+            if picked:
+                used.add(picked)
+                ids.append(picked)
+            else:
+                unresolved.append(t)
+        return ids
+
+    def _build(node: dict, parent_id: str | None) -> str | None:
+        """Build a pillar for this node + descendants. Returns the
+        pillar id, or None if the whole subtree resolved empty."""
+        pid = _new_id(node.get("label") or "Section")
+
+        if "children" in node:
+            child_ids: list[str] = []
+            for c in node["children"]:
+                cid = _build(c, parent_id=pid)
+                if cid:
+                    child_ids.append(cid)
+            if not child_ids:
+                return None  # empty subtree — drop the container
+            pillars[pid] = PillarDefinition(
+                id=pid,
+                label=(node.get("label") or "Section").strip(),
+                summary=(node.get("summary") or "").strip(),
+                children=child_ids,
+                parent=parent_id,
+                origin=origin,
+                pillar_role="section",
+            )
+        else:
+            # Leaf: prefer slab_ids (exact, from session rebuild) over
+            # slab_titles (greedy by title, from fresh mine). Mirrors
+            # build_pillars_from_outline's resolution priority.
+            ids = node.get("slab_ids")
+            if ids:
+                members = [
+                    s for s in ids if s in store.slabs and s not in used
+                ]
+                used.update(members)
+            else:
+                members = _resolve(node.get("slab_titles", []))
+            if not members:
+                return None
+            pillars[pid] = PillarDefinition(
+                id=pid,
+                label=(node.get("label") or "Section").strip(),
+                summary=(node.get("summary") or "").strip(),
+                members=members,
+                parent=parent_id,
+                origin=origin,
+                pillar_role="chapter" if parent_id else "section",
+            )
+            path = node.get("section_path")
+            if path:
+                path_to_pillar[path] = pid
+            if node.get("cross_edges"):
+                deferred_cross[pid] = node["cross_edges"]
+        return pid
+
+    for top in outline_tree:
+        _build(top, parent_id=None)
+
+    # Cross-edges — second pass, resolve to_path to pillar IDs.
+    cross_count = 0
+    for pid, raw_edges in deferred_cross.items():
+        lifted: list[PillarCrossEdge] = []
+        for ce in raw_edges:
+            target = path_to_pillar.get(ce.get("to_path"))
+            if not target or target == pid:
+                continue
+            count = int(ce.get("weight") or 1)
+            lifted.append(PillarCrossEdge(
+                to_pillar=target,
+                type=EdgeType.LINKS,
+                weight=min(1.0, count / 5.0),
+                confidence=0.7,
+                rationale=f"{count} slab(s) cross-relevant between pillars",
+            ))
+        if lifted:
+            pillars[pid].cross_edges = lifted
+            cross_count += len(lifted)
+
+    if not pillars:
+        return {
+            "pillars_created": 0,
+            "error": "No pillars built — no outline slab titles resolved.",
+            "unresolved_titles": unresolved,
+        }
+
+    if replace:
+        store.pillars = pillars
+    else:
+        store.pillars.update(pillars)
+
+    errors = store.validate()
+    store.save()
+
+    # Compute max depth by walking parent chains (useful for verifying
+    # the recursion actually produced depth in the report).
+    leaf_count = sum(1 for p in pillars.values() if p.members)
+    non_leaf = sum(1 for p in pillars.values() if p.children)
+    max_depth = 1
+    for p in pillars.values():
+        d, cur = 1, p
+        while cur.parent:
+            cur = pillars.get(cur.parent)
+            if not cur:
+                break
+            d += 1
+        max_depth = max(max_depth, d)
+
+    logger.info(
+        "build_pillars_recursive: %d pillars (%d leaf, %d non-leaf, "
+        "depth %d), %d slabs placed, %d cross-edges, %d unresolved",
+        len(pillars), leaf_count, non_leaf, max_depth,
+        len(used), cross_count, len(unresolved),
+    )
+    return {
+        "pillars_created": len(pillars),
+        "leaf_pillars": leaf_count,
+        "non_leaf_pillars": non_leaf,
+        "max_depth": max_depth,
+        "members_resolved": len(used),
+        "cross_edges": cross_count,
+        "unresolved_titles": unresolved,
+        "validation_errors": errors,
+    }

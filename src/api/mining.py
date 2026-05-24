@@ -11,6 +11,7 @@ from ..models.enums import DraftStatus, EdgeType
 from ..services.convo_miner import ConversationMiner
 from ..services.narrative_miner import NarrativeMiner
 from ..services.outline_miner import OutlineMiner
+from ..services.paper_miner import PaperMiner
 
 from . import deps
 from .deps import (
@@ -44,6 +45,13 @@ class MineOutlineRequest(BaseModel):
     source_label: str = "document"     # Provenance label
     min_confidence: float = 0.4        # Minimum proposal confidence
     max_segment_chars: int = 6000      # Soft cap on per-chapter span size
+    target_collection: str = "default" # Which collection to mine into
+
+
+class MinePaperRequest(BaseModel):
+    text: str                          # Research paper (extracted PDF, etc.)
+    source_label: str = "paper"        # Provenance label
+    min_confidence: float = 0.4        # Minimum proposal confidence
     target_collection: str = "default" # Which collection to mine into
 
 
@@ -160,6 +168,35 @@ async def mine_outline(req: MineOutlineRequest):
     return result
 
 
+@router.post("/mine-paper")
+async def mine_paper(req: MinePaperRequest):
+    """Mine a research paper — recursive hierarchy + semantic-chunk slabs.
+
+    Pass 1 identifies top-level paper sections; Passes 2..N do a batched
+    density audit recursively (sub-pillars emerge only where content
+    warrants), halting when no leaf wants further subdivision. Stage B
+    drills each LEAF into atomic semantic units via move-recognition.
+    The ``outline`` field is the N-tier pillar skeleton; the build
+    counterpart is ``build_pillars_recursive`` (auto-dispatched by
+    /build-outline-pillars when N-tier is detected).
+    """
+    if not req.text.strip():
+        raise HTTPException(400, "Empty text")
+    if len(req.text) > 5_000_000:
+        raise HTTPException(413, "Text too large (max 5MB)")
+
+    target_store = registry.get_store(req.target_collection) or deps.corpus
+    miner = PaperMiner(target_store)
+
+    result = await miner.mine(
+        raw_text=req.text,
+        source_label=req.source_label,
+        min_confidence=req.min_confidence,
+    )
+    result["target_collection"] = req.target_collection
+    return result
+
+
 @router.post("/build-outline-pillars")
 async def build_outline_pillars(req: BuildOutlinePillarsRequest):
     """Write the pillar overlay from a mined outline tree — the last mile.
@@ -178,8 +215,20 @@ async def build_outline_pillars(req: BuildOutlinePillarsRequest):
     store = registry.get_store(req.target_collection) or deps.corpus
     from ..services.outline_miner import (
         build_pillars_from_outline, build_pillars_from_session,
-        build_pillars_from_collection,
+        build_pillars_from_collection, build_pillars_recursive,
     )
+
+    def _is_n_tier(tree: list[dict]) -> bool:
+        """True if any node has children that themselves have children —
+        i.e. the tree is more than 2 tiers deep, which means it came
+        from the paper miner. The doc/narrative miners produce at most
+        2 tiers (a top with chapter children); a paper-mined tree can
+        have arbitrary depth and needs the recursive builder."""
+        for top in tree:
+            for child in top.get("children", []):
+                if "children" in child:
+                    return True
+        return False
 
     origin = req.origin or req.target_collection
     if req.session_id:
@@ -188,8 +237,13 @@ async def build_outline_pillars(req: BuildOutlinePillarsRequest):
             store, session_store, req.session_id, origin=origin,
         )
     elif req.outline:
-        # Fresh mine result handed straight from the browser.
-        report = build_pillars_from_outline(store, req.outline, origin=origin)
+        # Fresh mine result handed straight from the browser. Dispatch
+        # to the N-tier recursive builder for paper-mined outlines;
+        # 2-tier doc/narrative outlines stay on the original path.
+        if _is_n_tier(req.outline):
+            report = build_pillars_recursive(store, req.outline, origin=origin)
+        else:
+            report = build_pillars_from_outline(store, req.outline, origin=origin)
     else:
         # Fully stateless: scan every session's drafts for slabs that
         # committed into this collection. The corpus-view button's path.

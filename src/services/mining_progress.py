@@ -149,6 +149,9 @@ _PHASE_WEIGHTS = {
     "pillar_summaries": 0.31,
     "cross_pillar": 0.04,
     "outline_edges": 0.04,
+    # paper miner phases — recursive hierarchy + leaf drill
+    "density_audit": 0.10,
+    "leaf_drill": 0.55,
     "starting": 0.0,
     "idle": 0.0,
     "error": 0.0,
@@ -177,6 +180,10 @@ def _compute_overall_pct(snap: dict) -> float:
     elif miner_kind == "outline":
         order = ["outlining", "section_drill", "pillar_summaries",
                  "cross_pillar", "outline_edges", "consolidation"]
+    elif miner_kind == "paper":
+        order = ["outlining", "density_audit", "leaf_drill",
+                 "pillar_summaries", "cross_pillar", "outline_edges",
+                 "consolidation"]
     else:
         order = ["outlining", "beat_drill", "beat_summaries",
                  "narrative_edges", "consolidation"]

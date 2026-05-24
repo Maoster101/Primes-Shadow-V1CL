@@ -2355,7 +2355,8 @@ function dashPageMine(c){
             <button class="dbtn dbtn-grey" style="padding:3px 10px;font-size:9px" onclick="_mineNewCollection()">+ New Collection</button>
           </div>
           <div style="flex:1"></div>
-          <button class="dbtn dbtn-grey" style="padding:6px 14px;font-size:11px" id="mine-run-outline-btn" title="Treat input as a structured document (paper, design doc) — parses its heading outline into a pillar tree, mines each section in place" onclick="_mineRunOutline()">&#128196; Mine Doc/Paper</button>
+          <button class="dbtn dbtn-grey" style="padding:6px 14px;font-size:11px" id="mine-run-outline-btn" title="Treat input as a structured document (design doc, technical spec) — parses headings into a 2-tier pillar tree, drills each section" onclick="_mineRunOutline()">&#128196; Mine Doc</button>
+          <button class="dbtn dbtn-grey" style="padding:6px 14px;font-size:11px" id="mine-run-paper-btn" title="Treat input as a research paper — recursive density audit emerges N-tier hierarchy, then semantic-chunk slabs at leaves. Dense argumentative prose." onclick="_mineRunPaper()">&#128209; Mine Paper</button>
           <button class="dbtn dbtn-grey" style="padding:6px 14px;font-size:11px" id="mine-run-narrative-btn" title="Treat input as a cohesive narrative/document — preserves ordering, emits SEQUENCE edges between beats" onclick="_mineRunNarrative()">&#128220; Mine Narrative</button>
           <button class="dbtn dbtn-blue" style="padding:6px 14px;font-size:11px" id="mine-run-btn" title="Treat input as a chat/conversation log — user/assistant exchanges" onclick="_mineRun()">&#9889; Mine Conversation</button>
         </div>
@@ -2605,6 +2606,43 @@ async function _mineRunNarrative(){
     _stopMineProgress();
     const b=document.getElementById('mine-run-narrative-btn');
     if(b){b.disabled=false;b.textContent='📜 Mine Narrative'}
+  }
+}
+
+async function _mineRunPaper(){
+  const text=document.getElementById('mine-text').value;
+  if(!text.trim()){alert('Paste or drop a research paper first.');return}
+  const btn=document.getElementById('mine-run-paper-btn');
+  btn.disabled=true;btn.textContent='Mining paper...';
+  _mineRunning=true;
+  _startMineProgress();
+
+  try{
+    const res=await fetch(`${API}/mine-paper`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        text:text,
+        source_label:document.getElementById('mine-source').value||'paper',
+        min_confidence:parseFloat(document.getElementById('mine-conf').value)||0.4,
+        target_collection:document.getElementById('mine-collection').value||'default',
+      })
+    });
+    if(!res.ok){const err=await res.json();throw new Error(err.detail||JSON.stringify(err))}
+    _mineResults=await res.json();
+    if(_mineResults.error){throw new Error(_mineResults.error)}
+    const ec=_mineResults.edges?.length||0;
+    const depth=_mineResults.max_depth||1;
+    const total=_mineResults.total_sections||0;
+    const leaves=_mineResults.segments||0;
+    pushEvent('proposal',`Mined paper: ${_mineResults.proposals.length} proposals + ${ec} edges · ${total} sections (${leaves} leaves, depth ${depth})`);
+    dashNav('mine');
+  }catch(e){
+    alert('Paper mining failed: '+e.message);
+  }finally{
+    _mineRunning=false;
+    _stopMineProgress();
+    const b=document.getElementById('mine-run-paper-btn');
+    if(b){b.disabled=false;b.innerHTML='&#128209; Mine Paper'}
   }
 }
 
