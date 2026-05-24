@@ -370,11 +370,17 @@ _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 @router.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(file: UploadFile = File(...), full: bool = False):
     """Extract text content from an uploaded file.
 
-    Supports plaintext/code files directly and PDFs via pdfplumber.
-    Returns extracted text for the frontend to prepend to the user message.
+    Supports plaintext/code files directly, PDFs via pdfplumber, and
+    DOCX via python-docx. Returns extracted text for the frontend.
+
+    ``full=true`` lifts the extraction char cap from the chat-sized
+    default (80k ≈ 20k tokens) to a mining-sized 2M. The doc/paper
+    miner is built for whole documents — Pass 1 digests, Pass 2 drills
+    spans — so it wants the entire paper, not a chat-context-sized
+    slice. The chat path leaves ``full`` false and keeps the 80k cap.
     """
     import os
     ext = os.path.splitext(file.filename or "")[1].lower()
@@ -442,8 +448,9 @@ async def upload_file(file: UploadFile = File(...)):
             f"({', '.join(sorted(list(_TEXT_EXTENSIONS)[:12]))}...)"
         )
 
-    # Truncate very long files to avoid blowing up context
-    char_limit = 80_000  # ~20k tokens
+    # Truncate very long files. The default cap is chat-context sized;
+    # the mining path passes full=true to raise it (see docstring).
+    char_limit = 2_000_000 if full else 80_000
     truncated = False
     if len(extracted) > char_limit:
         extracted = extracted[:char_limit]

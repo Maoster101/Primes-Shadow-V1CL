@@ -2441,7 +2441,9 @@ async function _mineHandleFile(file){
     chip.textContent=`📄 ${file.name} (${(file.size/1024).toFixed(1)} KB) — extracting…`;
     try{
       const fd=new FormData();fd.append('file',file);
-      const r=await fetch(`${API}/upload`,{method:'POST',body:fd});
+      // full=true — the doc/paper miner handles whole documents, so
+      // lift /upload's chat-sized 80k char cap (see the endpoint).
+      const r=await fetch(`${API}/upload?full=true`,{method:'POST',body:fd});
       if(!r.ok){
         const err=await r.json().catch(()=>({detail:r.statusText}));
         throw new Error(err.detail||`Upload failed (${r.status})`);
