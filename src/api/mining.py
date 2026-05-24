@@ -46,6 +46,7 @@ class MineOutlineRequest(BaseModel):
     min_confidence: float = 0.4        # Minimum proposal confidence
     max_segment_chars: int = 6000      # Soft cap on per-chapter span size
     target_collection: str = "default" # Which collection to mine into
+    recursive: bool = False            # N-tier hierarchy via conservative density audit
 
 
 class MinePaperRequest(BaseModel):
@@ -163,6 +164,7 @@ async def mine_outline(req: MineOutlineRequest):
         source_label=req.source_label,
         min_confidence=req.min_confidence,
         max_segment_chars=req.max_segment_chars,
+        recursive=req.recursive,
     )
     result["target_collection"] = req.target_collection
     return result

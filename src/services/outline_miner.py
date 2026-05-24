@@ -589,6 +589,275 @@ async def _drill_chapter(
     return result
 
 
+# ─── Recursive density audit (genre-neutral via prompt param) ────────────
+#
+# Stage A of the paper miner and the doc miner's recursive mode. Same
+# machinery — the prompts differ to encode genre-specific calibration:
+# papers are densely argumentative (PAPER_DENSITY_AUDIT_SYSTEM is more
+# willing to subdivide); design docs are mostly flat per-subsystem
+# (_DOC_DENSITY_AUDIT_SYSTEM is conservative). Density audit AND leaf
+# drill are independent levers — the audit controls hierarchy depth,
+# the drill controls slab density. Tuning them separately is what lets
+# each genre's miner pick its own calibration.
+
+
+_DOC_DENSITY_AUDIT_SYSTEM = """You are auditing the structure of a \
+DESIGN DOCUMENT or TECHNICAL SPECIFICATION. You will be given several \
+CURRENT LEAF SECTIONS — sections as currently identified. For each \
+one, decide whether it is ONE coherent topic / subsystem that should \
+stay as-is, OR whether it covers MULTIPLE genuinely-distinct \
+sub-subsystems and should be subdivided.
+
+DESIGN DOCS ARE MOSTLY FLAT. Design docs and technical specs organise \
+content by subsystem / feature / component; each subsystem is usually \
+one coherent thing developed in one section. **Be CONSERVATIVE: the \
+default answer is `subdivide: false`.** Most leaves should stay.
+
+A section should STAY (subdivide=false) when:
+  - It describes ONE subsystem, feature, component, or concept.
+  - It is a scope / boundary / intent block, or a list of design
+    principles.
+  - Its content enumerates properties or details of ONE subject.
+  - It contains a list of related items that share one parent concept
+    (the listing IS the topic).
+  - It is a short section — anything under ~600 chars or ~10 sentences.
+
+A section should SUBDIVIDE (subdivide=true) ONLY when:
+  - It clearly groups 2+ NAMED sub-subsystems or sub-features, each
+    described as its own designed thing.
+  - Example: a section "Sensory Layers" that develops Water + Air +
+    Sound + Light as four separately-designed subsystems.
+  - The sub-sections you name must each be a coherent unit on their
+    own — not "first half" / "second half" of the section.
+
+If you find yourself looking for excuses to subdivide, the answer is
+`subdivide: false`. **A flat hierarchy is the correct outcome for most
+design-doc sections.** Subdivide only when the substructure jumps out
+of the text — usually because the prose itself uses sub-headings or
+explicitly names sub-subsystems.
+
+For each leaf you decide to subdivide, name 2-5 sub-sections. Each:
+  - label: 2-6 word headline naming the sub-subsystem.
+  - starts_with: SHORT verbatim quote (6-12 words) copied EXACTLY from
+    THIS leaf's text, marking where the sub-section begins. Used to
+    locate the boundary — must appear verbatim in the leaf's text.
+
+Output ONLY valid JSON:
+{
+  "decisions": [
+    {"id": "l0", "subdivide": false},
+    {"id": "l1", "subdivide": true, "sub_sections": [
+      {"label": "...", "starts_with": "..."}
+    ]}
+  ]
+}
+"""
+
+
+def _get_section_index(sections: list[Section], target: Section) -> int:
+    """Find a section's index by identity (handles same-label collisions)."""
+    for i, s in enumerate(sections):
+        if s is target:
+            return i
+    return -1
+
+
+def _create_sub_sections(
+    parent: Section,
+    sub_sections_data: list[dict],
+    all_sections: list[Section],
+) -> list[Section]:
+    """Locate the audit's sub-section markers within ``parent.text`` and
+    mint new Section objects with ``parent_idx`` set.
+
+    The first sub-section is forced to start at the parent's body_start
+    even if its marker resolves later — text before the first marker
+    would otherwise be orphaned. Sub-sections tile the parent's text in
+    order, last one running to ``parent.char_end``.
+
+    Returns [] when fewer than 2 markers locate — subdivision into a
+    single child is meaningless (the parent stays as a leaf).
+    """
+    parent_idx = _get_section_index(all_sections, parent)
+    if parent_idx < 0:
+        return []
+    parent_text = parent.text
+
+    positions: list[tuple[int, str]] = []
+    cursor = 0
+    for sd in sub_sections_data:
+        marker = (sd.get("starts_with") or "").strip()
+        label = (sd.get("label") or "").strip()
+        if not label or not marker:
+            continue
+        pos, _ = _locate_marker(parent_text, marker, cursor)
+        if pos < 0:
+            continue
+        positions.append((pos, label))
+        cursor = pos + 1
+
+    if len(positions) < 2:
+        return []
+
+    # First sub-section absorbs any prefix text — never orphan content.
+    positions[0] = (0, positions[0][1])
+
+    new_subs: list[Section] = []
+    for i, (pos, label) in enumerate(positions):
+        sub_char_start = parent.body_start + pos
+        next_pos = positions[i + 1][0] if i + 1 < len(positions) else None
+        if next_pos is not None:
+            sub_char_end = parent.body_start + next_pos
+            sub_text = parent_text[pos:next_pos]
+        else:
+            sub_char_end = parent.char_end
+            sub_text = parent_text[pos:]
+        new_subs.append(Section(
+            level=parent.level + 1,
+            label=label,
+            char_start=sub_char_start,
+            body_start=sub_char_start,
+            char_end=sub_char_end,
+            parent_idx=parent_idx,
+            text=sub_text.strip(),
+        ))
+    return new_subs
+
+
+async def _audit_density(
+    leaves: list[Section], paths: dict[int, str], audit_system: str,
+) -> list[dict]:
+    """One batched LLM call: for each leaf, decide subdivide-or-not.
+
+    Each leaf is shown with its **digested** text (paragraph ledes when
+    long, full text when short) so a single call covers many leaves
+    without blowing num_ctx. The audit decides from the leaf's *shape*
+    — where topic shifts happen — which the digest preserves. Returned
+    ``starts_with`` markers are still verbatim sentence ledges that
+    locate in the FULL leaf text downstream.
+
+    ``audit_system`` is the genre-specific calibration — the paper
+    miner passes ``PAPER_DENSITY_AUDIT_SYSTEM``; the doc miner passes
+    ``_DOC_DENSITY_AUDIT_SYSTEM``. Same plumbing, different bias.
+
+    Returns a list aligned with ``leaves``: each entry is the model's
+    decision dict (or a default ``{"subdivide": False}`` on a parse miss).
+    """
+    if not leaves:
+        return []
+
+    parts: list[str] = []
+    for i, leaf in enumerate(leaves):
+        path = paths.get(id(leaf), leaf.label)
+        sample = _digest_for_outline(leaf.text, whole_below=4000)
+        parts.append(f'LEAF {i} (id=l{i}, path="{path}"):')
+        parts.append(f'"""\n{sample}\n"""')
+        parts.append("")
+    user = (
+        "\n".join(parts)
+        + "\nFor each leaf above, decide subdivide-or-not per the rules. "
+        "Use the leaf's own text for any starts_with markers."
+    )
+
+    try:
+        resp = await ollama.structured_extract(
+            user, system=audit_system, num_ctx=32768, timeout=600,
+        )
+    except Exception as exc:
+        logger.warning("Density audit LLM call failed: %r", exc)
+        return [{"subdivide": False} for _ in leaves]
+
+    raw = resp.get("decisions", []) if isinstance(resp, dict) else []
+    by_id: dict[str, dict] = {}
+    for d in raw:
+        if isinstance(d, dict) and isinstance(d.get("id"), str):
+            by_id[d["id"]] = d
+
+    out: list[dict] = []
+    for i in range(len(leaves)):
+        out.append(by_id.get(f"l{i}", {"subdivide": False}))
+    return out
+
+
+async def _build_recursive_hierarchy(
+    raw_text: str, *,
+    top_system: str, audit_system: str,
+    max_depth: int = 10, min_leaf_chars: int = 200,
+) -> tuple[list[Section], set[int], str]:
+    """Build the recursive section tree. Returns (sections, leaf_ids, route).
+
+    Loop:
+      1. Top pillars from headings (deterministic) or LLM digest with
+         ``top_system``.
+      2. While a non-empty frontier of unaudited leaves exists:
+         - Drop leaves below the structural floor (or at max depth) —
+           they go straight to final leaves.
+         - Batched density audit on the rest, using ``audit_system``.
+         - subdivide=false → final leaf.
+         - subdivide=true → create sub-sections (parent_idx + char
+           offsets), append to sections, recurse on them next pass.
+      3. Halt when frontier is empty.
+
+    Cap and floor are safety; the principled halt is the audit
+    returning no-subdivide for every remaining leaf. ``top_system`` and
+    ``audit_system`` carry the genre-specific calibration.
+    """
+    # Pass 1: top-level pillars
+    sections = parse_heading_outline(raw_text)
+    route = "headings"
+    if not sections:
+        route = "llm_top"
+        sections = await _outline_via_llm(raw_text, system=top_system)
+    if not sections:
+        return [], set(), route
+
+    to_audit: list[Section] = list(sections)
+    final_leaves: set[int] = set()
+    pass_num = 1
+
+    while to_audit:
+        pass_num += 1
+        # Structural floor / depth cap filter — these never go to the LLM.
+        next_to_audit: list[Section] = []
+        for leaf in to_audit:
+            if len(leaf.text) < min_leaf_chars or leaf.level >= max_depth:
+                final_leaves.add(id(leaf))
+            else:
+                next_to_audit.append(leaf)
+        if not next_to_audit:
+            break
+
+        # Compute current paths once for this audit batch.
+        paths = _compute_section_paths(sections)
+
+        mining_progress.set_phase("density_audit", total=1)
+        decisions = await _audit_density(next_to_audit, paths, audit_system)
+        mining_progress.increment()
+
+        new_frontier: list[Section] = []
+        for leaf, decision in zip(next_to_audit, decisions):
+            if not decision.get("subdivide"):
+                final_leaves.add(id(leaf))
+                continue
+            sub_data = decision.get("sub_sections") or []
+            new_subs = _create_sub_sections(leaf, sub_data, sections)
+            if not new_subs:
+                final_leaves.add(id(leaf))
+                continue
+            sections.extend(new_subs)
+            new_frontier.extend(new_subs)
+
+        logger.info(
+            "Stage A pass %d: audited %d leaves, subdivided %d into %d new leaves",
+            pass_num, len(next_to_audit),
+            sum(1 for d in decisions if d.get("subdivide")),
+            len(new_frontier),
+        )
+        to_audit = new_frontier
+
+    return sections, final_leaves, route
+
+
 # ─── SEQUENCE spine ──────────────────────────────────────────────────────
 
 
@@ -725,7 +994,24 @@ class OutlineMiner:
         source_label: str = "document",
         min_confidence: float = 0.4,
         max_segment_chars: int = 6000,
+        recursive: bool = False,
     ) -> dict:
+        """Mine a structured document outline-first.
+
+        ``recursive=True`` switches to N-tier hierarchy emergence: a
+        conservative density audit (``_DOC_DENSITY_AUDIT_SYSTEM``) walks
+        the outline, subdividing only sections that group genuinely-distinct
+        sub-subsystems. The existing per-section drill prompt is kept,
+        so slab density stays as design-doc-calibrated as before — only
+        the hierarchy depth changes. The non-recursive default (2-tier)
+        is unchanged.
+        """
+        if recursive:
+            return await self._mine_recursive(
+                raw_text, source_label=source_label,
+                min_confidence=min_confidence,
+            )
+
         mining_progress.reset("outline")
 
         # ── Pass 1 — outline ─────────────────────────────────────────
@@ -881,6 +1167,223 @@ class OutlineMiner:
                     "source_pairs": p.source_pairs,
                     # Pass 4: non-home pillars this slab is also relevant
                     # to (slabs only; empty for anchors).
+                    "cross_pillars": (
+                        cross_by_title.get(p.title, [])
+                        if p.proposal_type == "slab" else []
+                    ),
+                }
+                for p in all_proposals
+            ],
+            "edges": [
+                {
+                    "type": e.edge_type,
+                    "from": e.from_label,
+                    "to": e.to_label,
+                    "confidence": round(e.confidence, 2),
+                    "justification": e.justification,
+                }
+                for e in all_edges
+            ],
+            "proposal_count": len(all_proposals),
+            "edge_count": len(all_edges),
+            "source_label": source_label,
+            "_inline_anchors_per_slab": {},
+            "_consolidation_summary": None,
+        }
+
+    async def _mine_recursive(
+        self,
+        raw_text: str,
+        source_label: str = "document",
+        min_confidence: float = 0.4,
+    ) -> dict:
+        """N-tier recursive variant of mine() — design-doc-calibrated.
+
+        Same outline-first machinery the paper miner uses, but with a
+        CONSERVATIVE density audit (``_DOC_DENSITY_AUDIT_SYSTEM``) and
+        the EXISTING doc drill (``_CHAPTER_EXTRACT_SYSTEM``). Recursion
+        adds depth; the drill controls density; tuning them separately
+        is what lets the doc miner produce shallow trees on design docs
+        (where the audit should mostly say "no, this is one subsystem")
+        while keeping its known-good slab calibration.
+
+        Reuses the "paper" miner_kind in mining_progress — phase names
+        and weights align with the paper miner; only the prompts differ.
+        """
+        # Reuse paper miner_kind — same phase sequence (outlining /
+        # density_audit / leaf_drill / pillar_summaries / cross_pillar
+        # / outline_edges / consolidation), only the underlying prompts
+        # carry the doc-vs-paper calibration difference.
+        mining_progress.reset("paper")
+
+        # ── Stage A — recursive hierarchy with doc prompts ───────────
+        mining_progress.set_phase("outlining", total=1)
+        sections, leaf_ids, route = await _build_recursive_hierarchy(
+            raw_text,
+            top_system=_OUTLINE_SUMMARIZE_SYSTEM,
+            audit_system=_DOC_DENSITY_AUDIT_SYSTEM,
+        )
+        mining_progress.increment()
+
+        if not sections:
+            mining_progress.mark_error("no outline could be derived")
+            return {
+                "format": "outline", "segments": 0, "outline": [],
+                "proposals": [], "edges": [], "proposal_count": 0,
+                "edge_count": 0, "source_label": source_label,
+                "error": "Could not derive a top-level structure. Try "
+                         "the Narrative miner for unstructured text.",
+            }
+
+        paths = _compute_section_paths(sections)
+        leaves = [s for s in sections if id(s) in leaf_ids]
+        leaves.sort(key=lambda s: s.char_start)
+        max_depth_observed = max((s.level for s in sections), default=1)
+
+        logger.info(
+            "OutlineMiner (recursive): route=%s, %d total sections, "
+            "%d leaves, max_depth=%d",
+            route, len(sections), len(leaves), max_depth_observed,
+        )
+
+        # ── Stage B — drill each leaf with the existing doc prompt ──
+        # _drill_chapter defaults to _CHAPTER_EXTRACT_SYSTEM; that's
+        # the slab density the doc miner has always produced.
+        mining_progress.set_phase("leaf_drill", total=len(leaves))
+        sem = asyncio.Semaphore(_PASS_PARALLEL)
+        order_bases = [i * 1000 for i in range(len(leaves))]
+
+        async def _drill(idx: int) -> ChapterResult:
+            async with sem:
+                r = await _drill_chapter(
+                    leaves[idx], paths[id(leaves[idx])],
+                    order_bases[idx], min_confidence,
+                )
+                mining_progress.increment()
+                return r
+
+        results = await asyncio.gather(*[_drill(i) for i in range(len(leaves))])
+
+        all_slabs: list[MiningProposal] = []
+        all_anchors: list[MiningProposal] = []
+        all_links: list[EdgeProposal] = []
+        for r in results:
+            all_slabs.extend(r.slabs)
+            all_anchors.extend(r.anchors)
+            all_links.extend(r.links)
+
+        canonical_anchors = deduplicate_proposals(all_anchors)
+        canonical_anchors = [
+            a for a in canonical_anchors if a.proposal_type == "anchor"
+        ]
+
+        # ── Stage C — summaries (bottom-up propagation) ──────────────
+        slabs_by_path: dict[str, list[MiningProposal]] = {}
+        for s in all_slabs:
+            slabs_by_path.setdefault(s.source_topic, []).append(s)
+
+        n_non_leaves = sum(1 for s in sections if id(s) not in leaf_ids)
+        mining_progress.set_phase(
+            "pillar_summaries",
+            total=max(1, len(leaves) + n_non_leaves),
+        )
+        summaries: dict[int, str] = {}
+
+        async def _leaf_summ(leaf: Section) -> tuple[int, str]:
+            async with sem:
+                path = paths[id(leaf)]
+                slabs = slabs_by_path.get(path, [])
+                items = [
+                    f"{s.title}: {(s.canonical_text or '')[:160]}"
+                    for s in slabs
+                ]
+                summ = await _summarize_pillar(leaf.label, items)
+                mining_progress.increment()
+                return id(leaf), summ
+
+        leaf_pairs = await asyncio.gather(*[_leaf_summ(l) for l in leaves])
+        for sid, summ in leaf_pairs:
+            summaries[sid] = summ
+
+        non_leaves_by_depth = sorted(
+            (s for s in sections if id(s) not in leaf_ids),
+            key=lambda s: -s.level,
+        )
+        for nl in non_leaves_by_depth:
+            child_items: list[str] = []
+            for c in sections:
+                if c.parent_idx >= 0 and sections[c.parent_idx] is nl:
+                    child_items.append(
+                        f"{c.label}: {summaries.get(id(c), '')}"
+                    )
+            if child_items:
+                summaries[id(nl)] = await _summarize_pillar(
+                    nl.label, child_items,
+                )
+            mining_progress.increment()
+
+        # ── Pass 4 — cross-pillar at leaves ──────────────────────────
+        mining_progress.set_phase("cross_pillar", total=1)
+        leaf_paths = [paths[id(l)] for l in leaves]
+        leaf_summaries = {
+            paths[id(l)]: summaries.get(id(l), "") for l in leaves
+        }
+        leaf_slabs = {
+            paths[id(l)]: slabs_by_path.get(paths[id(l)], [])
+            for l in leaves
+        }
+        cross_by_title, cross_edges = await detect_cross_pillar(
+            leaf_paths, leaf_summaries, leaf_slabs,
+        )
+        mining_progress.increment()
+
+        # ── Assemble proposals + edges ───────────────────────────────
+        all_proposals = canonical_anchors + all_slabs
+        all_proposals = deduplicate_proposals(all_proposals)
+        all_proposals = [
+            p for p in all_proposals if p.confidence >= min_confidence
+        ]
+        all_proposals.sort(key=lambda p: (
+            p.source_pairs[0] if p.source_pairs else 999999,
+            p.proposal_type,
+        ))
+
+        mining_progress.set_phase("outline_edges", total=1)
+        seq_edges = build_sequence_edges(all_proposals)
+        seq_edges = [e for e in seq_edges if e.confidence >= min_confidence]
+        links_edges = [e for e in all_links if e.confidence >= min_confidence]
+        all_edges = seq_edges + links_edges
+        mining_progress.increment()
+        mining_progress.mark_done()
+
+        # ── Outline tree (N-tier skeleton, summaries threaded) ──────
+        slab_titles_by_path = {
+            p: [s.title for s in sl] for p, sl in slabs_by_path.items()
+        }
+        outline_tree = build_outline_tree_recursive(
+            sections, leaf_ids, summaries,
+            slab_titles_by_path, cross_edges,
+        )
+
+        return {
+            "format": "outline",
+            "outline_route": route,
+            "segments": len(leaves),
+            "total_sections": len(sections),
+            "max_depth": max_depth_observed,
+            "outline": outline_tree,
+            "proposals": [
+                {
+                    "type": p.proposal_type,
+                    "canonical_phrase": p.canonical_phrase,
+                    "canonical_text": p.canonical_text or "",
+                    "title": p.title,
+                    "label": p.label,
+                    "aliases": p.aliases,
+                    "source_topic": p.source_topic,
+                    "confidence": round(p.confidence, 2),
+                    "justification": p.justification,
+                    "source_pairs": p.source_pairs,
                     "cross_pillars": (
                         cross_by_title.get(p.title, [])
                         if p.proposal_type == "slab" else []

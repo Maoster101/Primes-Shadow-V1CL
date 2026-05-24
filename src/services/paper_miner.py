@@ -65,6 +65,7 @@ from .outline_miner import (
     build_sequence_edges,
     build_outline_tree_recursive,
     _compute_section_paths,
+    _build_recursive_hierarchy,
 )
 
 logger = logging.getLogger(__name__)
@@ -236,217 +237,6 @@ Output ONLY valid JSON:
 """
 
 
-# ─── Helpers ─────────────────────────────────────────────────────────────
-
-
-def _get_section_index(sections: list[Section], target: Section) -> int:
-    """Find a section's index by identity (handles same-label collisions)."""
-    for i, s in enumerate(sections):
-        if s is target:
-            return i
-    return -1
-
-
-def _create_sub_sections(
-    parent: Section,
-    sub_sections_data: list[dict],
-    all_sections: list[Section],
-) -> list[Section]:
-    """Locate the audit's sub-section markers within ``parent.text``
-    and mint new Section objects with ``parent_idx`` set.
-
-    The first sub-section is forced to start at the parent's body_start
-    even if its marker resolves later — text before the first marker
-    would otherwise be orphaned. Sub-sections tile the parent's text
-    in order, last one running to ``parent.char_end``.
-
-    Returns [] when fewer than 2 markers locate — subdivision into a
-    single child is meaningless (the parent itself stays as a leaf).
-    """
-    parent_idx = _get_section_index(all_sections, parent)
-    if parent_idx < 0:
-        return []
-    parent_text = parent.text
-
-    positions: list[tuple[int, str]] = []  # (offset_in_parent_text, label)
-    cursor = 0
-    for sd in sub_sections_data:
-        marker = (sd.get("starts_with") or "").strip()
-        label = (sd.get("label") or "").strip()
-        if not label or not marker:
-            continue
-        pos, _ = _locate_marker(parent_text, marker, cursor)
-        if pos < 0:
-            continue
-        positions.append((pos, label))
-        cursor = pos + 1
-
-    if len(positions) < 2:
-        return []
-
-    # First sub-section absorbs any prefix text — never orphan content.
-    positions[0] = (0, positions[0][1])
-
-    new_subs: list[Section] = []
-    for i, (pos, label) in enumerate(positions):
-        sub_char_start = parent.body_start + pos
-        next_pos = positions[i + 1][0] if i + 1 < len(positions) else None
-        if next_pos is not None:
-            sub_char_end = parent.body_start + next_pos
-            sub_text = parent_text[pos:next_pos]
-        else:
-            sub_char_end = parent.char_end
-            sub_text = parent_text[pos:]
-        new_subs.append(Section(
-            level=parent.level + 1,
-            label=label,
-            char_start=sub_char_start,
-            body_start=sub_char_start,
-            char_end=sub_char_end,
-            parent_idx=parent_idx,
-            text=sub_text.strip(),
-        ))
-    return new_subs
-
-
-async def _audit_density(
-    leaves: list[Section], paths: dict[int, str],
-) -> list[dict]:
-    """One batched LLM call: for each leaf, decide subdivide-or-not.
-
-    Each leaf is shown with its **digested** text (paragraph ledes when
-    long, full text when short) so a single call covers many leaves
-    without blowing num_ctx. The audit decides from the leaf's *shape*
-    — where topic shifts happen — which the digest preserves. Returned
-    ``starts_with`` markers are still verbatim sentence ledges that
-    locate in the FULL leaf text downstream.
-
-    Returns a list aligned with ``leaves``: each entry is the model's
-    decision dict (or a default ``{"subdivide": False}`` on a parse miss).
-    """
-    if not leaves:
-        return []
-
-    parts: list[str] = []
-    for i, leaf in enumerate(leaves):
-        path = paths.get(id(leaf), leaf.label)
-        sample = _digest_for_outline(leaf.text, whole_below=4000)
-        parts.append(f'LEAF {i} (id=l{i}, path="{path}"):')
-        parts.append(f'"""\n{sample}\n"""')
-        parts.append("")
-    user = (
-        "\n".join(parts)
-        + "\nFor each leaf above, decide subdivide-or-not per the rules. "
-        "Use the leaf's own text for any starts_with markers."
-    )
-
-    try:
-        resp = await ollama.structured_extract(
-            user, system=PAPER_DENSITY_AUDIT_SYSTEM,
-            num_ctx=32768, timeout=600,
-        )
-    except Exception as exc:
-        logger.warning("Density audit LLM call failed: %r", exc)
-        return [{"subdivide": False} for _ in leaves]
-
-    raw = resp.get("decisions", []) if isinstance(resp, dict) else []
-    by_id: dict[str, dict] = {}
-    for d in raw:
-        if isinstance(d, dict) and isinstance(d.get("id"), str):
-            by_id[d["id"]] = d
-
-    out: list[dict] = []
-    for i in range(len(leaves)):
-        out.append(by_id.get(f"l{i}", {"subdivide": False}))
-    return out
-
-
-# ─── Stage A — recursive hierarchy emergence ─────────────────────────────
-
-
-async def _build_recursive_hierarchy(
-    raw_text: str,
-    *,
-    max_depth: int = 10,
-    min_leaf_chars: int = 200,  # ~5 sentences — structural "atomic" floor
-) -> tuple[list[Section], set[int], str]:
-    """Build the recursive section tree. Returns (sections, leaf_ids, route).
-
-    Loop:
-      1. Top pillars from headings (deterministic) or LLM digest.
-      2. While a non-empty frontier of unaudited leaves exists:
-         - Drop leaves below the structural floor (or at max depth) —
-           they go straight to final leaves.
-         - Batched density audit on the rest.
-         - subdivide=false → final leaf.
-         - subdivide=true → create sub-sections (parent_idx + char
-           offsets), append to sections, recurse on them next pass.
-      3. Halt when frontier is empty.
-
-    Cap and floor are safety; the principled halt is the audit returning
-    no-subdivide for every remaining leaf.
-    """
-    # Pass 1: top-level pillars
-    sections = parse_heading_outline(raw_text)
-    route = "headings"
-    if not sections:
-        route = "llm_paper_top"
-        sections = await _outline_via_llm(
-            raw_text, system=PAPER_TOP_OUTLINE_SYSTEM,
-        )
-    if not sections:
-        return [], set(), route
-
-    to_audit: list[Section] = list(sections)
-    final_leaves: set[int] = set()
-    pass_num = 1
-
-    while to_audit:
-        pass_num += 1
-        # Structural floor / depth cap filter — these never go to the LLM.
-        next_to_audit: list[Section] = []
-        for leaf in to_audit:
-            if len(leaf.text) < min_leaf_chars or leaf.level >= max_depth:
-                final_leaves.add(id(leaf))
-            else:
-                next_to_audit.append(leaf)
-        if not next_to_audit:
-            break
-
-        # Compute current paths once for this audit batch.
-        paths = _compute_section_paths(sections)
-
-        mining_progress.set_phase("density_audit", total=1)
-        decisions = await _audit_density(next_to_audit, paths)
-        mining_progress.increment()
-
-        new_frontier: list[Section] = []
-        for leaf, decision in zip(next_to_audit, decisions):
-            if not decision.get("subdivide"):
-                final_leaves.add(id(leaf))
-                continue
-            sub_data = decision.get("sub_sections") or []
-            new_subs = _create_sub_sections(leaf, sub_data, sections)
-            if not new_subs:
-                # Audit said subdivide but markers wouldn't locate —
-                # honest fallback: treat the leaf as final.
-                final_leaves.add(id(leaf))
-                continue
-            sections.extend(new_subs)
-            new_frontier.extend(new_subs)
-
-        logger.info(
-            "PaperMiner Stage A pass %d: audited %d leaves, "
-            "subdivided %d into %d new leaves",
-            pass_num, len(next_to_audit),
-            sum(1 for d in decisions if d.get("subdivide")),
-            len(new_frontier),
-        )
-        to_audit = new_frontier
-
-    return sections, final_leaves, route
-
-
 # ─── Stage B — semantic-chunk slab generation at leaves ──────────────────
 
 
@@ -559,7 +349,11 @@ class PaperMiner:
 
         # ── Stage A — recursive hierarchy ────────────────────────────
         mining_progress.set_phase("outlining", total=1)
-        sections, leaf_ids, route = await _build_recursive_hierarchy(raw_text)
+        sections, leaf_ids, route = await _build_recursive_hierarchy(
+            raw_text,
+            top_system=PAPER_TOP_OUTLINE_SYSTEM,
+            audit_system=PAPER_DENSITY_AUDIT_SYSTEM,
+        )
         mining_progress.increment()
 
         if not sections:
