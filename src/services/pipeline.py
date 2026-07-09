@@ -648,6 +648,31 @@ async def process_turn(
             retrieved_ids.update(conflict_forced)
             signal_counts["conflicts"] = len(conflict_forced)
 
+    # ── Make the seed-reachable slice the authoritative walk domain ──
+    # PPR + synthesis run over the INDUCED SUBGRAPH of (seeds ∪ K-hop
+    # subspace ∪ conflicts) rather than the full corpus, so the slice the
+    # seeds define bounds the O(n²) PPR compute itself — not just its output
+    # (id_filter only trimmed the result before). Falls back to the
+    # collection scope / full corpus when the subspace is empty (isolated
+    # seeds), where the flat-cosine fallback takes over anyway.
+    walk_corpus = scoped_corpus
+    _domain_base = scoped_corpus or (frame_manager.corpus if frame_manager else None)
+    if _domain_base is not None and subspace:
+        try:
+            walk_corpus = _domain_base.subgraph(
+                set(seed_ids) | subspace | conflict_forced
+            )
+            signal_counts["walk_domain"] = len(walk_corpus.slabs)
+            logger.info(
+                "[WALK] domain = %d slabs / %d anchors / %d edges "
+                "(from %d seeds, %d subspace)",
+                len(walk_corpus.slabs), len(walk_corpus.anchors),
+                len(walk_corpus.edges), len(seed_ids), len(subspace),
+            )
+        except Exception as exc:
+            logger.warning("walk-domain subgraph failed: %r", exc)
+            walk_corpus = scoped_corpus
+
     # Diagnostic: seeds exist but edge walk returned nothing. Usually
     # means the seeds are isolated nodes (no edges touch them) or live
     # in collections whose edges haven't been mined yet. Prints the
@@ -682,7 +707,7 @@ async def process_turn(
                     user_text,
                     seed_ids=seed_ids,
                     id_filter=_idf,
-                    ppr_corpus=scoped_corpus,
+                    ppr_corpus=walk_corpus,
                 )
             else:
                 # Fall through: no subspace but seeds exist → PPR over
@@ -692,7 +717,7 @@ async def process_turn(
                     user_text,
                     seed_ids=seed_ids,
                     id_filter=scope_slab_ids,
-                    ppr_corpus=scoped_corpus,
+                    ppr_corpus=walk_corpus,
                 )
             ranked = {sid for sid, _s, _c in hits}
             retrieved_ids.update(ranked)
@@ -735,7 +760,7 @@ async def process_turn(
                 seed_ids=seed_ids if not needs_cold_start else None,
                 threshold=fb_threshold,
                 id_filter=scope_slab_ids,
-                ppr_corpus=scoped_corpus,
+                ppr_corpus=walk_corpus,
             )
             before = len(retrieved_ids)
             retrieved_ids.update(sid for sid, _s, _c in hits)
@@ -820,7 +845,7 @@ async def process_turn(
         if intent.triggered and frame_manager:
             from .synthesis import synthesize
             from .synthesis_compose import compose_synthesis_prompt
-            synth_result = await synthesize(user_text, scoped_corpus or frame_manager.corpus)
+            synth_result = await synthesize(user_text, walk_corpus or frame_manager.corpus)
             # Only inject the synthesis prompt if selection actually
             # surfaced *something*. An empty walk (cold corpus, no
             # embedding match) falls back gracefully to standard RAG.

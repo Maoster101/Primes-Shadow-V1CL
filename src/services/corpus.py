@@ -133,6 +133,27 @@ class CorpusStore:
             | set(self.gates) | set(self.pillars)
         )
 
+    def subgraph(self, node_ids) -> "CorpusStore":
+        """A store containing only ``node_ids`` and the edges among them.
+
+        Used to make the seed-reachable slice the authoritative walk domain:
+        PPR / synthesis run over this induced subgraph instead of the full
+        corpus, so the O(n²) transition matrix is O(slice²). Shares node
+        objects (not copies) — read-only, per-turn, throwaway.
+        """
+        ids = set(node_ids)
+        sub = CorpusStore(collection_id="__walk__")
+        for aid in ids & self.anchors.keys():
+            sub.anchors[aid] = self.anchors[aid]
+        for sid in ids & self.slabs.keys():
+            sub.slabs[sid] = self.slabs[sid]
+        for bid in ids & self.bundles.keys():
+            sub.bundles[bid] = self.bundles[bid]
+        for eid, e in self.edges.items():
+            if e.from_node in ids and e.to_node in ids:
+                sub.edges[eid] = e
+        return sub
+
     def deduplicate(self) -> dict:
         """Collapse exact-duplicate slabs and anchors to a single survivor.
 
