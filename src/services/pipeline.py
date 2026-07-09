@@ -72,8 +72,8 @@ def _build_edge_subspace(
     ``max_hops`` and the hard ``max_subspace`` cap. Anchors/bundles in
     ``seed_ids`` project to their slab neighbours at hop 1 (INVOKES /
     PARENT_OF); thereafter the walk is slab-to-slab. This is the seed-driven
-    graph slice — the domain the ranker (and, once wired, PPR) should honour
-    instead of falling back to the full graph.
+    graph slice — the domain the ranker AND PPR/synthesis honour (via the
+    walk-domain subgraph built downstream) instead of walking the full graph.
 
     Returns:
       subspace:        slab ids reachable within max_hops of the seeds
@@ -314,7 +314,7 @@ async def process_turn(
     slab_matcher: Optional["SlabMatcher"] = None,
     web_mode: str = "off",  # "off" | "on" | "auto"
     think_level: str = "medium",
-    collection_id: Optional[str] = None,  # scope retrieval to this collection
+    collection_id: Optional[str] = None,  # explicit scope fallback; chat turns scope by message
 ) -> AsyncIterator[dict]:
     """Full pipeline for one user turn. Yields streaming response chunks.
 
@@ -444,25 +444,29 @@ async def process_turn(
 
     # ── Step 3.5: Edge-constrained slab retrieval ────────────────
     # CONSTITUTIONAL + CANONICAL slabs are always full-text; REFERENCE
-    # slabs are retrieved via a graph-constrained pipeline where the
-    # typed-edge graph defines the *candidate region* and embeddings
-    # *rank within it*. Flow:
+    # slabs are retrieved "slice, then walk": cheap filters pick a bounded
+    # region of the graph, then the walk ranks within it. Flow:
     #
-    #   1. Collect seeds — nodes the frame/match says are "live now":
+    #   1. Collect seeds — the walk's entry points:
     #        frame-active non-base_set nodes (weight >= 0.5),
-    #        anchors the matcher just fired on this turn.
-    #   2. Walk typed edges from seeds (per-type budgets) → subspace
-    #        of candidate REFERENCE slabs. CONFLICTS are force-included
-    #        (both endpoints, no budget).
-    #   3. Rank within subspace via cosine similarity to the user query
-    #        (SlabMatcher.top_k_for with id_filter).
-    #   4. Collection-name detection adds all slabs of explicitly named
-    #        collections (strong user-intent signal, bypasses subspace).
-    #   5. Fallbacks when subspace is thin:
+    #        anchors the matcher fired this turn (lexical + semantic),
+    #        top-K slabs from cosine search (slab-search seeding),
+    #        slabs of any collection the message names.
+    #   2. Bound the DOMAIN — a message that names collection(s) restricts
+    #        the walk to that subgraph; nothing named → the whole graph.
+    #   3. K-hop typed-edge walk from seeds → subspace of candidate
+    #        REFERENCE slabs (per-type budgets, bounded by max_hops /
+    #        max_subspace). CONFLICTS force both endpoints (no budget).
+    #   4. The seed-reachable slice (seeds ∪ subspace ∪ conflicts) becomes
+    #        the walk-domain SUBGRAPH — PPR + synthesis run over it, so the
+    #        O(n²) compute is O(slice²), not the full corpus.
+    #   5. Rank within the domain via hybrid_rank: cosine + Personalized
+    #        PageRank (from seeds) + global PageRank.
+    #   6. Fallbacks when the subspace is thin:
     #        cold start (no seeds) → flat semantic at default threshold
-    #        topic shift (subspace yielded <N hits) → flat semantic at
-    #        a HIGHER threshold (0.70), to catch only genuinely strong
-    #        topical pivots without washing out the edge signal.
+    #        topic shift (few ranked hits) → flat semantic at a HIGHER
+    #        threshold (0.70), catching strong pivots without washing out
+    #        the edge signal.
     #
     # All signals converge on retrieved_ids; full_text split below.
     MAX_REFERENCE_FULL_TEXT = 25
@@ -689,14 +693,14 @@ async def process_turn(
         )
 
     # ── 4. Rank (hybrid: cosine + PPR + global PR) ──
-    # Two modes:
-    #   subspace: graph chose the candidates (typed-edge walk),
-    #             ranker orders them by cosine + PPR + global PR.
-    #   full_ppr: subspace was empty but we have seeds — let PPR walk
-    #             the full corpus from seeds. This is the ideal PR
-    #             case: continuous, multi-hop reachability, no hard
-    #             budget. Captures relationships that 1-hop typed walk
-    #             missed (isolated seed anchor, misrouted edges, etc).
+    # Both modes run PPR over walk_corpus — the seed-neighbourhood subgraph
+    # when the K-hop subspace is non-empty, else the scoped/full corpus:
+    #   subspace: the K-hop walk found candidates; PPR + cosine + global PR
+    #             rank them within the seed-neighbourhood subgraph.
+    #   full_ppr: subspace was empty (isolated seeds) — walk_corpus fell back
+    #             to the scoped/full corpus, so PPR teleports from the seeds
+    #             over it. The continuous safety net for the case the bounded
+    #             typed walk couldn't reach.
     ppr_lift_count = 0
     if slab_matcher is not None and slab_matcher.has_cache() and seed_ids:
         try:

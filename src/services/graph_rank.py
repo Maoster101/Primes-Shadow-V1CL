@@ -176,10 +176,12 @@ def compute_ppr(
     have highest mass and it decays along edges by distance and
     branching.
 
-    Unlike the 1-hop typed walk in ``_build_edge_subspace``, PPR is
-    unbounded multi-hop: a node 3 hops away with many paths back to
-    seeds can outrank a node 1 hop away on a single dead-end edge.
-    This is the continuous generalization of edge-constrained retrieval.
+    Unlike the bounded K-hop typed walk in ``_build_edge_subspace``, PPR
+    is continuous multi-hop within whatever ``corpus`` it is handed: a node
+    several hops away with many paths back to seeds can outrank a node one
+    hop away on a single dead-end edge. Callers scope it by passing a
+    subgraph corpus (the seed-neighbourhood walk domain) instead of the
+    full merged store — the transition matrix is then O(slice²).
 
     Returns empty dict if there are no seeds in the corpus or the
     corpus is empty.

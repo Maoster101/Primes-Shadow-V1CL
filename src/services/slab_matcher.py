@@ -237,7 +237,8 @@ class SlabMatcher:
         # Stage 1: cosine threshold gate.
         cosine_scores = self._matrix @ q  # shape: (N,)
 
-        # Stage 2: PPR over the full graph, teleporting to seeds.
+        # Stage 2: PPR over ppr_corpus (the seed-neighbourhood subgraph when
+        # given, else the full graph), teleporting to seeds.
         # Empty seeds → skip PPR entirely rather than uniform, because
         # uniform PPR is identical to global PR and we'd double-count it.
         ppr_norm: dict[str, float] = {}
