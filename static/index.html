@@ -261,9 +261,20 @@
       <div style="border-top:1px solid var(--border);padding-top:6px;margin-top:4px">
         <div class="ctrl-row">
           <span class="ctrl-label">Model</span>
-          <select id="model-select" style="flex:1;max-width:200px" onchange="switchModel(this.value)" title="Hover an option to see the raw Ollama tag">
+          <select id="model-select" style="flex:1;max-width:200px" onchange="switchModel(this.value)" title="Chat / recall model. Hover an option to see the raw Ollama tag">
             <option value="">loading…</option>
           </select>
+        </div>
+        <div class="ctrl-row" style="margin-top:4px">
+          <span class="ctrl-label">Extract</span>
+          <select id="extract-model-select" style="flex:1;max-width:200px" onchange="switchExtractModel(this.value)" title="Mining / extraction model — used for the end-of-chat ghost sweep and other authoring passes. Loaded on demand, so it can be heavier (or a hosted frontier model) without slowing chat.">
+            <option value="">loading…</option>
+          </select>
+        </div>
+        <div class="ctrl-row" style="margin-top:4px">
+          <input id="frontier-api-key" type="password" placeholder="Frontier API key (optional)"
+            title="Ollama Cloud bearer token — enables hosted frontier models (e.g. gpt-oss:120b-cloud) for chat or extraction."
+            style="flex:1;background:rgba(255,255,255,0.04);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-family:inherit;font-size:9px;outline:none">
         </div>
       </div>
     </div>
@@ -552,47 +563,58 @@ let pendingAttachment=null; // {filename, chars, truncated, content}
 //  MODEL SELECTOR — queries Ollama for available models
 // ═══════════════════════════════════════════════════════════════
 let _activeModelName='';
+let _activeExtractName='';
+// Build the <option> list for a model <select>, marking `active` selected.
+// Shared by the chat-model and extraction-model dropdowns (same catalog).
+function _fillModelSelect(sel, models, active){
+  if(!sel)return;
+  sel.innerHTML='';
+  models.forEach(m=>{
+    const opt=document.createElement('option');
+    opt.value=m.name;
+    const gb=(m.size/1e9).toFixed(1);
+    // Prefer server-emitted friendly label; fall back to raw tag.
+    const label=m.label||m.name;
+    // Cloud models: green text, pulled vs pending distinction.
+    if(m.cloud){
+      if(m.pulled===false){
+        opt.className='cloud-model-pending';
+        opt.textContent=`${label} — pull required`;
+        opt.title=`${m.name}\n\nNot yet on this machine. Run:\n  ollama pull ${m.name}`;
+      }else{
+        opt.className='cloud-model';
+        opt.textContent=`${label} (hosted)`;
+        opt.title=`${m.name}\n\nHosted on Ollama Cloud`;
+      }
+    }else{
+      opt.textContent=`${label} (${gb}GB)`;
+      opt.title=m.name;  // hover shows the raw Ollama tag for verification
+    }
+    if(m.name===active)opt.selected=true;
+    sel.appendChild(opt);
+  });
+  if(!models.length){
+    sel.innerHTML='<option value="">no models</option>';
+  }
+}
 async function loadModelList(){
   const sel=document.getElementById('model-select');
+  const esel=document.getElementById('extract-model-select');
   if(!sel)return;
   try{
-    // Get available models from Ollama
+    // Get available models from Ollama (one catalog feeds both dropdowns)
     const tags=await fetch(`${API}/models`).then(r=>r.json());
     const models=tags.models||[];
-    const active=tags.active||'';
-    _activeModelName=active;
-    sel.innerHTML='';
-    models.forEach(m=>{
-      const opt=document.createElement('option');
-      opt.value=m.name;
-      const gb=(m.size/1e9).toFixed(1);
-      // Prefer server-emitted friendly label; fall back to raw tag.
-      const label=m.label||m.name;
-      // Cloud models: green text, pulled vs pending distinction.
-      // Pulled local cloud / cloud transport: solid green.
-      // Featured but not pulled yet: dim italic green + size hidden + hint.
-      if(m.cloud){
-        if(m.pulled===false){
-          opt.className='cloud-model-pending';
-          opt.textContent=`${label} — pull required`;
-          opt.title=`${m.name}\n\nNot yet on this machine. Run:\n  ollama pull ${m.name}`;
-        }else{
-          opt.className='cloud-model';
-          opt.textContent=gb>0?`${label} (hosted)`:`${label} (hosted)`;
-          opt.title=`${m.name}\n\nHosted on Ollama Cloud`;
-        }
-      }else{
-        opt.textContent=`${label} (${gb}GB)`;
-        opt.title=m.name;  // hover shows the raw Ollama tag for verification
-      }
-      if(m.name===active)opt.selected=true;
-      sel.appendChild(opt);
-    });
-    if(!models.length){
-      sel.innerHTML='<option value="">no models</option>';
-    }
+    _activeModelName=tags.active||'';
+    _activeExtractName=tags.active_extract||'';
+    _fillModelSelect(sel, models, _activeModelName);
+    _fillModelSelect(esel, models, _activeExtractName);
+    // Placeholder hint if a frontier key is already configured server-side.
+    const fk=document.getElementById('frontier-api-key');
+    if(fk && tags.has_frontier_key) fk.placeholder='Frontier API key (set ✓)';
   }catch(e){
     sel.innerHTML='<option value="">error</option>';
+    if(esel)esel.innerHTML='<option value="">error</option>';
   }
 }
 async function switchModel(name){
@@ -633,6 +655,37 @@ async function switchModel(name){
     pushEvent('error',`Model switch error: ${e.message}`);
   }finally{
     sel.disabled=false;
+  }
+}
+// Set the mining/extraction model. Unlike the chat model this isn't pinned in
+// VRAM — the server just records it; it loads on demand during the ghost sweep.
+async function switchExtractModel(name){
+  if(!name)return;
+  const esel=document.getElementById('extract-model-select');
+  const picked=esel&&esel.querySelector(`option[value="${CSS.escape(name)}"]`);
+  if(picked && picked.classList.contains('cloud-model-pending')){
+    pushEvent('system',`${name} not on this machine yet. Run in a terminal:  ollama pull ${name}`);
+    if(_activeExtractName)esel.value=_activeExtractName;
+    return;
+  }
+  try{
+    esel.disabled=true;
+    const res=await fetch(`${API}/models/switch-extract`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model:name}),
+    });
+    const data=await res.json();
+    if(data.ok){
+      _activeExtractName=name;
+      pushEvent('system',`Extraction model set: ${name} (loads on demand at end-of-chat)`);
+    }else{
+      pushEvent('error',`Extraction model set failed: ${data.error||'unknown'}`);
+    }
+  }catch(e){
+    pushEvent('error',`Extraction model error: ${e.message}`);
+  }finally{
+    esel.disabled=false;
   }
 }
 // Load model list on startup
@@ -6831,6 +6884,13 @@ document.getElementById('search-api-key').addEventListener('change',e=>{
   const key=e.target.value.trim();
   fetch(`${API}/settings/search`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider,api_key:key||''})});
   pushEvent('gate',`Search API key ${key?'set':'cleared'}`);
+});
+// Frontier (Ollama Cloud) API key — enables hosted frontier models for chat/extract.
+document.getElementById('frontier-api-key').addEventListener('change',e=>{
+  const key=e.target.value.trim();
+  fetch(`${API}/config/frontier-key`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:key||''})})
+    .then(()=>loadModelList());  // refresh so newly-reachable cloud models appear
+  pushEvent('gate',`Frontier API key ${key?'set':'cleared'}`);
 });
 
 async function loadMessages(){

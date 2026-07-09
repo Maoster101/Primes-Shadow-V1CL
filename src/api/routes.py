@@ -232,12 +232,15 @@ async def list_models():
             return {
                 "models": model_list,
                 "active": ollama.CHAT_MODEL,
+                "active_extract": ollama.EXTRACT_MODEL,
+                "has_frontier_key": bool(ollama.OLLAMA_API_KEY),
                 "transport": "cloud" if ollama.IS_CLOUD else "local",
                 "host": ollama.OLLAMA_BASE,
                 "featured_cloud": _FEATURED_CLOUD_MODELS,
             }
     except Exception as e:
-        return {"models": [], "active": ollama.CHAT_MODEL, "error": str(e)}
+        return {"models": [], "active": ollama.CHAT_MODEL,
+                "active_extract": ollama.EXTRACT_MODEL, "error": str(e)}
 
 
 class SwitchModelRequest(BaseModel):
@@ -350,6 +353,44 @@ async def switch_model(req: SwitchModelRequest):
         # Rollback on failure
         ollama.CHAT_MODEL = old_model
         return {"ok": False, "error": str(e), "model": old_model}
+
+
+class SwitchExtractRequest(BaseModel):
+    model: str
+
+
+@router.post("/models/switch-extract")
+async def switch_extract_model(req: SwitchExtractRequest):
+    """Set the mining/extraction model (structured_extract target).
+
+    Unlike the chat model, the extraction model is NOT pinned in VRAM — it's
+    loaded on demand by structured_extract during the end-of-chat ghost sweep
+    and other authoring passes, so it can be a heavier/frontier model without
+    costing chat latency. This just updates the global; the model loads on
+    first use.
+    """
+    ollama.EXTRACT_MODEL = req.model.strip()
+    logger.info("Extraction model set to %r", ollama.EXTRACT_MODEL)
+    return {"ok": True, "extract_model": ollama.EXTRACT_MODEL}
+
+
+class FrontierKeyRequest(BaseModel):
+    key: str = ""
+
+
+@router.post("/config/frontier-key")
+async def set_frontier_key(req: FrontierKeyRequest):
+    """Set (or clear) the frontier/cloud API key at runtime.
+
+    This is the Ollama Cloud bearer token used for hosted frontier models
+    (e.g. gpt-oss:120b-cloud) — handy when a local heavy model won't load and
+    you want to route the extraction/ghost-sweep to a hosted model. Empty
+    string clears it. Embedding auth is left untouched (nomic stays local).
+    """
+    ollama.OLLAMA_API_KEY = (req.key or "").strip()
+    ollama.IS_CLOUD = "ollama.com" in ollama.OLLAMA_BASE or bool(ollama.OLLAMA_API_KEY)
+    logger.info("Frontier API key %s", "set" if ollama.OLLAMA_API_KEY else "cleared")
+    return {"ok": True, "has_key": bool(ollama.OLLAMA_API_KEY)}
 
 
 # ═══════════════════════════════════════════════════════════════
