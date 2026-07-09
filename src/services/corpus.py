@@ -673,6 +673,32 @@ class CorpusRegistry:
         """Get a specific collection's store."""
         return self.collections.get(collection_id)
 
+    def merged_subset(self, collection_ids) -> CorpusStore:
+        """Merged view of ONLY the given collections (first-write-wins).
+
+        Same merge semantics as ``merged`` but restricted to a subset —
+        used to *bound the graph walk* to the collection(s) a query names.
+        Built on demand (subsets are small and query-specific), not cached.
+        """
+        subset = CorpusStore(collection_id="__subset__")
+        for cid in sorted(set(collection_ids)):
+            store = self.collections.get(cid)
+            if not store:
+                continue
+            for aid, a in store.anchors.items():
+                subset.anchors.setdefault(aid, a)
+            for sid, s in store.slabs.items():
+                subset.slabs.setdefault(sid, s)
+            for bid, b in store.bundles.items():
+                subset.bundles.setdefault(bid, b)
+            for eid, e in store.edges.items():
+                subset.edges.setdefault(eid, e)
+            for gid, g in store.gates.items():
+                subset.gates.setdefault(gid, g)
+            for pid, p in store.pillars.items():
+                subset.pillars.setdefault(pid, p)
+        return subset
+
     def slab_collection_map(self) -> dict[str, str]:
         """Return ``slab_id -> collection_id`` for every slab in every
         active collection.

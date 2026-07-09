@@ -200,7 +200,6 @@ async def send_message(chat_id: str, req: SendMessageRequest):
                 slab_matcher=slab_matcher,
                 web_mode=req.web_mode,
                 think_level=req.think_level,
-                collection_id=chat.collection_id,
             ):
                 if chunk.get("done"):
                     _stream_result["metadata"] = chunk

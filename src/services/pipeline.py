@@ -521,13 +521,16 @@ async def process_turn(
     # Without (b), a query like "compare v5 and v6" populates the
     # retrieval pool but never feeds those slabs into graph-aware
     # ranking — exactly the case that produced subspace:0 pre-fix.
+    #
+    # ``mentioned`` also sets the graph-walk DOMAIN (scoping block below):
+    # a named collection bounds the walk to it; nothing named = whole graph.
+    mentioned: set[str] = set()
     if frame_manager:
         try:
             import re as _re
             from ..api import deps as _deps
             low = (user_text or "").lower()
             active_ids = list(_deps.registry.active_ids)
-            mentioned = set()
             for cid in active_ids:
                 if len(cid) >= 3 and cid.lower() in low:
                     mentioned.add(cid)
@@ -558,27 +561,32 @@ async def process_turn(
 
     signal_counts["seeds"] = len(seed_ids)
 
-    # ── Collection scoping ──
-    # A chat bound to a real collection queries ONLY that collection's
-    # subgraph: PPR and synthesis run over ~N_collection nodes instead of the
-    # full merged corpus (the O(n²) PPR matrix and the synthesis graph walk
-    # are the retrieval hot cost). "default"/None = unscoped (merged), which
-    # preserves behaviour for chats with no specific binding.
+    # ── Bound the graph-walk domain ──
+    # Message-driven: if the user named collection(s) ("as per podv8",
+    # "compare v5 and v6"), bound PPR + synthesis + ranking to just those
+    # collections — the O(n²) PPR matrix and the synthesis walk then run over
+    # ~N_scope nodes instead of the full merged corpus. Nothing named → walk
+    # the whole graph. "default" never bounds (it's the whole-graph fallback,
+    # and would false-match phrases like "by default"). An explicit
+    # collection_id arg is a programmatic fallback for non-chat callers.
     scoped_corpus = None
     scope_slab_ids: Optional[set[str]] = None
-    if collection_id and collection_id != "default":
+    _scope_cids = {c for c in mentioned if c != "default"}
+    if not _scope_cids and collection_id and collection_id != "default":
+        _scope_cids = {collection_id}
+    if _scope_cids:
         try:
             from ..api import deps as _deps
-            _store = _deps.registry.get_store(collection_id)
-            if _store is not None and _store.slabs:
+            _store = _deps.registry.merged_subset(_scope_cids)
+            if _store.slabs or _store.anchors:
                 scoped_corpus = _store
                 scope_slab_ids = set(_store.slabs.keys())
                 logger.info(
-                    "[SCOPE] retrieval scoped to '%s' (%d slabs, %d anchors)",
-                    collection_id, len(_store.slabs), len(_store.anchors),
+                    "[SCOPE] graph walk bounded to %s (%d slabs, %d anchors)",
+                    sorted(_scope_cids), len(_store.slabs), len(_store.anchors),
                 )
         except Exception as exc:
-            logger.warning("collection scoping failed for %r: %r", collection_id, exc)
+            logger.warning("graph-walk scoping failed for %r: %r", _scope_cids, exc)
 
     # ── 3. Subspace construction via typed-edge walk ──
     subspace: set[str] = set()
