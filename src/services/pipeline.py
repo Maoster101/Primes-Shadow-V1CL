@@ -58,21 +58,29 @@ def _build_edge_subspace(
     corpus,
     seed_ids: set[str],
     budgets: dict[str, int] = _EDGE_BUDGETS,
+    max_hops: int = 2,
+    max_subspace: int = 60,
 ) -> tuple[set[str], set[str], dict[str, int]]:
-    """Walk typed edges 1 hop from seed_ids to build a candidate slab
-    subspace for semantic ranking.
+    """Walk typed edges up to ``max_hops`` from seed_ids to build a bounded
+    candidate slab subspace for semantic ranking.
+
+    K-hop frontier expansion: each hop projects the current frontier to its
+    typed-edge slab neighbours (per-type budget PER HOP), adds them to the
+    subspace, and carries the newly-reached slabs forward as the next hop's
+    frontier — so multi-hop structure (SEQUENCE chains, SUPPORTS networks) a
+    single 1-hop pass would miss is reached, while the walk stays bounded by
+    ``max_hops`` and the hard ``max_subspace`` cap. Anchors/bundles in
+    ``seed_ids`` project to their slab neighbours at hop 1 (INVOKES /
+    PARENT_OF); thereafter the walk is slab-to-slab. This is the seed-driven
+    graph slice — the domain the ranker (and, once wired, PPR) should honour
+    instead of falling back to the full graph.
 
     Returns:
-      subspace:       set of slab ids reachable from seeds (bounded by
-                      per-type budgets)
-      conflict_forced: set of slab ids pulled in via CONFLICTS edges, which
-                      bypass the ranker — both endpoints of any conflict
-                      must be visible to the model.
-      edges_walked:   dict of edge_type -> count actually traversed
-
-    Slabs are the only node type added to subspace (anchors/bundles are
-    already in the frame or appear via INVOKES expansion). The `seed_ids`
-    set can contain any node type — the walker projects to slab neighbors.
+      subspace:        slab ids reachable within max_hops of the seeds
+      conflict_forced: slab ids pulled in via CONFLICTS edges (both endpoints
+                       of any conflict touching a seed, no budget — bypasses
+                       the ranker; the model must see both sides)
+      edges_walked:    dict of edge_type -> count traversed (across all hops)
     """
     subspace: set[str] = set()
     conflict_forced: set[str] = set()
@@ -84,7 +92,9 @@ def _build_edge_subspace(
     slab_ids = set(corpus.slabs.keys())
     edges = list(corpus.edges.values())
 
-    # CONFLICTS first — always include both endpoints, no budget.
+    # CONFLICTS — both endpoints of any conflict touching a SEED (not the
+    # expanding frontier: a conflict is only forced when the user is actually
+    # on one side of it). No budget.
     for e in edges:
         if e.type.value != "CONFLICTS":
             continue
@@ -94,32 +104,43 @@ def _build_edge_subspace(
                     conflict_forced.add(endpoint)
             edges_walked["CONFLICTS"] = edges_walked.get("CONFLICTS", 0) + 1
 
-    # Typed walk with per-type budgets. Higher-weight edges first within
-    # each type so that if budget is tight the strongest signals win.
-    for etype, cap in budgets.items():
-        if cap <= 0:
-            continue
-        typed = [e for e in edges if e.type.value == etype]
-        typed.sort(key=lambda e: getattr(e, "weight", 0.0), reverse=True)
-        taken = 0
-        for e in typed:
-            if taken >= cap:
-                break
-            neighbor = None
-            if e.from_node in seed_ids and e.to_node not in seed_ids:
-                neighbor = e.to_node
-            elif e.to_node in seed_ids and e.from_node not in seed_ids:
-                neighbor = e.from_node
-            if neighbor is None or neighbor in subspace:
+    # K-hop bounded frontier expansion. Only slab neighbours enter the
+    # subspace AND carry the walk forward; anchors/bundles are curator
+    # structure (seeds already include the matched anchors).
+    frontier: set[str] = set(seed_ids)
+    visited: set[str] = set(seed_ids)
+    for _hop in range(max_hops):
+        if not frontier or len(subspace) >= max_subspace:
+            break
+        next_frontier: set[str] = set()
+        for etype, cap in budgets.items():
+            if cap <= 0:
                 continue
-            # Only slab neighbors contribute to the retrieval subspace.
-            # Anchor/bundle neighbors are curator structure, not content
-            # the model needs to "read."
-            if neighbor in slab_ids:
-                subspace.add(neighbor)
-                taken += 1
-        if taken:
-            edges_walked[etype] = taken
+            # Edges of this type touching the current frontier, strongest
+            # first so a tight budget keeps the highest-weight signals.
+            typed = [
+                e for e in edges
+                if e.type.value == etype
+                and (e.from_node in frontier or e.to_node in frontier)
+            ]
+            typed.sort(key=lambda e: getattr(e, "weight", 0.0), reverse=True)
+            taken = 0
+            for e in typed:
+                if taken >= cap or len(subspace) >= max_subspace:
+                    break
+                if e.from_node in frontier and e.to_node not in visited:
+                    neighbor = e.to_node
+                elif e.to_node in frontier and e.from_node not in visited:
+                    neighbor = e.from_node
+                else:
+                    continue
+                visited.add(neighbor)
+                if neighbor in slab_ids:
+                    subspace.add(neighbor)
+                    next_frontier.add(neighbor)
+                    taken += 1
+                    edges_walked[etype] = edges_walked.get(etype, 0) + 1
+        frontier = next_frontier
 
     return subspace, conflict_forced, edges_walked
 
@@ -593,7 +614,7 @@ async def process_turn(
     conflict_forced: set[str] = set()
     if seed_ids and frame_manager:
         subspace, conflict_forced, edges_walked = _build_edge_subspace(
-            frame_manager.corpus, seed_ids,
+            scoped_corpus or frame_manager.corpus, seed_ids,
         )
         signal_counts["subspace"] = len(subspace)
         signal_counts["edges_walked"] = edges_walked
