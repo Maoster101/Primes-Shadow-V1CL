@@ -609,6 +609,32 @@ async def process_turn(
         except Exception as exc:
             logger.warning("graph-walk scoping failed for %r: %r", _scope_cids, exc)
 
+    # ── Slab cosine-search as a slicer ──
+    # Anchor search seeds the walk from matched anchors; slab search seeds it
+    # from semantically-close slabs too — so content that's a strong textual
+    # match but ISN'T graph-adjacent to a matched anchor still becomes an
+    # entry point that teleports PPR and expands the K-hop subspace. Bounded
+    # by top-K, and restricted to the domain when a scope is active.
+    if slab_matcher is not None and slab_matcher.has_cache():
+        try:
+            slab_hits = await slab_matcher.top_k_for(
+                user_text, id_filter=scope_slab_ids, max_k=10,
+            )
+            if slab_hits:
+                sem_ids = {sid for sid, _score in slab_hits}
+                seed_ids.update(sem_ids)
+                retrieved_ids.update(sem_ids)
+                signal_counts["slab_search"] = len(sem_ids)
+                signal_counts["seeds"] = len(seed_ids)  # recount after seeding
+                logger.info(
+                    "[SLAB-SEED] %d slabs seeded from cosine search "
+                    "(top=%.2f)%s",
+                    len(sem_ids), slab_hits[0][1],
+                    " within scope" if scope_slab_ids else "",
+                )
+        except Exception as exc:
+            logger.warning("slab cosine seeding failed: %r", exc)
+
     # ── 3. Subspace construction via typed-edge walk ──
     subspace: set[str] = set()
     conflict_forced: set[str] = set()
