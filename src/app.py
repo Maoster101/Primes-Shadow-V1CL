@@ -1,4 +1,5 @@
 """Prime's Shadow — Main application entry point."""
+import logging
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -7,6 +8,21 @@ from pathlib import Path
 from .api.routes import router
 from .api import deps
 from .api.deps import anchor_matcher, registry
+
+# ── Application logging ───────────────────────────────────────────
+# Under uvicorn, only uvicorn's own loggers are configured — app-level
+# logger.info()/logger.warning() calls (pipeline timing, matcher/frame
+# diagnostics) are dropped at the default WARNING root level. Attach a
+# dedicated handler to the "src" namespace so app logs surface, scoped
+# so third-party libraries aren't pulled to INFO. propagate=False keeps
+# these off the root logger to avoid double-printing under uvicorn.
+_app_logger = logging.getLogger("src")
+if not _app_logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+    _app_logger.addHandler(_handler)
+    _app_logger.setLevel(logging.INFO)
+    _app_logger.propagate = False
 
 app = FastAPI(title="Prime's Shadow", version="0.1.0")
 app.include_router(router, prefix="/api")

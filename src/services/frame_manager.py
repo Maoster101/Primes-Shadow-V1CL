@@ -5,6 +5,7 @@ detects conflicts, and enforces caps. LLM = sensor, code = actuator.
 """
 from __future__ import annotations
 import json
+import os
 from typing import Optional
 
 from ..models.schemas import (
@@ -38,6 +39,14 @@ SALIENCE_ALPHA = policy.frame.salience.alpha
 MAX_ACTIVE_NODES = policy.frame.limits.max_active_nodes
 TENTATIVE_CONSOLIDATION_THRESHOLD = policy.frame.concepts.consolidation_similarity
 CONCEPT_TO_ANCHOR_THRESHOLD = policy.frame.concepts.promotion_turns
+
+# Per-turn mining/LLM apparatus. Chat is RECALL by default: update_turn
+# maintains the frame with code-only signals and lets retrieval query the
+# corpus, but the two hot-path LLM calls — novel-concept detection (mining)
+# and SALIENCE_PROMPT estimation — are NOT run per turn. That authoring work
+# belongs to explicit /extract-proposals or the end-of-chat sweep. Set
+# PS_MINE_PER_TURN=1 to restore the old per-turn behaviour.
+_MINE_PER_TURN = os.environ.get("PS_MINE_PER_TURN", "0") == "1"
 BUNDLE_SUGGESTION_THRESHOLD = policy.frame.concepts.bundle_suggestion_turns
 
 _event_log = EventLog()
@@ -924,7 +933,11 @@ class FrameManager:
         # Also skip for trivially short messages (greetings, acknowledgements)
         if len(user_text.strip()) < 8:
             skip_concept_detection = True
-        if not skip_concept_detection:
+        # Novel-concept detection is MINING (mints tentative nodes for later
+        # promotion) and costs an LLM call. Off the recall hot path by default
+        # — the end-of-chat sweep derives tentatives instead. PS_MINE_PER_TURN
+        # restores per-turn detection.
+        if _MINE_PER_TURN and not skip_concept_detection:
             new_tentatives = await self._detect_novel_concepts(session_id, user_text, frame)
             if new_tentatives:
                 for t in new_tentatives:
@@ -955,8 +968,25 @@ class FrameManager:
         # their prior smoothed value lightly decayed — the normal EWA step
         # below still applies, so real drops still propagate, they just
         # don't collapse in one turn.
-        node_descriptions = self._build_node_descriptions(frame.active_nodes)
-        raw_salience = await self._estimate_salience(user_text, node_descriptions)
+        # Recall mode (default): code-only salience proxy from this turn's
+        # activation weights — no LLM call on the hot path. The activation
+        # weight already encodes "how strongly was this node pulled in this
+        # turn", which is a sound relevance signal for smoothing/eviction.
+        # The LLM salience sensor (SALIENCE_PROMPT) runs only under
+        # PS_MINE_PER_TURN; the end-of-chat sweep does the richer scoring.
+        if _MINE_PER_TURN:
+            node_descriptions = self._build_node_descriptions(frame.active_nodes)
+            raw_salience = await self._estimate_salience(user_text, node_descriptions)
+        else:
+            raw_salience = {
+                nid: max(
+                    frame.active_anchors.get(nid, 0.0),
+                    frame.active_slabs.get(nid, 0.0),
+                    frame.active_bundles.get(nid, 0.0),
+                    frame.active_concepts.get(nid, 0.0),
+                )
+                for nid in frame.active_nodes
+            }
         new_now: dict[str, float] = {}
         for node_id in frame.active_nodes:
             if node_id in raw_salience:

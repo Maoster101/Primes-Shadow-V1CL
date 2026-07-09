@@ -293,6 +293,7 @@ async def process_turn(
     slab_matcher: Optional["SlabMatcher"] = None,
     web_mode: str = "off",  # "off" | "on" | "auto"
     think_level: str = "medium",
+    collection_id: Optional[str] = None,  # scope retrieval to this collection
 ) -> AsyncIterator[dict]:
     """Full pipeline for one user turn. Yields streaming response chunks.
 
@@ -314,6 +315,22 @@ async def process_turn(
     """
     turn = len(chat_messages) + 1
     match_result = None
+
+    # ── Per-stage timing (Action 0) ──────────────────────────────
+    # Cheap perf_counter checkpoints so the fast-path cost of each
+    # stage (anchor match, frame update, retrieval, prompt build) is
+    # visible in the logs. Emitted as a single line right before
+    # streaming starts — this is what validates the hot-path fixes.
+    import time as _time
+    _stage_t0 = _time.perf_counter()
+    _stage_prev = _stage_t0
+    _stage_marks: list[tuple[str, float]] = []
+
+    def _mark(label: str) -> None:
+        nonlocal _stage_prev
+        now = _time.perf_counter()
+        _stage_marks.append((label, (now - _stage_prev) * 1000.0))
+        _stage_prev = now
 
     # ── Step 0: Resolve any push event pending from the prior turn ───
     # The gauntlet may have fired last turn and logged a push event
@@ -369,12 +386,14 @@ async def process_turn(
     # ── Step 1: Anchor matching (~0.5s, embedding call only) ─────
     if anchor_matcher:
         match_result = await anchor_matcher.match_all(user_text, default_classification)
+    _mark("anchor_match")
 
     # ── Step 2: Frame update (code-only, instant) ────────────────
     if frame_manager and session_id:
         frame_state = await frame_manager.update_turn(
             session_id, turn, user_text, match_result, default_classification
         )
+    _mark("frame_update")
 
     # Step 2a: Augment affect_density from wrapped-span features.
     if match_result is not None:
@@ -539,6 +558,28 @@ async def process_turn(
 
     signal_counts["seeds"] = len(seed_ids)
 
+    # ── Collection scoping ──
+    # A chat bound to a real collection queries ONLY that collection's
+    # subgraph: PPR and synthesis run over ~N_collection nodes instead of the
+    # full merged corpus (the O(n²) PPR matrix and the synthesis graph walk
+    # are the retrieval hot cost). "default"/None = unscoped (merged), which
+    # preserves behaviour for chats with no specific binding.
+    scoped_corpus = None
+    scope_slab_ids: Optional[set[str]] = None
+    if collection_id and collection_id != "default":
+        try:
+            from ..api import deps as _deps
+            _store = _deps.registry.get_store(collection_id)
+            if _store is not None and _store.slabs:
+                scoped_corpus = _store
+                scope_slab_ids = set(_store.slabs.keys())
+                logger.info(
+                    "[SCOPE] retrieval scoped to '%s' (%d slabs, %d anchors)",
+                    collection_id, len(_store.slabs), len(_store.anchors),
+                )
+        except Exception as exc:
+            logger.warning("collection scoping failed for %r: %r", collection_id, exc)
+
     # ── 3. Subspace construction via typed-edge walk ──
     subspace: set[str] = set()
     conflict_forced: set[str] = set()
@@ -581,18 +622,22 @@ async def process_turn(
         try:
             if subspace:
                 signal_counts["ranked_mode"] = "subspace"
+                _idf = (subspace & scope_slab_ids) if scope_slab_ids else subspace
                 hits = await slab_matcher.hybrid_rank(
                     user_text,
                     seed_ids=seed_ids,
-                    id_filter=subspace,
+                    id_filter=_idf,
+                    ppr_corpus=scoped_corpus,
                 )
             else:
                 # Fall through: no subspace but seeds exist → PPR over
-                # the full corpus teleporting to seeds.
+                # the (scoped) corpus teleporting to seeds.
                 signal_counts["ranked_mode"] = "full_ppr"
                 hits = await slab_matcher.hybrid_rank(
                     user_text,
                     seed_ids=seed_ids,
+                    id_filter=scope_slab_ids,
+                    ppr_corpus=scoped_corpus,
                 )
             ranked = {sid for sid, _s, _c in hits}
             retrieved_ids.update(ranked)
@@ -634,6 +679,8 @@ async def process_turn(
                 user_text,
                 seed_ids=seed_ids if not needs_cold_start else None,
                 threshold=fb_threshold,
+                id_filter=scope_slab_ids,
+                ppr_corpus=scoped_corpus,
             )
             before = len(retrieved_ids)
             retrieved_ids.update(sid for sid, _s, _c in hits)
@@ -718,7 +765,7 @@ async def process_turn(
         if intent.triggered and frame_manager:
             from .synthesis import synthesize
             from .synthesis_compose import compose_synthesis_prompt
-            synth_result = await synthesize(user_text, frame_manager.corpus)
+            synth_result = await synthesize(user_text, scoped_corpus or frame_manager.corpus)
             # Only inject the synthesis prompt if selection actually
             # surfaced *something*. An empty walk (cold corpus, no
             # embedding match) falls back gracefully to standard RAG.
@@ -780,6 +827,7 @@ async def process_turn(
         match_result=match_result,
         anchor_hits_context=anchor_hits_ctx,
     )
+    _mark("retrieval")
     system_prompt = build_system_prompt(
         oli_mode, header,
         base_set_slabs=full_text_slabs or None,
@@ -815,6 +863,14 @@ async def process_turn(
     bg_classify_task = asyncio.create_task(
         classify_and_drift(user_text, recent)
     )
+
+    # Emit the fast-path timing breakdown (Action 0). This is the wall
+    # time the user waits before the first token streams.
+    _mark("prompt_build")
+    if _stage_marks:
+        _summary = " ".join(f"{lbl}={ms:.0f}ms" for lbl, ms in _stage_marks)
+        _total = (_time.perf_counter() - _stage_t0) * 1000.0
+        logger.info("[TIMING] turn=%d %s total_fastpath=%.0fms", turn, _summary, _total)
 
     # ── Step 6: Stream response IMMEDIATELY ──────────────────────
     use_think = think_level != "off"

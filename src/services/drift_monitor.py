@@ -27,12 +27,35 @@ _event_log = EventLog()
 
 _SESSION_HISTORY_PATH = Path("app/corpus/state/session_history.jsonl")
 
+# Cache of parsed session durations, keyed on the file's (mtime, size).
+# _load_session_durations runs on EVERY turn (via compute() →
+# record_and_compute), but the file is append-only and changes only at
+# session end. Re-reading and json-parsing every line each turn was pure
+# waste; this reads from disk only when the file actually changes.
+_DURATIONS_CACHE: Optional[list[int]] = None
+_DURATIONS_CACHE_KEY: Optional[tuple[float, int]] = None
+
 
 def _load_session_durations() -> list[int]:
-    """Load recent session turn counts from disk."""
-    if not _SESSION_HISTORY_PATH.exists():
+    """Load recent session turn counts from disk.
+
+    Cached on the file's (mtime, size). record_session_end() appends to
+    the file, which changes both — so the next call re-reads naturally.
+    """
+    global _DURATIONS_CACHE, _DURATIONS_CACHE_KEY
+    try:
+        st = _SESSION_HISTORY_PATH.stat()
+    except OSError:
+        # Missing file → no history. Drop any stale cache.
+        _DURATIONS_CACHE = None
+        _DURATIONS_CACHE_KEY = None
         return []
-    durations = []
+
+    key = (st.st_mtime, st.st_size)
+    if key == _DURATIONS_CACHE_KEY and _DURATIONS_CACHE is not None:
+        return _DURATIONS_CACHE
+
+    durations: list[int] = []
     try:
         for line in _SESSION_HISTORY_PATH.read_text(encoding="utf-8").strip().split("\n"):
             if not line.strip():
@@ -40,7 +63,14 @@ def _load_session_durations() -> list[int]:
             entry = json.loads(line)
             durations.append(int(entry.get("turns", 0)))
     except Exception:
+        # Cache the empty result under this key too, so a transiently
+        # unreadable file isn't re-parsed every turn until it changes.
+        _DURATIONS_CACHE = []
+        _DURATIONS_CACHE_KEY = key
         return []
+
+    _DURATIONS_CACHE = durations
+    _DURATIONS_CACHE_KEY = key
     return durations
 
 

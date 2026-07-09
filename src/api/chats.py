@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from datetime import datetime
 from typing import Optional
 
@@ -22,6 +23,14 @@ from .deps import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Per-turn mining. Chat turns are RECALL-only by default: the post-stream
+# authoring cascade (live-mining reference matcher, proposal + relationship
+# extraction, and the dreaming pass those trigger) does NOT run per turn.
+# Even though it runs in a background task, it contends with the next turn's
+# retrieval for the GPU. Mining is instead triggered explicitly
+# (/extract-proposals) or at end of chat. Set PS_MINE_PER_TURN=1 to restore.
+_MINE_PER_TURN = os.environ.get("PS_MINE_PER_TURN", "0") == "1"
 
 router = APIRouter()
 
@@ -191,6 +200,7 @@ async def send_message(chat_id: str, req: SendMessageRequest):
                 slab_matcher=slab_matcher,
                 web_mode=req.web_mode,
                 think_level=req.think_level,
+                collection_id=chat.collection_id,
             ):
                 if chunk.get("done"):
                     _stream_result["metadata"] = chunk
@@ -302,27 +312,28 @@ async def send_message(chat_id: str, req: SendMessageRequest):
         # self-reference; future turns will pick them up. See
         # services/live_mining.update_reference_history for the matcher
         # contract. Failures must never block the post-stream pipeline.
-        try:
-            from ..services.live_mining import update_reference_history
-            await update_reference_history(session_id, actual_turn, req.content)
-        except Exception as e:
-            print(f"[LIVE-MINE] Reference matcher failed: {e}", flush=True)
+        if _MINE_PER_TURN:
+            try:
+                from ..services.live_mining import update_reference_history
+                await update_reference_history(session_id, actual_turn, req.content)
+            except Exception as e:
+                print(f"[LIVE-MINE] Reference matcher failed: {e}", flush=True)
 
-        if cls.get("explicit"):
+        if _MINE_PER_TURN and cls.get("explicit"):
             print(f"[DRAFT] Explicit extraction at turn {actual_turn} (-> {_chat_cid})", flush=True)
             new_drafts = await draft_manager.extract_proposals(
                 session_id, chat_id, recent, actual_turn,
                 explicit=True, user_request=req.content,
                 collection_id=_chat_cid,
             )
-        elif draft_manager.should_sweep(actual_turn):
+        elif _MINE_PER_TURN and draft_manager.should_sweep(actual_turn):
             print(f"[DRAFT] Sweep triggered at turn {actual_turn} (-> {_chat_cid})", flush=True)
             new_drafts = await draft_manager.extract_proposals(
                 session_id, chat_id, recent, actual_turn,
                 collection_id=_chat_cid,
             )
         else:
-            print(f"[DRAFT] No sweep at turn {actual_turn}", flush=True)
+            print(f"[DRAFT] No per-turn mining at turn {actual_turn}", flush=True)
 
         # Phase 4 — second-pass relationship miner. Complementary to
         # extract_proposals: the primary miner is oriented toward concept
@@ -334,12 +345,13 @@ async def send_message(chat_id: str, req: SendMessageRequest):
         # the graph's relational structure. Dedup against both corpus
         # edges and already-proposed edges is inside extract_relationships,
         # so re-firing per turn is safe — we just won't duplicate.
-        try:
-            await draft_manager.extract_relationships(
-                session_id, chat_id, recent, actual_turn,
-            )
-        except Exception as e:
-            print(f"[RELMINE] outer failure: {e}", flush=True)
+        if _MINE_PER_TURN:
+            try:
+                await draft_manager.extract_relationships(
+                    session_id, chat_id, recent, actual_turn,
+                )
+            except Exception as e:
+                print(f"[RELMINE] outer failure: {e}", flush=True)
 
         # Auto-trigger dreaming pass on newly mined drafts.
         # Runs as another background task so the user sees drafts in the
@@ -383,3 +395,77 @@ async def send_message(chat_id: str, req: SendMessageRequest):
     asyncio.create_task(_post_stream_drafts())
 
     return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+@router.post("/chats/{chat_id}/end")
+async def end_chat(chat_id: str):
+    """Explicit end-of-chat sweep — the ONLY mining trigger.
+
+    Recall turns don't mine (see ``_MINE_PER_TURN``). Ending a chat is where
+    authoring happens: derive the *ghost stack* — concepts discussed in the
+    conversation that aren't yet corpus nodes — check each for **uniqueness**
+    (dedup vs the corpus, inside ``extract_proposals`` → ``_dedup_check``),
+    keep the salient survivors, enrich them via the grounding/dreaming pass,
+    and surface them for human review. Also records the session duration and
+    marks the chat CLOSED.
+
+    Returns the ghost stack so the caller can render the review panel without
+    a second round-trip (the full stack + trajectory is also available via
+    ``GET /sessions/{session_id}/end-review``).
+    """
+    chat = chat_store.get_chat(chat_id)
+    if not chat:
+        raise HTTPException(404, "Chat not found")
+
+    session_id = session_store.get_active_session(chat_id)
+    if not session_id:
+        raise HTTPException(400, "No session for this chat — nothing to sweep")
+
+    # Ensure the frame is in memory for the session-end record.
+    if not frame_manager.get_frame(session_id):
+        saved = session_store.load_frame(session_id)
+        if saved:
+            reg, edges = session_store.load_registry(session_id)
+            frame_manager.restore(session_id, saved, reg or None, edges or None)
+
+    messages = chat_store.get_messages(chat_id)
+    if not messages:
+        return {"chat_id": chat_id, "session_id": session_id, "ghost_stack": [], "count": 0,
+                "note": "empty chat — nothing to sweep"}
+
+    # 1. Derive + dedup the ghost stack from the WHOLE conversation.
+    recent = [{"role": m.role, "content": m.content, "turn": m.turn} for m in messages]
+    _chat_cid = chat.collection_id or "default"
+    drafts = await draft_manager.extract_proposals(
+        session_id, chat_id, recent, len(messages),
+        explicit=True, user_request="end-of-chat ghost sweep",
+        collection_id=_chat_cid,
+    )
+
+    # 2. Enrich (grounding/dreaming) so the surfaced stack is audited.
+    try:
+        from ..services.dreaming import dream_all_pending
+        await dream_all_pending(deps.corpus, session_store, chat_store, session_id)
+    except Exception as e:
+        logger.warning("end-chat %s: dreaming pass failed: %s", chat_id, e)
+
+    # 3. Record session end (drift baseline) + mark the chat CLOSED.
+    try:
+        from ..services.drift_monitor import record_session_end
+        _frame = frame_manager.get_frame(session_id)
+        if _frame and _frame.last_updated_turn > 0:
+            record_session_end(session_id, _frame.last_updated_turn)
+    except Exception as e:
+        logger.warning("end-chat %s: session-end record failed: %s", chat_id, e)
+    try:
+        chat_store.update_status(chat_id, ChatStatus.CLOSED)
+    except Exception as e:
+        logger.warning("end-chat %s: status update failed: %s", chat_id, e)
+
+    ghost_stack = [d.model_dump(mode="json") for d in drafts]
+    return {
+        "chat_id": chat_id,
+        "session_id": session_id,
+        "ghost_stack": ghost_stack,
+        "count": len(ghost_stack),
+    }

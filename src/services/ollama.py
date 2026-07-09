@@ -48,6 +48,15 @@ else:
 
 CHAT_MODEL = os.environ.get("PS_CHAT_MODEL", "gemma3:12b")
 EMBED_MODEL = os.environ.get("PS_EMBED_MODEL", "nomic-embed-text")
+# Authoring/extraction model — the recall/chat split. Recall runs on the
+# fast CHAT_MODEL; structured extraction (end-of-chat ghost sweep, /mine,
+# proposal + relationship extraction) is a high-rigor reasoning task that
+# a small chat model handles poorly (empty proposals). Point this at a
+# capable model (e.g. gpt-oss:20b, qwen3:14b) so authoring gets real
+# reasoning without slowing recall. Defaults to CHAT_MODEL = no change.
+# Callers passing an explicit model= (e.g. dream enrichment routing to a
+# small model) still win over this default.
+EXTRACT_MODEL = os.environ.get("PS_EXTRACT_MODEL", CHAT_MODEL)
 
 
 def _auth_headers() -> dict:
@@ -455,6 +464,10 @@ async def structured_extract(
     """
     if num_ctx is None:
         num_ctx = _EXTRACT_NUM_CTX
+    # Default to the authoring model (PS_EXTRACT_MODEL) unless the caller
+    # explicitly routed elsewhere. Recall never calls this path.
+    if model is None:
+        model = EXTRACT_MODEL
     raw = await generate(
         prompt, system=system, temperature=0.3, num_ctx=num_ctx,
         model=model, timeout=timeout,
@@ -474,18 +487,36 @@ def _parse_json_response(raw: str) -> dict:
     return json.loads(text)
 
 
+# Ollama's /api/embed rejects large batches: on 0.31.2 a batch of ~250+
+# inputs 400s with an internal "tokenize" subprocess connection error
+# (batches <=100 succeed). Chunk client-side to stay well under that — this
+# keeps every bulk caller (slab warm-up, dedup cache, Pass D sweep) working
+# regardless of corpus size and is more robust to future Ollama limits.
+_EMBED_MAX_BATCH = 64
+
+
 async def embed(texts: list[str]) -> list[list[float]]:
     """Get embeddings from nomic-embed-text. Returns list of 768-dim vectors.
+
+    Large inputs are split into sub-batches of _EMBED_MAX_BATCH and the
+    results concatenated in order — Ollama's /api/embed fails on big
+    batches (see _EMBED_MAX_BATCH note).
 
     Uses the embed-specific transport (which may differ from chat — see
     PS_OLLAMA_EMBED_HOST). Defaults to the same host as chat.
     """
-    resp = await _embed_client.post("/api/embed", json={
-        "model": EMBED_MODEL,
-        "input": texts,
-    })
-    resp.raise_for_status()
-    return resp.json()["embeddings"]
+    if not texts:
+        return []
+    out: list[list[float]] = []
+    for i in range(0, len(texts), _EMBED_MAX_BATCH):
+        chunk = texts[i:i + _EMBED_MAX_BATCH]
+        resp = await _embed_client.post("/api/embed", json={
+            "model": EMBED_MODEL,
+            "input": chunk,
+        })
+        resp.raise_for_status()
+        out.extend(resp.json()["embeddings"])
+    return out
 
 
 async def embed_single(text: str) -> list[float]:

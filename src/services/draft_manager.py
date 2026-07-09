@@ -77,6 +77,14 @@ class DraftManager:
         self._registry = None  # Set by routes.py after registry init
         # Track periodic proposal counts per session
         self._periodic_counts: dict[str, dict[str, int]] = {}
+        # Dedup embedding cache (Action 2): corpus object id -> L2-normalized
+        # embedding of its lowercased canonical text. Lazy + self-healing —
+        # _dedup_check batch-embeds only newly-present ids and prunes deleted
+        # ones, so it stays correct across promotions/deletes without hooking
+        # every mutation site. Convention is LOWERCASED (matches the prior
+        # cosine_similarity path and dodges nomic-embed's title-case collapse
+        # defect). Persists for the process lifetime.
+        self._dedup_vec_cache: dict = {}
 
     def _get_counts(self, session_id: str) -> dict[str, int]:
         if session_id not in self._periodic_counts:
@@ -1201,8 +1209,19 @@ class DraftManager:
         return edges
 
     async def _dedup_check(self, text: str) -> Optional[str]:
-        """Check if text is too similar to an existing corpus object."""
-        from . import embeddings
+        """Check if text is too similar to an existing corpus object.
+
+        Uses the self-healing dedup embedding cache (Action 2): the corpus
+        side is embedded ONCE and reused across turns; only newly-present
+        objects are batch-embedded and deleted ones are pruned, while the
+        proposal text is embedded once. The prior implementation called
+        cosine_similarity per anchor AND per slab, and each call re-embedded
+        *both* texts — i.e. O(proposals x corpus) uncached Ollama round-trips
+        per turn. Behavior is preserved: lowercased embeddings, DEDUP_THRESHOLD,
+        and anchors-before-slabs return precedence are all unchanged.
+        """
+        import numpy as np
+
         text_lower = text.lower().strip()
 
         # Fast string-match pass (catches exact and near-exact dupes)
@@ -1217,15 +1236,59 @@ class DraftManager:
                 if text_lower == alias.lower().strip():
                     return anchor.id
 
-        # Embedding similarity pass
+        # ── Embedding similarity pass (cached) ──
+        # Build the id -> lowercased canonical text for every comparison
+        # target (all anchors + all slabs), matching the prior slices.
+        targets: dict[str, str] = {}
         for anchor in self.corpus.anchors.values():
-            sim = await embeddings.cosine_similarity(text, anchor.canonical_phrase)
-            if sim > DEDUP_THRESHOLD:
+            targets[anchor.id] = anchor.canonical_phrase.lower()
+        for slab in self.corpus.slabs.values():
+            targets[slab.id] = slab.canonical_text[:200].lower()
+
+        # Prune cache entries for objects no longer in the corpus.
+        for stale_id in self._dedup_vec_cache.keys() - targets.keys():
+            self._dedup_vec_cache.pop(stale_id, None)
+
+        # Batch-embed any targets not yet cached (new / just-promoted).
+        missing_ids = [oid for oid in targets if oid not in self._dedup_vec_cache]
+        if missing_ids:
+            try:
+                missing_vecs = await ollama.embed([targets[oid] for oid in missing_ids])
+            except Exception:
+                logger.warning(
+                    "dedup: corpus embedding failed for %d objects; skipping dedup",
+                    len(missing_ids),
+                )
+                return None
+            for oid, vec in zip(missing_ids, missing_vecs):
+                v = np.array(vec, dtype=float)
+                n = float(np.linalg.norm(v))
+                self._dedup_vec_cache[oid] = v / n if n > 1e-8 else v
+
+        # Embed the proposal text once, normalized — cosine becomes a dot.
+        try:
+            prop_vec = np.array((await ollama.embed([text_lower]))[0], dtype=float)
+        except Exception:
+            logger.warning("dedup: proposal embedding failed; skipping dedup")
+            return None
+        prop_norm = float(np.linalg.norm(prop_vec))
+        if prop_norm < 1e-8:
+            return None
+        prop_vec = prop_vec / prop_norm
+
+        # Anchors first (original precedence — any anchor hit returns).
+        for anchor in self.corpus.anchors.values():
+            vec = self._dedup_vec_cache.get(anchor.id)
+            if vec is None:
+                continue
+            if float(np.dot(prop_vec, vec)) > DEDUP_THRESHOLD:
                 return anchor.id
 
         for slab in self.corpus.slabs.values():
-            sim = await embeddings.cosine_similarity(text, slab.canonical_text[:200])
-            if sim > DEDUP_THRESHOLD:
+            vec = self._dedup_vec_cache.get(slab.id)
+            if vec is None:
+                continue
+            if float(np.dot(prop_vec, vec)) > DEDUP_THRESHOLD:
                 return slab.id
 
         return None

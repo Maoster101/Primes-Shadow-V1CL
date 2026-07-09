@@ -690,6 +690,23 @@ class AnchorMatcher:
         # --- Pass B: residue fuzzy matching ---
         residue = parsed.residue
         if residue:
+            # Embed the residue ONCE for the whole pass. Previously
+            # _semantic_match re-embedded this identical text on every
+            # call — i.e. one Ollama round-trip per un-string-matched
+            # anchor, every turn. Mirror Pass D: embed once, then every
+            # warm-cached anchor is a pure numpy comparison.
+            import numpy as np
+            residue_vec = None
+            residue_norm = 0.0
+            try:
+                residue_vec = np.array(await ollama.embed_single(residue))
+                residue_norm = float(np.linalg.norm(residue_vec))
+            except Exception:
+                logger.warning(
+                    "Pass B: residue embedding failed, semantic fallback "
+                    "disabled this turn"
+                )
+
             for anchor in self.corpus.anchors.values():
                 if anchor.id in wrapped_hits:
                     continue
@@ -701,8 +718,10 @@ class AnchorMatcher:
                     continue
 
                 match = self._string_match(residue, anchor)
-                if match is None:
-                    match = await self._semantic_match(residue, anchor)
+                if match is None and residue_vec is not None and residue_norm > 1e-8:
+                    match = await self._semantic_match(
+                        residue, anchor, residue_vec, residue_norm
+                    )
                 if match is None:
                     continue
 
@@ -884,12 +903,22 @@ class AnchorMatcher:
         return None
 
     async def _semantic_match(
-        self, user_text: str, anchor: Anchor
+        self,
+        user_text: str,
+        anchor: Anchor,
+        user_arr: "np.ndarray",
+        user_norm: float,
     ) -> Optional[AnchorMatch]:
-        import numpy as np
+        """Semantic (embedding) fallback for a single anchor.
 
-        user_vec = await ollama.embed_single(user_text)
-        user_arr = np.array(user_vec)
+        ``user_arr``/``user_norm`` are the caller's pre-embedded,
+        pre-normed residue vector (see match_all Pass B). On the hot
+        path — anchor warm-cached — this does ZERO Ollama round-trips:
+        just a numpy dot product per cached phrase. Only cold anchors
+        (not yet in the warm cache) incur an embed, and only for the
+        anchor's own phrases via the unchanged cosine_similarity helper.
+        """
+        import numpy as np
 
         best_sim = 0.0
         best_phrase = ""
@@ -898,13 +927,16 @@ class AnchorMatcher:
         if cached:
             for phrase, emb in cached:
                 anc_arr = np.array(emb)
-                sim = float(np.dot(user_arr, anc_arr) / (
-                    np.linalg.norm(user_arr) * np.linalg.norm(anc_arr)
-                ))
+                denom = user_norm * np.linalg.norm(anc_arr)
+                if denom < 1e-8:
+                    continue
+                sim = float(np.dot(user_arr, anc_arr) / denom)
                 if sim > best_sim:
                     best_sim = sim
                     best_phrase = phrase
         else:
+            # Cold anchor (not warm-cached) — rare. Unchanged from the
+            # original path: cosine_similarity re-embeds per phrase.
             from . import embeddings
             phrases = [anchor.canonical_phrase] + anchor.aliases
             for phrase in phrases:

@@ -182,6 +182,7 @@ class SlabMatcher:
         alpha: float = 1.0,   # cosine weight  — "is this textually relevant?"
         beta: float = 0.5,    # PPR weight     — "is this structurally close to seeds?"
         gamma: float = 0.3,   # global PR weight — "is this intrinsically important?"
+        ppr_corpus=None,      # scope PPR to this corpus (default: full merged)
     ) -> list[tuple[str, float, dict]]:
         """Combined cosine + Personalized PageRank + global PageRank ranking.
 
@@ -242,7 +243,10 @@ class SlabMatcher:
         ppr_norm: dict[str, float] = {}
         if seed_ids and beta > 0:
             try:
-                raw_ppr = graph_rank.compute_ppr(self.corpus, seed_ids)
+                # Scope PPR to ppr_corpus when given (a collection subgraph)
+                # so the transition matrix is O(collection²) not O(merged²).
+                # Seeds outside the scoped graph are harmlessly ignored.
+                raw_ppr = graph_rank.compute_ppr(ppr_corpus or self.corpus, seed_ids)
                 ppr_norm = graph_rank.normalize_max(raw_ppr)
             except Exception as exc:
                 logger.warning("hybrid_rank: PPR failed: %r", exc)
