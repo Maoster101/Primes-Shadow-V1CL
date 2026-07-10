@@ -42,16 +42,21 @@ Do NOT downgrade a stated opposition to LINKS just because you can imagine a way
 
 PROPOSAL_EXTRACTION_PROMPT = """\
 You are a semantic extraction engine for a knowledge corpus. Analyze the \
-recent conversation below and identify at most 1-2 genuinely LOAD-BEARING \
-concepts that deserve to become permanent semantic objects.
+conversation below and identify the genuinely LOAD-BEARING concepts that \
+deserve to become permanent semantic objects. Extract as many as are truly \
+durable, and no more: a short exchange often yields just 1-2, while a longer, \
+substantive conversation may yield several. Do NOT pad the list to reach a \
+number, and do NOT force a rich conversation down to 1-2 — capture exactly the \
+concepts that are load-bearing and would be referenced again.
 
 Rules:
-- Only propose things that are clearly novel and reused across multiple turns.
-- Do NOT propose every passing mention, casual reference, or fleeting idea.
+- Only propose things that are clearly novel and LOAD-BEARING — a named, \
+  defined, or built-upon idea — not every passing mention or fleeting aside. \
+  The corpus must stay sparse and authoritative, so when in doubt, leave it out.
 - A slab = durable canonical knowledge (a definition, principle, or stable frame). \
   Only propose a slab if the concept is load-bearing and would be referenced again.
 - An anchor = a persistent invocation handle (a named concept with aliases). \
-  Only propose an anchor if the concept was named, invoked, or referenced repeatedly.
+  Only propose an anchor if the concept was named, invoked, or built upon.
 - Tag each proposal: FACT (needs external verification), INFERENCE (model logical step), \
   HYPOTHESIS (conjecture), or UNKNOWN.
 - If nothing in the conversation is genuinely novel or load-bearing, return \
