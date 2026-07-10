@@ -121,6 +121,48 @@ class DraftManager:
         """Check if periodic sweep should fire this turn."""
         return turn > 0 and turn % SWEEP_CADENCE == 0
 
+    async def _semantic_catalogs(self, query: str, k: int = 20) -> tuple[str, str]:
+        """Return (anchor_phrases, slab_titles) for the extraction prompt,
+        scoped to the top-K EXISTING nodes most related to ``query``.
+
+        Reuses the retrieval cosine wiring (AnchorMatcher.top_k_anchors +
+        SlabMatcher.top_k_for) so the model gets a bounded, RELEVANT
+        comparison set for soft dedup and edge-partner discovery (esp.
+        TENSIONS/CONFLICTS, which need real corpus comparison) instead of a
+        flat dump that truncates unpredictably at corpus scale. Falls back to
+        a CAPPED explicit list on cold caches — never the full dump.
+        """
+        existing_anchors = ""
+        existing_slabs = ""
+        try:
+            from ..api import deps as _deps
+            am = getattr(_deps, "anchor_matcher", None)
+            sm = getattr(_deps, "slab_matcher", None)
+            if am is not None:
+                a_hits = await am.top_k_anchors(query, max_k=k)
+                existing_anchors = ", ".join(
+                    a.canonical_phrase for aid, _s in a_hits
+                    if (a := self.corpus.anchors.get(aid))
+                )
+            if sm is not None and sm.has_cache():
+                s_hits = await sm.top_k_for(query, max_k=k, threshold=0.4)
+                existing_slabs = ", ".join(
+                    s.title for sid, _s in s_hits
+                    if (s := self.corpus.slabs.get(sid)) and getattr(s, "title", "")
+                )
+        except Exception as exc:
+            print(f"[DRAFT] semantic catalog failed ({exc}); using capped fallback", flush=True)
+        if not existing_anchors:
+            existing_anchors = ", ".join(
+                a.canonical_phrase for a in list(self.corpus.anchors.values())[:60]
+            )
+        if not existing_slabs:
+            existing_slabs = ", ".join(
+                s.title for s in list(self.corpus.slabs.values())[:60]
+                if getattr(s, "title", "")
+            )
+        return existing_anchors, existing_slabs
+
     async def extract_proposals(
         self,
         session_id: str,
@@ -151,49 +193,10 @@ class DraftManager:
             for m in recent_messages[-12:]
         )
 
-        # Build existing-node catalogs for the prompt — SEMANTICALLY SCOPED.
-        # Dumping every anchor phrase / slab title overflows the extraction
-        # context at corpus scale and hands the model a meaningless flat list.
-        # Instead, retrieve the top-K existing nodes most related to THIS
-        # conversation (reusing the same cosine wiring as retrieval), giving
-        # the model a bounded, relevant comparison set for both soft dedup and
-        # edge-partner discovery (esp. TENSIONS, which needs real corpus
-        # comparison). The hard semantic dedup (_dedup_check) still guards
-        # every proposal regardless.
-        _CATALOG_K = 20
-        existing_anchors = ""
-        existing_slabs = ""
-        try:
-            from ..api import deps as _deps
-            am = getattr(_deps, "anchor_matcher", None)
-            sm = getattr(_deps, "slab_matcher", None)
-            if am is not None:
-                a_hits = await am.top_k_anchors(conversation, max_k=_CATALOG_K)
-                existing_anchors = ", ".join(
-                    a.canonical_phrase
-                    for aid, _s in a_hits
-                    if (a := self.corpus.anchors.get(aid))
-                )
-            if sm is not None and sm.has_cache():
-                s_hits = await sm.top_k_for(conversation, max_k=_CATALOG_K, threshold=0.4)
-                existing_slabs = ", ".join(
-                    s.title
-                    for sid, _s in s_hits
-                    if (s := self.corpus.slabs.get(sid)) and getattr(s, "title", "")
-                )
-        except Exception as exc:
-            print(f"[DRAFT] semantic catalog failed ({exc}); using capped fallback", flush=True)
-        # Fallback (cold caches / error): a CAPPED list, never the full dump —
-        # a truncated-by-context flat list is worse than a small explicit one.
-        if not existing_anchors:
-            existing_anchors = ", ".join(
-                a.canonical_phrase for a in list(self.corpus.anchors.values())[:60]
-            )
-        if not existing_slabs:
-            existing_slabs = ", ".join(
-                s.title for s in list(self.corpus.slabs.values())[:60]
-                if getattr(s, "title", "")
-            )
+        # Existing-node catalogs — SEMANTICALLY SCOPED to this conversation
+        # (top-K nearest), not a full dump. See _semantic_catalogs. The hard
+        # semantic dedup (_dedup_check) still guards every proposal regardless.
+        existing_anchors, existing_slabs = await self._semantic_catalogs(conversation)
         existing_bundles = ", ".join(
             _bundle_label(b) for b in self.corpus.bundles.values() if _bundle_label(b)
         )
@@ -590,12 +593,11 @@ class DraftManager:
             for m in recent_messages[-12:]
         )
 
-        existing_anchors = ", ".join(
-            a.canonical_phrase for a in self.corpus.anchors.values()
-        )
-        existing_slabs = ", ".join(
-            s.title for s in self.corpus.slabs.values() if getattr(s, "title", "")
-        )
+        # Relationship mining is pure existing-to-existing edge detection, so
+        # the endpoint catalog IS the label space — scoping it to the nodes
+        # semantically relevant to this conversation matters even more here
+        # than for proposals. Same top-K helper (reuses the cosine wiring).
+        existing_anchors, existing_slabs = await self._semantic_catalogs(conversation)
         existing_bundles = ", ".join(
             _bundle_label(b) for b in self.corpus.bundles.values() if _bundle_label(b)
         )

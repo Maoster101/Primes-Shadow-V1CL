@@ -433,11 +433,15 @@ async def end_chat(chat_id: str):
                 "note": "empty chat — nothing to sweep"}
 
     # 1. Derive + dedup the ghost stack from the WHOLE conversation.
+    #    explicit=False → the conversation-ANALYSIS prompt (find load-bearing
+    #    concepts across the transcript). NOT the explicit-concept prompt: that
+    #    one expects a user_request naming a specific concept, and a marker
+    #    string there leaks in as a bogus proposal ("end-of-chat ghost sweep").
     recent = [{"role": m.role, "content": m.content, "turn": m.turn} for m in messages]
     _chat_cid = chat.collection_id or "default"
     drafts = await draft_manager.extract_proposals(
         session_id, chat_id, recent, len(messages),
-        explicit=True, user_request="end-of-chat ghost sweep",
+        explicit=False,
         collection_id=_chat_cid,
     )
 

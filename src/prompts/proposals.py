@@ -30,7 +30,11 @@ _EDGE_TYPES_BLOCK = """\
   - SEQUENCE: A precedes B in a narrative or causal chain (story order, derivation step, temporal priority).
   - PARENT_OF: A is a container/bundle whose scope includes B (hierarchical composition).
 
-CONFLICTS vs TENSIONS distinction: "X is wrong, Y is right" or "X and Y are incompatible" → CONFLICTS. "X and Y both valid, must balance" → TENSIONS."""
+Choosing CONFLICTS vs TENSIONS vs LINKS — pick the STRONGEST that fits; do NOT default to LINKS:
+  - Opposed AND one is wrong / rejected / incompatible ("X is wrong, Y is right", "X rules out Y") → CONFLICTS.
+  - Opposed but BOTH valid, to be balanced or traded off ("pushes against Y but both must coexist", "tension between X and Y", "balance X against Y") → TENSIONS.
+  - LINKS is ONLY for weak, unstated association. It is NOT a safe fallback when the speaker has stated a real opposition.
+Do NOT downgrade a stated opposition to LINKS just because you can imagine a way to reconcile the two ideas (e.g. reading one as merely an extension of the other). Honor the speaker's framing: if they say two things are in tension or conflict, encode that as TENSIONS/CONFLICTS even if you personally see a reconciliation."""
 
 
 PROPOSAL_EXTRACTION_PROMPT = """\
