@@ -250,8 +250,12 @@ class DraftManager:
             # Hosted models: lift the num_ctx cap so the whole-conversation
             # window isn't clipped (cloud ignores the flag anyway; this also
             # covers a large local model driven via a frontier key).
+            # think=True: let a reasoning-capable extract model (gemma4,
+            # gpt-oss, …) reason before emitting JSON — structured extraction
+            # is where the small local model was weakest. Best-effort: falls
+            # back to plain generation if the model can't think.
             raw = _normalize_punct(await ollama.structured_extract(
-                prompt, num_ctx=32768 if _hosted else None,
+                prompt, num_ctx=32768 if _hosted else 16384, think=True,
             ))
             print(f"[DRAFT] Extraction result (turn {current_turn}): {type(raw).__name__} = {str(raw)[:300]}", flush=True)
             proposed_edge_specs: list = []
@@ -659,7 +663,7 @@ class DraftManager:
 
         try:
             raw = _normalize_punct(await ollama.structured_extract(
-                prompt, num_ctx=32768 if _hosted else None,
+                prompt, num_ctx=32768 if _hosted else 16384, think=True,
             ))
         except Exception as e:
             print(f"[RELMINE] Extraction FAILED (turn {current_turn}): {e}", flush=True)

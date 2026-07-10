@@ -216,6 +216,7 @@ async def generate(
     num_ctx: Optional[int] = None,
     model: Optional[str] = None,
     timeout: Optional[float] = None,
+    think: bool = False,
 ) -> str:
     """Single-shot generation. Use for structured extraction tasks.
 
@@ -240,6 +241,12 @@ async def generate(
     if model is not None:
         payload_kwargs["model"] = model
     payload: dict = _payload_base(**payload_kwargs)
+    if think:
+        # `think` is a TOP-LEVEL Ollama field, NOT an options key — in options
+        # it's silently ignored (verified: thinking_len=0). Top-level makes the
+        # model reason into a separate `thinking` field, leaving `response`
+        # clean JSON for the parser. No-op on models that can't think.
+        payload["think"] = True
     if system:
         payload["system"] = system
     if raw_json:
@@ -458,6 +465,7 @@ async def structured_extract(
     num_ctx: Optional[int] = None,
     model: Optional[str] = None,
     timeout: Optional[float] = None,
+    think: bool = False,
 ) -> dict:
     """Generate and parse structured JSON from the model.
 
@@ -482,11 +490,22 @@ async def structured_extract(
     # explicitly routed elsewhere. Recall never calls this path.
     if model is None:
         model = EXTRACT_MODEL
-    raw = await generate(
-        prompt, system=system, temperature=0.3, num_ctx=num_ctx,
-        model=model, timeout=timeout,
-    )
-    return _parse_json_response(raw)
+    try:
+        raw = await generate(
+            prompt, system=system, temperature=0.3, num_ctx=num_ctx,
+            model=model, timeout=timeout, think=think,
+        )
+        return _parse_json_response(raw)
+    except Exception:
+        if not think:
+            raise
+        # Best-effort thinking: the model may not support it, or emitted the
+        # reasoning inline and broke JSON parsing — retry plain (no think).
+        raw = await generate(
+            prompt, system=system, temperature=0.3, num_ctx=num_ctx,
+            model=model, timeout=timeout, think=False,
+        )
+        return _parse_json_response(raw)
 
 
 def _parse_json_response(raw: str) -> dict:
