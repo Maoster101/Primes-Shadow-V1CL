@@ -13,11 +13,14 @@ nothing breaks — edges just silently won't be captured for that turn.
 Phase 4: existing-to-existing relationship miner (RELATIONSHIP_MINING_PROMPT).
 Runs as a second pass after the main extractor. Its job is different —
 not "extract new concepts" but "detect latent relationships between
-nodes that already exist in the corpus." The LLM is shown the full
-label index (anchors + slab titles + bundle-intent synthesized labels)
-and told both endpoints MUST be from that list. This surfaces
-connections the main miner under-proposes because the main miner is
-oriented toward novelty, not cross-reference.
+nodes that already exist in the corpus." The LLM is shown a label index
+(anchors + slab titles + bundle-intent synthesized labels) and told both
+endpoints MUST be from that list. The index is the top-K nodes most
+semantically related to the conversation (DraftManager._semantic_catalogs),
+not the whole corpus — a full dump overflows the extraction context and
+buries the relevant candidates. This surfaces connections the main miner
+under-proposes because the main miner is oriented toward novelty, not
+cross-reference.
 """
 
 # Shared edge-type definitions so all three prompts stay in sync.
