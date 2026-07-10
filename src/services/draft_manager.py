@@ -57,6 +57,12 @@ _PUNCT_FOLD = str.maketrans({
     "“": '"', "”": '"', "„": '"', "‟": '"', "″": '"',
     "…": "...", " ": " ", " ": " ", " ": " ",
 })
+# Arrows — models love these in edge justifications ("X → Y"), and a bare →
+# in a diagnostic print() crashes cp1252 stdout (see app.py stdout fix).
+_PUNCT_FOLD.update(str.maketrans({
+    "→": "->", "←": "<-", "↔": "<->", "↦": "->",
+    "⇒": "=>", "⇐": "<=", "⇔": "<=>",
+}))
 
 
 def _normalize_punct(obj):
@@ -514,7 +520,13 @@ class DraftManager:
             if not isinstance(spec, dict):
                 continue
             etype_raw = (spec.get("type") or "LINKS").upper()
-            if etype_raw not in {"INVOKES", "SUPPORTS", "CONFLICTS", "LINKS", "SEQUENCE", "PARENT_OF"}:
+            # Whitelist must match EdgeType exactly — TENSIONS was missing, so
+            # every dialectic edge the model emitted got silently downgraded to
+            # LINKS here (not a model-reasoning issue, a coercion bug).
+            if etype_raw not in {
+                "INVOKES", "SUPPORTS", "CONFLICTS", "TENSIONS",
+                "LINKS", "SEQUENCE", "PARENT_OF",
+            }:
                 etype_raw = "LINKS"
             from_label = (spec.get("from_label") or "").strip()
             to_label = (spec.get("to_label") or "").strip()

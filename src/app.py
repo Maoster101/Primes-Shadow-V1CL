@@ -1,5 +1,19 @@
 """Prime's Shadow — Main application entry point."""
 import logging
+import sys as _sys
+
+# Force UTF-8 stdout/stderr. Windows consoles and redirected pipes default to
+# cp1252, which raises UnicodeEncodeError on any non-latin1 char a model emits
+# (arrows, CJK, …). That was silently killing edge persistence when a proposed
+# edge's justification contained "→" — a crash in a diagnostic print() aborted
+# the whole edge-resolution step. errors="replace" keeps prints from ever
+# taking down the request path.
+for _stream in (_sys.stdout, _sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
