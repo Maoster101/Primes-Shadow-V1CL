@@ -463,6 +463,43 @@ class AnchorMatcher:
     def _invalidate_cache(self, anchor_id: str) -> None:
         self._embed_cache.pop(anchor_id, None)
 
+    async def top_k_anchors(
+        self, query_text: str, max_k: int = 20, threshold: float = 0.4,
+    ) -> list[tuple[str, float]]:
+        """Return ``(anchor_id, cosine)`` for anchors semantically closest to
+        ``query_text``, sorted descending. The anchor analog of
+        ``SlabMatcher.top_k_for`` — reuses the warm phrase-embedding cache
+        (raw convention, matching warm_cache). Used to build a
+        relevance-scoped catalog for the extraction prompt instead of dumping
+        every anchor phrase.
+        """
+        import numpy as np
+        if not query_text or not query_text.strip() or not self._embed_cache:
+            return []
+        try:
+            qv = np.array(await ollama.embed_single(query_text.strip()))
+        except Exception:
+            return []
+        qn = float(np.linalg.norm(qv))
+        if qn < 1e-8:
+            return []
+        qv = qv / qn
+        scored: list[tuple[str, float]] = []
+        for aid, pairs in self._embed_cache.items():
+            best = 0.0
+            for _phrase, emb in pairs:
+                v = np.array(emb)
+                n = float(np.linalg.norm(v))
+                if n < 1e-8:
+                    continue
+                s = float(np.dot(qv, v / n))
+                if s > best:
+                    best = s
+            if best >= threshold:
+                scored.append((aid, best))
+        scored.sort(key=lambda t: t[1], reverse=True)
+        return scored[:max_k]
+
     def gate_check(self, anchor: Anchor, classification: MessageClassification) -> bool:
         """§8 — Pure code gate (imperative path).
 

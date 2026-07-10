@@ -151,15 +151,49 @@ class DraftManager:
             for m in recent_messages[-12:]
         )
 
-        # Build existing-node catalogs for the prompt. The LLM uses these
-        # both as a dedup signal (don't re-propose these) and as a valid
-        # label space for edges — "you MAY reference them as endpoints."
-        existing_anchors = ", ".join(
-            a.canonical_phrase for a in self.corpus.anchors.values()
-        )
-        existing_slabs = ", ".join(
-            s.title for s in self.corpus.slabs.values() if getattr(s, "title", "")
-        )
+        # Build existing-node catalogs for the prompt — SEMANTICALLY SCOPED.
+        # Dumping every anchor phrase / slab title overflows the extraction
+        # context at corpus scale and hands the model a meaningless flat list.
+        # Instead, retrieve the top-K existing nodes most related to THIS
+        # conversation (reusing the same cosine wiring as retrieval), giving
+        # the model a bounded, relevant comparison set for both soft dedup and
+        # edge-partner discovery (esp. TENSIONS, which needs real corpus
+        # comparison). The hard semantic dedup (_dedup_check) still guards
+        # every proposal regardless.
+        _CATALOG_K = 20
+        existing_anchors = ""
+        existing_slabs = ""
+        try:
+            from ..api import deps as _deps
+            am = getattr(_deps, "anchor_matcher", None)
+            sm = getattr(_deps, "slab_matcher", None)
+            if am is not None:
+                a_hits = await am.top_k_anchors(conversation, max_k=_CATALOG_K)
+                existing_anchors = ", ".join(
+                    a.canonical_phrase
+                    for aid, _s in a_hits
+                    if (a := self.corpus.anchors.get(aid))
+                )
+            if sm is not None and sm.has_cache():
+                s_hits = await sm.top_k_for(conversation, max_k=_CATALOG_K, threshold=0.4)
+                existing_slabs = ", ".join(
+                    s.title
+                    for sid, _s in s_hits
+                    if (s := self.corpus.slabs.get(sid)) and getattr(s, "title", "")
+                )
+        except Exception as exc:
+            print(f"[DRAFT] semantic catalog failed ({exc}); using capped fallback", flush=True)
+        # Fallback (cold caches / error): a CAPPED list, never the full dump —
+        # a truncated-by-context flat list is worse than a small explicit one.
+        if not existing_anchors:
+            existing_anchors = ", ".join(
+                a.canonical_phrase for a in list(self.corpus.anchors.values())[:60]
+            )
+        if not existing_slabs:
+            existing_slabs = ", ".join(
+                s.title for s in list(self.corpus.slabs.values())[:60]
+                if getattr(s, "title", "")
+            )
         existing_bundles = ", ".join(
             _bundle_label(b) for b in self.corpus.bundles.values() if _bundle_label(b)
         )
