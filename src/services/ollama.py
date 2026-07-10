@@ -279,7 +279,7 @@ async def chat(
         options=_opts(temperature),
     )
     if think:
-        payload["options"]["think"] = True
+        payload["think"] = True  # top-level, not options (which is ignored)
 
     resp = await _client.post("/api/chat", json=payload)
     resp.raise_for_status()
@@ -315,9 +315,13 @@ async def chat_stream(
         options=_opts(temperature),
     )
     if think and model_profiles.active().supports_think:
-        payload["think"] = True
-        if think_level in ("low", "medium", "high"):
-            payload["options"]["think_level"] = think_level
+        # `think` is a TOP-LEVEL field and takes a bool OR a level string
+        # ("low"/"medium"/"high") — and the level genuinely controls reasoning
+        # depth (verified: gpt-oss low -> ~12 chars, high -> ~1200). Pass it
+        # directly. The old options["think_level"] key is not a real Ollama
+        # field and was silently ignored, so the UI selector only ever toggled
+        # on/off, never the depth.
+        payload["think"] = think_level if think_level in ("low", "medium", "high") else True
 
     if web_mode == "on":
         # Always search — inject results into context before streaming
