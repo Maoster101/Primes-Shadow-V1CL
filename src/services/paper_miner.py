@@ -46,7 +46,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
 from dataclasses import dataclass, field
 
@@ -70,9 +69,9 @@ from .outline_miner import (
 
 logger = logging.getLogger(__name__)
 
-# Match the daemon's OLLAMA_NUM_PARALLEL; default 2 is safe on 16GB GPU
-# with gemma3:12b. See outline_miner / narrative_miner for the rationale.
-_PASS_PARALLEL = int(os.environ.get("PS_MINING_PARALLEL", "2"))
+# Extraction concurrency is model-aware — see ollama.mining_parallelism().
+# Read at each gather site: local VRAM-bound default 2 (safe on a 16GB card),
+# wide fan-out when the extract model is hosted. PS_MINING_PARALLEL overrides.
 
 
 # ─── Paper-genre prompts ─────────────────────────────────────────────────
@@ -275,51 +274,33 @@ async def _drill_leaf(
 
     pos = order_base
     for s in resp.get("slabs", []) or []:
-        text = (s.get("canonical_text") or "").strip()
-        if not text:
-            continue
-        conf = float(s.get("confidence") or 0.7)
-        if conf < min_confidence:
-            continue
-        title = (s.get("title") or text[:48]).strip()
-        slab = MiningProposal(
-            proposal_type="slab",
-            canonical_text=text,
-            title=title,
-            # section_path rides in source_topic — picked up by the
-            # rebuild path (build_pillars_from_collection) so pillars
-            # reassemble from draft sidecars even across refresh.
-            source_topic=section_path,
-            confidence=conf,
-            source_pairs=[pos],
-            justification=(s.get("justification") or "").strip(),
+        # section_path rides in source_topic — picked up by the rebuild path
+        # (build_pillars_from_collection) so pillars reassemble from draft
+        # sidecars even across refresh.
+        slab = MiningProposal.slab_from_raw(
+            s, source_topic=section_path, source_pairs=[pos],
+            default_conf=0.7, min_confidence=min_confidence,
         )
+        if slab is None:
+            continue
         result.slabs.append(slab)
         for ap in s.get("references_anchors", []) or []:
             ap = (ap or "").strip()
             if ap:
                 result.links.append(EdgeProposal(
-                    edge_type="LINKS", from_label=title, to_label=ap,
+                    edge_type="LINKS", from_label=slab.title, to_label=ap,
                     confidence=0.8,
                     justification="leaf co-occurrence (paper drill)",
                 ))
         pos += 1
 
     for a in resp.get("anchors", []) or []:
-        phrase = (a.get("canonical_phrase") or "").strip()
-        if not phrase:
-            continue
-        conf = float(a.get("confidence") or 0.7)
-        if conf < min_confidence:
-            continue
-        result.anchors.append(MiningProposal(
-            proposal_type="anchor",
-            canonical_phrase=phrase,
-            aliases=[x for x in (a.get("aliases") or []) if x],
-            source_topic=section_path,
-            confidence=conf,
-            source_pairs=[order_base],
-        ))
+        anchor = MiningProposal.anchor_from_raw(
+            a, source_topic=section_path, source_pairs=[order_base],
+            default_conf=0.7, min_confidence=min_confidence,
+        )
+        if anchor is not None:
+            result.anchors.append(anchor)
     return result
 
 
@@ -378,7 +359,7 @@ class PaperMiner:
 
         # ── Stage B — drill each leaf in parallel ────────────────────
         mining_progress.set_phase("leaf_drill", total=len(leaves))
-        sem = asyncio.Semaphore(_PASS_PARALLEL)
+        sem = asyncio.Semaphore(ollama.mining_parallelism())
         order_bases = [i * 1000 for i in range(len(leaves))]
 
         async def _drill(idx: int) -> LeafResult:

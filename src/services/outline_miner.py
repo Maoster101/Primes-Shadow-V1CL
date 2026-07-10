@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
 from dataclasses import dataclass, field
 
@@ -46,7 +45,10 @@ from ..models.enums import EdgeType
 
 logger = logging.getLogger(__name__)
 
-_PASS_PARALLEL = int(os.environ.get("PS_MINING_PARALLEL", "2"))
+# Extraction concurrency is model-aware — see ollama.mining_parallelism().
+# Read at each gather site (below) so the width tracks the active extract
+# model: a local VRAM-bound 2, or a wide hosted fan-out. PS_MINING_PARALLEL
+# overrides either way.
 
 # Headings that are document scaffolding, not real sections.
 _SKIP_HEADINGS = {
@@ -541,51 +543,33 @@ async def _drill_chapter(
 
     pos = order_base
     for s in resp.get("slabs", []) or []:
-        text = (s.get("canonical_text") or "").strip()
-        if not text:
-            continue
-        conf = float(s.get("confidence") or 0.7)
-        if conf < min_confidence:
-            continue
-        title = (s.get("title") or text[:48]).strip()
-        slab = MiningProposal(
-            proposal_type="slab",
-            canonical_text=text,
-            title=title,
-            # section_path rides in source_topic — a free-text field the
-            # contract already serializes. Downstream pillar building
-            # reads it to place the slab under its sub-pillar.
-            source_topic=section_path,
-            confidence=conf,
-            source_pairs=[pos],
-            justification=(s.get("justification") or "").strip(),
+        # section_path rides in source_topic — a free-text field the contract
+        # already serializes. Downstream pillar building reads it to place the
+        # slab under its sub-pillar.
+        slab = MiningProposal.slab_from_raw(
+            s, source_topic=section_path, source_pairs=[pos],
+            default_conf=0.7, min_confidence=min_confidence,
         )
+        if slab is None:
+            continue
         result.slabs.append(slab)
         # references_anchors → LINKS edges (slab title → anchor phrase)
         for ap in s.get("references_anchors", []) or []:
             ap = (ap or "").strip()
             if ap:
                 result.links.append(EdgeProposal(
-                    edge_type="LINKS", from_label=title, to_label=ap,
+                    edge_type="LINKS", from_label=slab.title, to_label=ap,
                     confidence=0.8, justification="section co-occurrence",
                 ))
         pos += 1
 
     for a in resp.get("anchors", []) or []:
-        phrase = (a.get("canonical_phrase") or "").strip()
-        if not phrase:
-            continue
-        conf = float(a.get("confidence") or 0.7)
-        if conf < min_confidence:
-            continue
-        result.anchors.append(MiningProposal(
-            proposal_type="anchor",
-            canonical_phrase=phrase,
-            aliases=[x for x in (a.get("aliases") or []) if x],
-            source_topic=section_path,
-            confidence=conf,
-            source_pairs=[order_base],
-        ))
+        anchor = MiningProposal.anchor_from_raw(
+            a, source_topic=section_path, source_pairs=[order_base],
+            default_conf=0.7, min_confidence=min_confidence,
+        )
+        if anchor is not None:
+            result.anchors.append(anchor)
     return result
 
 
@@ -1044,7 +1028,7 @@ class OutlineMiner:
 
         # ── Pass 2 — drill each chapter (parallel) ───────────────────
         mining_progress.set_phase("section_drill", total=len(chapters))
-        sem = asyncio.Semaphore(_PASS_PARALLEL)
+        sem = asyncio.Semaphore(ollama.mining_parallelism())
         # Stamp generous order spacing so slabs across chapters stay
         # globally ordered without per-chapter slab counts colliding.
         order_bases = [i * 1000 for i in range(len(chapters))]
@@ -1136,6 +1120,27 @@ class OutlineMiner:
         links_edges = [e for e in all_links if e.confidence >= min_confidence]
         all_edges = seq_edges + links_edges
         mining_progress.increment()
+
+        # ── Anchor consolidation ─────────────────────────────────────
+        # Demotes single-reference leaf anchors into inline metadata on
+        # their parent slab; drops orphans. Without this the doc miner
+        # carries roughly twice the anchor-to-slab ratio its sibling
+        # miners do (~1.5 vs the paper miner's 0.5). One LLM call.
+        from .anchor_consolidation import analyze_proposals, apply_to_proposals
+        mining_progress.set_phase("consolidation", total=1)
+        cons_summary = None
+        inline_map: dict[str, list[dict]] = {}
+        try:
+            plan, id_to_proposal = analyze_proposals(all_proposals, all_edges)
+            all_proposals, all_edges, inline_map, cons_summary = apply_to_proposals(
+                all_proposals, all_edges, plan, id_to_proposal,
+            )
+            logger.info("[CONS] %s", cons_summary)
+        except Exception as exc:
+            logger.warning(
+                "Consolidation failed (passing through unfiltered): %r", exc,
+            )
+        mining_progress.increment()
         mining_progress.mark_done()
 
         # ── Outline tree (the pillar skeleton, summaries threaded) ───
@@ -1187,8 +1192,8 @@ class OutlineMiner:
             "proposal_count": len(all_proposals),
             "edge_count": len(all_edges),
             "source_label": source_label,
-            "_inline_anchors_per_slab": {},
-            "_consolidation_summary": None,
+            "_inline_anchors_per_slab": inline_map,
+            "_consolidation_summary": cons_summary,
         }
 
     async def _mine_recursive(
@@ -1250,7 +1255,7 @@ class OutlineMiner:
         # _drill_chapter defaults to _CHAPTER_EXTRACT_SYSTEM; that's
         # the slab density the doc miner has always produced.
         mining_progress.set_phase("leaf_drill", total=len(leaves))
-        sem = asyncio.Semaphore(_PASS_PARALLEL)
+        sem = asyncio.Semaphore(ollama.mining_parallelism())
         order_bases = [i * 1000 for i in range(len(leaves))]
 
         async def _drill(idx: int) -> ChapterResult:
@@ -1354,6 +1359,27 @@ class OutlineMiner:
         links_edges = [e for e in all_links if e.confidence >= min_confidence]
         all_edges = seq_edges + links_edges
         mining_progress.increment()
+
+        # ── Anchor consolidation ─────────────────────────────────────
+        # Demotes single-reference leaf anchors into inline metadata on
+        # their parent slab; drops orphans. Same pass the paper and
+        # narrative miners run — wired in here to bring the doc miner's
+        # anchor-to-slab ratio down from ~1.5 to ~0.5.
+        from .anchor_consolidation import analyze_proposals, apply_to_proposals
+        mining_progress.set_phase("consolidation", total=1)
+        cons_summary = None
+        inline_map: dict[str, list[dict]] = {}
+        try:
+            plan, id_to_proposal = analyze_proposals(all_proposals, all_edges)
+            all_proposals, all_edges, inline_map, cons_summary = apply_to_proposals(
+                all_proposals, all_edges, plan, id_to_proposal,
+            )
+            logger.info("[CONS] %s", cons_summary)
+        except Exception as exc:
+            logger.warning(
+                "Consolidation failed (passing through unfiltered): %r", exc,
+            )
+        mining_progress.increment()
         mining_progress.mark_done()
 
         # ── Outline tree (N-tier skeleton, summaries threaded) ──────
@@ -1404,8 +1430,8 @@ class OutlineMiner:
             "proposal_count": len(all_proposals),
             "edge_count": len(all_edges),
             "source_label": source_label,
-            "_inline_anchors_per_slab": {},
-            "_consolidation_summary": None,
+            "_inline_anchors_per_slab": inline_map,
+            "_consolidation_summary": cons_summary,
         }
 
     async def mine_file(self, path, **kwargs) -> dict:
@@ -1742,7 +1768,7 @@ async def _pillars_from_slab_records(
     # their children's summaries walked bottom-up.
     summaries: dict[int, str] = {}
     if regenerate_summaries:
-        sem = asyncio.Semaphore(_PASS_PARALLEL)
+        sem = asyncio.Semaphore(ollama.mining_parallelism())
 
         async def _leaf_summ(path: str) -> tuple[str, str]:
             async with sem:

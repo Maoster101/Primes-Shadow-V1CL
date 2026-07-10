@@ -41,7 +41,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
 
 from .convo_miner import MiningProposal, EdgeProposal, deduplicate_proposals
@@ -59,9 +58,9 @@ from .outline_miner import (
 
 logger = logging.getLogger(__name__)
 
-# Match the daemon's OLLAMA_NUM_PARALLEL — see outline_miner for the
-# rationale. Default 2 is safe on a 16GB card with gemma3:12b.
-_PASS_PARALLEL = int(os.environ.get("PS_MINING_PARALLEL", "2"))
+# Extraction concurrency is model-aware — see ollama.mining_parallelism().
+# Read at each gather site so a local VRAM-bound default (2, safe on a 16GB
+# card) or a wide hosted fan-out is chosen from the active extract model.
 
 
 # ─── Pass 1 — beat outline (narrative-genre prompt) ──────────────────────
@@ -225,25 +224,14 @@ async def extract_dialectic_edges(
     for r in raw_edges:
         if not isinstance(r, dict):
             continue
-        etype = (r.get("type") or "").upper()
+        edge = EdgeProposal.from_raw(r, default_conf=0.65)
+        # Drop unusable / self-loop edges.
+        if edge is None or edge.from_label == edge.to_label:
+            continue
         # Strict allowlist — the SEQUENCE / LINKS edges have their own paths.
-        if etype not in {"CONFLICTS", "TENSIONS"}:
+        if edge.edge_type not in {"CONFLICTS", "TENSIONS"}:
             continue
-        from_label = (r.get("from") or "").strip()
-        to_label = (r.get("to") or "").strip()
-        if not from_label or not to_label or from_label == to_label:
-            continue
-        try:
-            conf = float(r.get("confidence", 0.65))
-        except Exception:
-            conf = 0.65
-        out.append(EdgeProposal(
-            edge_type=etype,
-            from_label=from_label,
-            to_label=to_label,
-            confidence=conf,
-            justification=(r.get("justification") or "").strip(),
-        ))
+        out.append(edge)
 
     if out:
         logger.info(
@@ -368,7 +356,7 @@ class NarrativeMiner:
 
         # ── Pass 2 — drill each beat (parallel) ──────────────────────
         mining_progress.set_phase("beat_drill", total=len(beats))
-        sem = asyncio.Semaphore(_PASS_PARALLEL)
+        sem = asyncio.Semaphore(ollama.mining_parallelism())
         order_bases = [i * 1000 for i in range(len(beats))]
 
         async def _drill(idx: int):

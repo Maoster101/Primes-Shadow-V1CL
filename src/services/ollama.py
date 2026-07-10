@@ -73,6 +73,33 @@ def extract_is_hosted() -> bool:
     return "cloud" in (EXTRACT_MODEL or "").lower() or bool(OLLAMA_API_KEY) or IS_CLOUD
 
 
+def mining_parallelism() -> int:
+    """How many extraction calls a doc miner may run concurrently.
+
+    Local extraction is VRAM-bound: two concurrent gpt-oss:20b / gemma
+    generations already saturate a 16GB GPU, and over-subscribing makes
+    Ollama queue — or crash, as gemma3:12b did. So the local default stays a
+    conservative 2 (overridable via PS_MINING_PARALLEL for bigger cards).
+
+    Hosted/cloud extraction has no local VRAM ceiling; the bottleneck is
+    per-request latency, which fanning out hides. A section-heavy document that
+    drills 30 leaves serially at ~4s each is 2 min; at width 16 it is ~8s. So
+    hosted gets a much wider default. PS_MINING_PARALLEL, when set, still wins
+    in either regime.
+
+    Read at call time (not import) so a runtime extract-model switch re-tunes
+    the next mine without a restart, and so the value reflects the model that
+    is actually active when a mine starts.
+    """
+    env = os.environ.get("PS_MINING_PARALLEL")
+    if env:
+        try:
+            return max(1, int(env))
+        except ValueError:
+            pass
+    return 16 if extract_is_hosted() else 2
+
+
 def _auth_headers() -> dict:
     """HTTP headers for chat requests. Adds bearer auth when key is set."""
     headers = {}

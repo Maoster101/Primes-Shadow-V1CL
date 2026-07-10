@@ -19,7 +19,6 @@ Usage:
 from __future__ import annotations
 import asyncio
 import json
-import os as _os
 import re
 import logging
 from pathlib import Path
@@ -30,12 +29,13 @@ from . import ollama
 
 logger = logging.getLogger(__name__)
 
-# Match the daemon's OLLAMA_NUM_PARALLEL — running more concurrent
-# in-flight requests than Ollama has slots just queues them client-side.
-# Same env var as the narrative miner so a single setting governs both.
-# Convo miner chunks are independent (existing_phrases is fixed before
-# the loop, no per-chunk continuity context), so straight gather works.
-_MINING_PARALLEL = int(_os.environ.get("PS_MINING_PARALLEL", "2"))
+# Extraction concurrency comes from ollama.mining_parallelism(), read at the
+# gather site (not here) so it reflects the active extract model: a local
+# VRAM-bound default of 2 that matches the daemon's OLLAMA_NUM_PARALLEL, or a
+# wide fan-out on a hosted backend where per-request latency (not VRAM) is the
+# bottleneck. PS_MINING_PARALLEL overrides either way. Convo chunks are
+# independent (existing_phrases is fixed before the loop), so straight gather
+# under one semaphore is correct.
 
 
 # ── Format detection & normalization ───────────────────────────
@@ -581,6 +581,83 @@ class MiningProposal:
     # something to sort within a tie. Defaults to 0 for back-compat.
     intra_segment_order: int = 0
 
+    # ── Factories: raw LLM dict -> typed proposal ─────────────────────
+    # Every doc miner used to inline this same field-mapping + confidence
+    # filtering with small per-miner tweaks. Centralised here so the schema
+    # (and its defaults) lives in ONE place. Each returns None when the item
+    # is empty or below ``min_confidence`` — callers filter Nones. The miner
+    # supplies its own source metadata (topic/section path, source_pairs) and
+    # its own ``default_conf`` (conversation mining trusts less, 0.5; document
+    # drilling more, 0.7).
+    @classmethod
+    def anchor_from_raw(
+        cls, raw: dict, *, source_topic: str = "",
+        source_pairs: Optional[list] = None, default_conf: float = 0.5,
+        min_confidence: float = 0.0, intra_order: int = 0,
+    ) -> "Optional[MiningProposal]":
+        phrase = (raw.get("canonical_phrase") or "").strip()
+        if not phrase:
+            return None
+        conf = float(raw.get("confidence") or default_conf)
+        if conf < min_confidence:
+            return None
+        return cls(
+            proposal_type="anchor",
+            canonical_phrase=phrase,
+            aliases=[a for a in (raw.get("aliases") or []) if a],
+            source_topic=source_topic,
+            confidence=conf,
+            source_pairs=list(source_pairs or []),
+            justification=(raw.get("justification") or "").strip(),
+            intra_segment_order=intra_order,
+        )
+
+    @classmethod
+    def slab_from_raw(
+        cls, raw: dict, *, source_topic: str = "",
+        source_pairs: Optional[list] = None, default_conf: float = 0.5,
+        min_confidence: float = 0.0, intra_order: int = 0,
+    ) -> "Optional[MiningProposal]":
+        text = (raw.get("canonical_text") or "").strip()
+        if not text:
+            return None
+        conf = float(raw.get("confidence") or default_conf)
+        if conf < min_confidence:
+            return None
+        title = (raw.get("title") or text[:48]).strip()
+        return cls(
+            proposal_type="slab",
+            canonical_text=text,
+            title=title,
+            source_topic=source_topic,
+            confidence=conf,
+            source_pairs=list(source_pairs or []),
+            justification=(raw.get("justification") or "").strip(),
+            intra_segment_order=intra_order,
+        )
+
+    @classmethod
+    def bundle_from_raw(
+        cls, raw: dict, *, source_topic: str = "",
+        source_pairs: Optional[list] = None, default_conf: float = 0.5,
+        min_confidence: float = 0.0,
+    ) -> "Optional[MiningProposal]":
+        label = (raw.get("label") or "").strip()
+        if not label:
+            return None
+        conf = float(raw.get("confidence") or default_conf)
+        if conf < min_confidence:
+            return None
+        return cls(
+            proposal_type="bundle",
+            label=label,
+            aliases=[m for m in (raw.get("members") or []) if m],
+            source_topic=source_topic,
+            confidence=conf,
+            source_pairs=list(source_pairs or []),
+            justification=(raw.get("justification") or "").strip(),
+        )
+
 
 EXTRACTION_PROMPT = """You are a corpus extraction specialist for Prime's Shadow, a neuro-symbolic personal knowledge system.
 
@@ -688,38 +765,19 @@ async def extract_proposals_from_chunk(
 
     for raw in raw_proposals:
         ptype = raw.get("type", "")
-        confidence = float(raw.get("confidence", 0.5))
-
         if ptype == "anchor":
-            proposals.append(MiningProposal(
-                proposal_type="anchor",
-                canonical_phrase=raw.get("canonical_phrase", ""),
-                aliases=raw.get("aliases", []),
-                source_topic=chunk.top_topic,
-                confidence=confidence,
-                source_pairs=pair_indices,
-                justification=raw.get("justification", ""),
-            ))
+            p = MiningProposal.anchor_from_raw(
+                raw, source_topic=chunk.top_topic, source_pairs=pair_indices)
         elif ptype == "slab":
-            proposals.append(MiningProposal(
-                proposal_type="slab",
-                title=raw.get("title", ""),
-                canonical_text=raw.get("canonical_text", ""),
-                source_topic=chunk.top_topic,
-                confidence=confidence,
-                source_pairs=pair_indices,
-                justification=raw.get("justification", ""),
-            ))
+            p = MiningProposal.slab_from_raw(
+                raw, source_topic=chunk.top_topic, source_pairs=pair_indices)
         elif ptype == "bundle":
-            proposals.append(MiningProposal(
-                proposal_type="bundle",
-                label=raw.get("label", ""),
-                aliases=raw.get("members", []),
-                source_topic=chunk.top_topic,
-                confidence=confidence,
-                source_pairs=pair_indices,
-                justification=raw.get("justification", ""),
-            ))
+            p = MiningProposal.bundle_from_raw(
+                raw, source_topic=chunk.top_topic, source_pairs=pair_indices)
+        else:
+            p = None
+        if p is not None:
+            proposals.append(p)
 
     return proposals
 
@@ -754,6 +812,26 @@ class EdgeProposal:
     to_label: str         # canonical_phrase / title / label of target
     confidence: float = 0.0
     justification: str = ""
+
+    @classmethod
+    def from_raw(
+        cls, raw: dict, *, default_type: str = "LINKS", default_conf: float = 0.7,
+    ) -> "Optional[EdgeProposal]":
+        """Build an edge from a raw LLM dict — accepts type/edge_type,
+        from/from_label, to/to_label — or None if an endpoint is missing.
+        For the miners that parse an edge-JSON block (convo, narrative)."""
+        etype = (raw.get("type") or raw.get("edge_type") or default_type).strip().upper()
+        frm = (raw.get("from") or raw.get("from_label") or "").strip()
+        to = (raw.get("to") or raw.get("to_label") or "").strip()
+        if not frm or not to:
+            return None
+        return cls(
+            edge_type=etype,
+            from_label=frm,
+            to_label=to,
+            confidence=float(raw.get("confidence") or default_conf),
+            justification=(raw.get("justification") or "").strip(),
+        )
 
 
 EDGE_EXTRACTION_PROMPT = """Given these corpus proposals extracted from a conversation, identify the relationships (edges) between them.
@@ -845,16 +923,12 @@ async def extract_edges(proposals: list[MiningProposal]) -> list[EdgeProposal]:
         return []
 
     for raw in raw_edges:
-        etype = raw.get("type", "SUPPORTS").upper()
-        if etype not in ("INVOKES", "SEQUENCE", "REGULATES", "CONFLICTS", "TENSIONS", "SUPPORTS"):
-            etype = "SUPPORTS"
-        edges.append(EdgeProposal(
-            edge_type=etype,
-            from_label=raw.get("from", ""),
-            to_label=raw.get("to", ""),
-            confidence=float(raw.get("confidence", 0.5)),
-            justification=raw.get("justification", ""),
-        ))
+        edge = EdgeProposal.from_raw(raw, default_type="SUPPORTS", default_conf=0.5)
+        if edge is None:  # missing endpoint — unusable, skip
+            continue
+        if edge.edge_type not in ("INVOKES", "SEQUENCE", "REGULATES", "CONFLICTS", "TENSIONS", "SUPPORTS"):
+            edge.edge_type = "SUPPORTS"
+        edges.append(edge)
 
     return edges
 
@@ -939,7 +1013,7 @@ class ConversationMiner:
         mining_progress.increment()  # chunking phase done
         mining_progress.set_phase("extracting", total=len(meaningful_chunks))
 
-        sem = asyncio.Semaphore(_MINING_PARALLEL)
+        sem = asyncio.Semaphore(ollama.mining_parallelism())
 
         async def _extract(chunk):
             async with sem:
