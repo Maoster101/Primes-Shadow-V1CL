@@ -44,6 +44,32 @@ MAX_PERIODIC_ANCHORS = 5
 SWEEP_CADENCE = 1  # every turn — aggressive extraction for interactive use
 DEDUP_THRESHOLD = 0.75  # lower threshold catches more near-duplicates
 
+# Fold "fancy" unicode punctuation the extraction model emits (smart quotes,
+# non-breaking / en / em dashes, ellipsis, nbsp, prime marks) down to plain
+# ASCII so proposal text is clean for downstream consumers. Only punctuation
+# LOOKALIKES are touched — accented letters, symbols, and non-Latin scripts
+# are left intact (str.translate only rewrites the mapped code points).
+_PUNCT_FOLD = str.maketrans({
+    "‐": "-", "‑": "-", "‒": "-", "–": "-",
+    "—": "-", "―": "-", "−": "-",
+    "‘": "'", "’": "'", "‚": "'", "‛": "'",
+    "′": "'",
+    "“": '"', "”": '"', "„": '"', "‟": '"', "″": '"',
+    "…": "...", " ": " ", " ": " ", " ": " ",
+})
+
+
+def _normalize_punct(obj):
+    """Recursively ASCII-fold fancy unicode punctuation in every string."""
+    if isinstance(obj, str):
+        return obj.translate(_PUNCT_FOLD)
+    if isinstance(obj, list):
+        return [_normalize_punct(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: _normalize_punct(v) for k, v in obj.items()}
+    return obj
+
+
 _event_log = EventLog()
 
 
@@ -167,7 +193,7 @@ class DraftManager:
         # but we keep backward compat with the legacy bare-array / bare-object
         # shapes in case the model regresses.
         try:
-            raw = await ollama.structured_extract(prompt)
+            raw = _normalize_punct(await ollama.structured_extract(prompt))
             print(f"[DRAFT] Extraction result (turn {current_turn}): {type(raw).__name__} = {str(raw)[:300]}", flush=True)
             proposed_edge_specs: list = []
             if isinstance(raw, dict):
@@ -560,7 +586,7 @@ class DraftManager:
         )
 
         try:
-            raw = await ollama.structured_extract(prompt)
+            raw = _normalize_punct(await ollama.structured_extract(prompt))
         except Exception as e:
             print(f"[RELMINE] Extraction FAILED (turn {current_turn}): {e}", flush=True)
             return 0

@@ -124,7 +124,7 @@ Return ONLY raw JSON — an object with `proposals` and `edges` arrays:
      "claim_tag": "FACT" or "INFERENCE" or "HYPOTHESIS" or "UNKNOWN"}
   ],
   "edges": [
-    {"type": "INVOKES|SUPPORTS|CONFLICTS|LINKS|SEQUENCE|PARENT_OF",
+    {"type": "INVOKES|SUPPORTS|CONFLICTS|TENSIONS|LINKS|SEQUENCE|PARENT_OF",
      "from_label": "concept name A",
      "to_label": "concept name B",
      "confidence": 0.0-1.0,
@@ -180,7 +180,7 @@ and `edges` arrays:
      "claim_tag": "FACT" or "INFERENCE" or "HYPOTHESIS" or "UNKNOWN"}
   ],
   "edges": [
-    {"type": "INVOKES|SUPPORTS|CONFLICTS|LINKS|SEQUENCE|PARENT_OF",
+    {"type": "INVOKES|SUPPORTS|CONFLICTS|TENSIONS|LINKS|SEQUENCE|PARENT_OF",
      "from_label": "concept name A",
      "to_label": "concept name B",
      "confidence": 0.0-1.0,
@@ -252,7 +252,7 @@ $EXISTING_BUNDLES
 Return ONLY raw JSON — an object with an `edges` array:
 {
   "edges": [
-    {"type": "INVOKES|SUPPORTS|CONFLICTS|LINKS|SEQUENCE|PARENT_OF",
+    {"type": "INVOKES|SUPPORTS|CONFLICTS|TENSIONS|LINKS|SEQUENCE|PARENT_OF",
      "from_label": "exact label from catalog",
      "to_label": "exact label from catalog",
      "confidence": 0.0-1.0,
