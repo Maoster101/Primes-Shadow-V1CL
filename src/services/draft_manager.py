@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 import yaml
@@ -74,6 +75,37 @@ def _normalize_punct(obj):
     if isinstance(obj, dict):
         return {k: _normalize_punct(v) for k, v in obj.items()}
     return obj
+
+
+@dataclass
+class _ExtractionContext:
+    """The shared inputs every extractor drops into its prompt template.
+
+    Both the concept miner (extract_proposals) and the relationship miner
+    (extract_relationships) need the exact same glue: a model-aware
+    conversation window, the semantically-scoped existing-node catalogs, the
+    active-collection guard list, and the hosted flag / num_ctx. Bundling it
+    here means that tuning (window size, caps, catalog K, hosted policy) lives
+    in ONE place and can't drift between the two call sites.
+    """
+    conversation: str
+    existing_anchors: str
+    existing_slabs: str
+    existing_bundles: str
+    active_collections: str
+    hosted: bool
+    num_ctx: int
+
+    def fill(self, template: str) -> str:
+        """Substitute the shared $CATALOG / $CONVERSATION placeholders."""
+        return (
+            template
+            .replace("$EXISTING_ANCHORS", self.existing_anchors or "(none)")
+            .replace("$EXISTING_SLABS", self.existing_slabs or "(none)")
+            .replace("$EXISTING_BUNDLES", self.existing_bundles or "(none)")
+            .replace("$ACTIVE_COLLECTIONS", self.active_collections or "(none)")
+            .replace("$CONVERSATION", self.conversation)
+        )
 
 
 _event_log = EventLog()
@@ -169,6 +201,54 @@ class DraftManager:
             )
         return existing_anchors, existing_slabs
 
+    async def _extraction_context(
+        self, recent_messages: list[dict], k: int = 20,
+    ) -> _ExtractionContext:
+        """Assemble the shared extraction context (see _ExtractionContext).
+
+        Model-aware window: a hosted/frontier extract model has a huge context
+        and no local VRAM limit, so mine the WHOLE conversation (chats can run
+        very long); a local model keeps the tight, context-budgeted last-12
+        window. num_ctx is lifted so a reasoning trace has headroom (cloud
+        ignores the flag; it covers a large local model on a frontier key).
+        """
+        hosted = ollama.extract_is_hosted()
+        msgs = recent_messages if hosted else recent_messages[-12:]
+        clip = 2000 if hosted else 300
+        conversation = "\n".join(
+            f"[turn {m.get('turn', '?')}] [{m['role']}] {m['content'][:clip]}"
+            for m in msgs
+        )
+        existing_anchors, existing_slabs = await self._semantic_catalogs(conversation, k)
+        existing_bundles = ", ".join(
+            _bundle_label(b) for b in self.corpus.bundles.values() if _bundle_label(b)
+        )
+        # Active collection IDs — shown to the LLM as FORBIDDEN edge endpoints.
+        # Without this, models happily emit edges with from_label="vindiesel5"
+        # even though a collection is a container, not a node, and won't resolve.
+        try:
+            active_collections = ", ".join(sorted(self._registry.active_ids)) if self._registry else ""
+        except Exception:
+            active_collections = ""
+        return _ExtractionContext(
+            conversation=conversation,
+            existing_anchors=existing_anchors,
+            existing_slabs=existing_slabs,
+            existing_bundles=existing_bundles,
+            active_collections=active_collections,
+            hosted=hosted,
+            num_ctx=32768 if hosted else 16384,
+        )
+
+    @staticmethod
+    async def _run_extract(prompt: str, num_ctx: int):
+        """The mining extraction call: reasoning-enabled structured extraction,
+        unicode-normalized. One place so the think / normalize / num_ctx policy
+        stays consistent across both extractors."""
+        return _normalize_punct(await ollama.structured_extract(
+            prompt, num_ctx=num_ctx, think=True,
+        ))
+
     async def extract_proposals(
         self,
         session_id: str,
@@ -201,62 +281,23 @@ class DraftManager:
         if not explicit and len(stack.packets) >= _cap:
             return []
 
-        # Build conversation context (model-aware window: whole conversation
-        # on a hosted model, tight last-12 on a local one).
-        _msgs = recent_messages if _hosted else recent_messages[-12:]
-        _clip = 2000 if _hosted else 300
-        conversation = "\n".join(
-            f"[turn {m.get('turn', '?')}] [{m['role']}] {m['content'][:_clip]}"
-            for m in _msgs
-        )
-
-        # Existing-node catalogs — SEMANTICALLY SCOPED to this conversation
-        # (top-K nearest), not a full dump. See _semantic_catalogs. The hard
-        # semantic dedup (_dedup_check) still guards every proposal regardless.
-        existing_anchors, existing_slabs = await self._semantic_catalogs(conversation)
-        existing_bundles = ", ".join(
-            _bundle_label(b) for b in self.corpus.bundles.values() if _bundle_label(b)
-        )
-        # Active collection IDs — shown to the LLM as FORBIDDEN edge
-        # endpoints. Without this, small models (and occasionally large
-        # ones) happily emit edges with from_label="vindiesel5" even
-        # though "vindiesel5" is a container, not a node, and won't
-        # resolve to anything in the label index.
-        try:
-            active_collections = ", ".join(sorted(self._registry.active_ids)) if self._registry else ""
-        except Exception:
-            active_collections = ""
-
-        def _fill_catalogs(p: str) -> str:
-            return (
-                p.replace("$EXISTING_ANCHORS", existing_anchors or "(none)")
-                 .replace("$EXISTING_SLABS", existing_slabs or "(none)")
-                 .replace("$EXISTING_BUNDLES", existing_bundles or "(none)")
-                 .replace("$ACTIVE_COLLECTIONS", active_collections or "(none)")
-                 .replace("$CONVERSATION", conversation)
-            )
+        # Shared extraction glue: model-aware window + semantic catalogs +
+        # active-collection guard + num_ctx (see _extraction_context). Built
+        # AFTER the cap check so a capped session skips the catalog embeds.
+        ctx = await self._extraction_context(recent_messages)
 
         # Choose prompt
         if explicit:
-            prompt = _fill_catalogs(PROPOSAL_EXPLICIT_PROMPT) + json.dumps(user_request)
+            prompt = ctx.fill(PROPOSAL_EXPLICIT_PROMPT) + json.dumps(user_request)
         else:
-            prompt = _fill_catalogs(PROPOSAL_EXTRACTION_PROMPT)
+            prompt = ctx.fill(PROPOSAL_EXTRACTION_PROMPT)
 
         # Model proposes. Phase 3: output is now a wrapper object
         #   {"proposals": [...], "edges": [...]}
         # but we keep backward compat with the legacy bare-array / bare-object
         # shapes in case the model regresses.
         try:
-            # Hosted models: lift the num_ctx cap so the whole-conversation
-            # window isn't clipped (cloud ignores the flag anyway; this also
-            # covers a large local model driven via a frontier key).
-            # think=True: let a reasoning-capable extract model (gemma4,
-            # gpt-oss, …) reason before emitting JSON — structured extraction
-            # is where the small local model was weakest. Best-effort: falls
-            # back to plain generation if the model can't think.
-            raw = _normalize_punct(await ollama.structured_extract(
-                prompt, num_ctx=32768 if _hosted else 16384, think=True,
-            ))
+            raw = await self._run_extract(prompt, ctx.num_ctx)
             print(f"[DRAFT] Extraction result (turn {current_turn}): {type(raw).__name__} = {str(raw)[:300]}", flush=True)
             proposed_edge_specs: list = []
             if isinstance(raw, dict):
@@ -623,48 +664,20 @@ class DraftManager:
         if not recent_messages:
             return 0
 
-        # Model-aware window (see extract_proposals): whole conversation on a
-        # hosted model, tight last-12 on a local one.
-        _hosted = ollama.extract_is_hosted()
-        _msgs = recent_messages if _hosted else recent_messages[-12:]
-        _clip = 2000 if _hosted else 300
-        conversation = "\n".join(
-            f"[turn {m.get('turn', '?')}] [{m['role']}] {m['content'][:_clip]}"
-            for m in _msgs
-        )
-
-        # Relationship mining is pure existing-to-existing edge detection, so
-        # the endpoint catalog IS the label space — scoping it to the nodes
-        # semantically relevant to this conversation matters even more here
-        # than for proposals. Same top-K helper (reuses the cosine wiring).
-        existing_anchors, existing_slabs = await self._semantic_catalogs(conversation)
-        existing_bundles = ", ".join(
-            _bundle_label(b) for b in self.corpus.bundles.values() if _bundle_label(b)
-        )
+        # Same shared glue as the concept miner (window + semantically-scoped
+        # catalogs + guards + num_ctx). The endpoint catalog IS the label space
+        # here, so its relevance-scoping matters even more.
+        ctx = await self._extraction_context(recent_messages)
 
         # If there are no existing anchors AND no slabs (brand-new corpus),
         # there's nothing to relate. Skip the LLM call.
-        if not existing_anchors and not existing_slabs:
+        if not ctx.existing_anchors and not ctx.existing_slabs:
             return 0
 
-        try:
-            active_collections = ", ".join(sorted(self._registry.active_ids)) if self._registry else ""
-        except Exception:
-            active_collections = ""
-
-        prompt = (
-            RELATIONSHIP_MINING_PROMPT
-            .replace("$EXISTING_ANCHORS", existing_anchors or "(none)")
-            .replace("$EXISTING_SLABS", existing_slabs or "(none)")
-            .replace("$EXISTING_BUNDLES", existing_bundles or "(none)")
-            .replace("$ACTIVE_COLLECTIONS", active_collections or "(none)")
-            .replace("$CONVERSATION", conversation)
-        )
+        prompt = ctx.fill(RELATIONSHIP_MINING_PROMPT)
 
         try:
-            raw = _normalize_punct(await ollama.structured_extract(
-                prompt, num_ctx=32768 if _hosted else 16384, think=True,
-            ))
+            raw = await self._run_extract(prompt, ctx.num_ctx)
         except Exception as e:
             print(f"[RELMINE] Extraction FAILED (turn {current_turn}): {e}", flush=True)
             return 0
