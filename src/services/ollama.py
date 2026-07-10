@@ -59,6 +59,20 @@ EMBED_MODEL = os.environ.get("PS_EMBED_MODEL", "nomic-embed-text")
 EXTRACT_MODEL = os.environ.get("PS_EXTRACT_MODEL", CHAT_MODEL)
 
 
+def extract_is_hosted() -> bool:
+    """True when the extraction model runs on a hosted/cloud backend.
+
+    Detected from the model TAG (``…:…-cloud``) or an app-side frontier key /
+    cloud host — NOT the app's IS_CLOUD alone, which is False in the common
+    setup (local Ollama daemon + a cloud-tagged model routed via Ollama's own
+    sign-in). Hosted backends have huge contexts and no local VRAM limit, so
+    the end-of-chat mine can feed the WHOLE conversation rather than the tight
+    context-budgeted window a local model needs. Read at call time so a
+    runtime /models/switch-extract takes effect immediately.
+    """
+    return "cloud" in (EXTRACT_MODEL or "").lower() or bool(OLLAMA_API_KEY) or IS_CLOUD
+
+
 def _auth_headers() -> dict:
     """HTTP headers for chat requests. Adds bearer auth when key is set."""
     headers = {}

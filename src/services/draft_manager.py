@@ -189,14 +189,25 @@ class DraftManager:
         if not stack:
             stack = DraftStack(session_id=session_id)
 
+        # Hosted/frontier extract models have huge contexts and no local VRAM
+        # limit, so mine the WHOLE conversation and allow more proposals per
+        # sweep; a local model keeps the tight, context-budgeted window + cap.
+        _hosted = ollama.extract_is_hosted()
+        _cap = 40 if _hosted else DRAFT_STACK_CAP
+        _max_slabs = 30 if _hosted else MAX_PERIODIC_SLABS
+        _max_anchors = 30 if _hosted else MAX_PERIODIC_ANCHORS
+
         # Check cap (explicit requests bypass cap)
-        if not explicit and len(stack.packets) >= DRAFT_STACK_CAP:
+        if not explicit and len(stack.packets) >= _cap:
             return []
 
-        # Build conversation context
+        # Build conversation context (model-aware window: whole conversation
+        # on a hosted model, tight last-12 on a local one).
+        _msgs = recent_messages if _hosted else recent_messages[-12:]
+        _clip = 2000 if _hosted else 300
         conversation = "\n".join(
-            f"[turn {m.get('turn', '?')}] [{m['role']}] {m['content'][:300]}"
-            for m in recent_messages[-12:]
+            f"[turn {m.get('turn', '?')}] [{m['role']}] {m['content'][:_clip]}"
+            for m in _msgs
         )
 
         # Existing-node catalogs — SEMANTICALLY SCOPED to this conversation
@@ -236,7 +247,12 @@ class DraftManager:
         # but we keep backward compat with the legacy bare-array / bare-object
         # shapes in case the model regresses.
         try:
-            raw = _normalize_punct(await ollama.structured_extract(prompt))
+            # Hosted models: lift the num_ctx cap so the whole-conversation
+            # window isn't clipped (cloud ignores the flag anyway; this also
+            # covers a large local model driven via a frontier key).
+            raw = _normalize_punct(await ollama.structured_extract(
+                prompt, num_ctx=32768 if _hosted else None,
+            ))
             print(f"[DRAFT] Extraction result (turn {current_turn}): {type(raw).__name__} = {str(raw)[:300]}", flush=True)
             proposed_edge_specs: list = []
             if isinstance(raw, dict):
@@ -269,13 +285,16 @@ class DraftManager:
 
             prop_type = prop.get("type", "anchor")
 
-            # Enforce periodic limits (explicit bypasses)
+            # Enforce per-sweep type limits (explicit bypasses). These were
+            # MAX_PERIODIC_SLABS=3 / MAX_PERIODIC_ANCHORS=5 — tuned for the old
+            # per-turn drip. They (not just the prompt) were the real throttle;
+            # a hosted whole-conversation mine lifts them (see _max_* above).
             if not explicit:
-                if prop_type == "slab" and counts["slab"] >= MAX_PERIODIC_SLABS:
+                if prop_type == "slab" and counts["slab"] >= _max_slabs:
                     continue
-                if prop_type == "anchor" and counts["anchor"] >= MAX_PERIODIC_ANCHORS:
+                if prop_type == "anchor" and counts["anchor"] >= _max_anchors:
                     continue
-                if len(stack.packets) >= DRAFT_STACK_CAP:
+                if len(stack.packets) >= _cap:
                     break
 
             # Dedup: check semantic similarity against existing corpus
@@ -600,9 +619,14 @@ class DraftManager:
         if not recent_messages:
             return 0
 
+        # Model-aware window (see extract_proposals): whole conversation on a
+        # hosted model, tight last-12 on a local one.
+        _hosted = ollama.extract_is_hosted()
+        _msgs = recent_messages if _hosted else recent_messages[-12:]
+        _clip = 2000 if _hosted else 300
         conversation = "\n".join(
-            f"[turn {m.get('turn', '?')}] [{m['role']}] {m['content'][:300]}"
-            for m in recent_messages[-12:]
+            f"[turn {m.get('turn', '?')}] [{m['role']}] {m['content'][:_clip]}"
+            for m in _msgs
         )
 
         # Relationship mining is pure existing-to-existing edge detection, so
@@ -634,7 +658,9 @@ class DraftManager:
         )
 
         try:
-            raw = _normalize_punct(await ollama.structured_extract(prompt))
+            raw = _normalize_punct(await ollama.structured_extract(
+                prompt, num_ctx=32768 if _hosted else None,
+            ))
         except Exception as e:
             print(f"[RELMINE] Extraction FAILED (turn {current_turn}): {e}", flush=True)
             return 0
