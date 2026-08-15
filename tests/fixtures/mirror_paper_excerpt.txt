@@ -1,0 +1,83 @@
+Large language models exhibit well-documented failure modes over extended interactions: semantic drift, plausibility-filling, and unconstrained escalation toward operational action.
+Existing approaches address these individually—retrieval-augmented generation for memory, constitutional AI for value alignment, chain-of-thought prompting for reasoning quality—but no unified architecture addresses all three simultaneously in a model-agnostic framework.
+This paper presents Mirror, a neuro-symbolic architecture providing constraint mechanisms for epistemic integrity, persistent semantic coherence, and agent safety across long-horizon LLM interactions.
+Mirror comprises three integrated subsystems: (1) OLI (Operational Layer Integrity), a constitutional constraint system with hard-gated claim admissibility; (2) a graph-of-graphs semantic memory corpus enabling persistent context; and (3) a layer integrity mechanism bounding agent action scope.
+The architecture operates as a prompt-layer scaffolding with code-side post-generation validation, applicable to any frontier LLM without weight modification.
+We describe the architecture, a working implementation (Prime's Shadow), preliminary operational data from 14 sessions and 409 logged pipeline events, known limitations, and directions for empirical evaluation.
+
+Introduction
+
+The deployment of large language models in extended, high-stakes reasoning tasks has surfaced a class of failure modes that prompt engineering alone cannot reliably prevent.
+Three are particularly consequential:
+
+Semantic drift: the gradual degradation of conceptual precision over long interaction sequences, as the model's effective context window fills and earlier constraints lose influence.
+This is distinct from factual error; the model may remain factually accurate while progressively abandoning the epistemic posture or constraint framework established at session initialisation.
+
+Plausibility-filling: the tendency of LLMs to accept or generate reasoning that is internally coherent but epistemically unsupported—filling evidential gaps with confident-sounding inference.
+This is particularly hazardous in research and decision-support contexts, where the appearance of epistemic rigour may be indistinguishable from its substance to a non-expert reader.
+
+Operationalisation drift: the incremental escalation of model outputs from analysis toward tactical coordination and action-planning, particularly dangerous in agentic deployment contexts.
+This can emerge from cumulative problem-solving pressure, user frustration, or narrative momentum without explicit instruction.
+
+Current mitigations are fragmented.
+RAG systems address retrieval but not constraint.
+Constitutional AI addresses values but not epistemics.
+Memory systems address persistence but not semantic integrity.
+No existing framework provides a unified, deployable solution to all three simultaneously.
+
+Mirror emerged from sustained applied research into these failure modes through iterative interaction with frontier LLMs.
+What began as a prompt engineering exercise evolved into a layered architectural specification as each mitigation revealed the need for deeper structural intervention.
+The result is a model-agnostic scaffolding system that treats the LLM as a neural substrate to be constrained by symbolic rules—a neuro-symbolic hybrid in the classical sense .
+
+This paper makes four contributions:
+
+- A formal specification of OLI (Operational Layer Integrity), a constitutional constraint layer with claim admissibility gating and resistance-detection invariants.
+- A graph-of-graphs semantic memory architecture (the Corpus) enabling persistent, version-controlled context across sessions.
+- A layer integrity mechanism (L0–L4) providing bounds on agent action scope with slope-detection and escalating intervention.
+- A working open-source implementation (Prime's Shadow) integrating all three subsystems with a Python backend, code-side post-generation validator, and web-based interface.
+
+Background and Motivation
+
+The Semantic Drift Problem
+
+Standard transformer-based LLMs process context as a flat token sequence.
+Over extended interactions, this produces measurable degradation in the model's effective adherence to early session constraints—a phenomenon we term semantic drift.
+Existing work on long-context models (extended context windows, sliding window attention) addresses the mechanical capacity for context but not the semantic entropy that accumulates within it.
+A 1M-token context window does not prevent a model from effectively downweighting a constraint established at token 1 by the time it reaches token 800{,}000.
+
+Plausibility-Filling as an Epistemic Hazard
+
+LLMs are trained to produce fluent, coherent continuations.
+This optimisation objective creates a systematic bias toward plausible-sounding outputs even in the absence of sufficient evidential grounding.
+We observe this when models reason about uncertain or under-constrained domains: rather than acknowledging epistemic limits, they generate confident-sounding inferences that conflate inference with fact.
+
+A particularly insidious form is self-sealing logic—reasoning structured to absorb rather than acknowledge counterevidence.
+Self-sealing outputs are epistemically indistinguishable from rigorous reasoning to a non-expert reader, making them especially hazardous in decision-support contexts.
+OLI's epistemic floor (Section ) explicitly prohibits self-sealing construction: any argument that cannot in principle be falsified is inadmissible regardless of its internal coherence.
+
+Operationalisation Drift in Agentic Systems
+
+As LLMs are deployed in agentic contexts—systems that take actions, use tools, or coordinate multi-step tasks—a new failure mode emerges: the gradual escalation of outputs from analysis (describing what is) through evaluation (assessing what is good) toward operationalisation (planning how to act).
+We term this L4 drift, after the layer taxonomy introduced in Section .
+L4 drift is not necessarily the result of explicit instruction; it can emerge from the cumulative pressure of a problem-solving context, what the Mirror architecture terms cinematic compression—narrative momentum that compresses complex situations into action-ready framings—and inevitability arcs—reasoning trajectories that present a particular course of action as the only viable option.
+
+System Lineage
+
+Mirror, Prime's Shadow, and Prime represent three maturity levels of the same architectural lineage.
+Mirror is the core architecture: a model-agnostic specification for constraint-aware reasoning, deployable immediately as a prompt-layer protocol on any frontier LLM.
+Prime's Shadow is the working implementation described in this paper: a self-hosted Python application with a local LLM runtime, code-side OLI enforcement, YAML-backed corpus persistence, and a web-based interface with live corpus visualisation.
+Prime is the long-horizon target, extending the architecture with an external real-world model and full graph-database substrate—identified as future work.
+This paper focuses on Mirror (the architecture) and Prime's Shadow (the implementation).
+
+The Mirror Architecture
+
+Mirror is structured as three integrated subsystems operating over a shared interaction stream.
+The overall pipeline processes each turn as follows:
+
+Input [Function Gate] [Anchor Resolution] [FrameState Load] [OLI Constraint Layer] [Layer Integrity Check] Output
+
+Each incoming message is classified by function before any context loading or constraint checking occurs.
+
+Because Mirror operates as a prompt-layer protocol with code-side validation rather than a weight-level modification, its constraint mechanisms depend in part on the model's instruction-following fidelity.
+We use the term "enforcement" throughout to mean specification of constraints with code-side detection and intervention—not guaranteed prevention.
+The code-side validator provides a second line of defence that operates independently of the model's compliance, but a model generating constraint-violating content in ways not covered by the validator's heuristics could evade detection (see Section ).

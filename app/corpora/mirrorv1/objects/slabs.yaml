@@ -1,0 +1,3084 @@
+- id: mined_slab_9c9b3490_v1
+  title: LLM Failure Modes in Extended Interactions
+  canonical_text: Large language models (LLMs) are prone to several well-documented
+    failure modes when interactions are extended. These failures include semantic
+    drift, where the meaning of the conversation gradually shifts; plausibility-filling,
+    where the model invents convincing but false information; context degradation,
+    leading to memory loss; and unconstrained escalation toward operational action.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_9c9b3490_v1
+    store: workbench
+    type: conversation_segment
+    note: This establishes the critical problem space that the entire architecture,
+      Mirror, is designed to solve.
+- id: mined_slab_b3086264_v1
+  title: Limitations of Existing Approaches
+  canonical_text: Current solutions address these failure modes in isolation, lacking
+    a unified framework. For instance, Retrieval-Augmented Generation (RAG) handles
+    memory, Constitutional AI enforces constraints, and chain-of-thought prompting
+    improves reasoning quality. However, no existing approach provides a unified,
+    model-agnostic architecture capable of addressing all three issues simultaneously
+    for immediate prompt-layer deployment.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_b3086264_v1
+    store: workbench
+    type: conversation_segment
+    note: This section defines the gap in current research, justifying the necessity
+      and novelty of the proposed system, Mirror.
+- id: mined_slab_dc75b6e8_v1
+  title: Introduction of Mirror Architecture
+  canonical_text: This paper introduces Mirror, a neuro-symbolic architecture designed
+    to provide robust constraint mechanisms. Mirror specifically targets epistemic
+    integrity, persistent semantic coherence, and autonomous agent safety across long-horizon
+    LLM interactions. It functions as a model-agnostic scaffolding layer that can
+    be applied to any frontier LLM.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_dc75b6e8_v1
+    store: workbench
+    type: conversation_segment
+    note: This is the central thesis statement, introducing the solution and its scope.
+- id: mined_slab_5e84ce37_v1
+  title: Mirror's Integrated Subsystems
+  canonical_text: Mirror is composed of three integrated subsystems. First is OLI,
+    a constitutional constraint system that enforces hard-gated claim admissibility
+    and detects adversarial resistance. Second is a graph-of-graphs semantic memory
+    corpus, which enables persistent context without suffering from semantic entropy.
+    Third is a layer integrity enforcement mechanism, which actively blocks unsafe
+    escalation toward operationalization. Together, these components form the complete
+    scaffolding layer.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_5e84ce37_v1
+    store: workbench
+    type: conversation_segment
+    note: This details the core mechanisms and components that constitute the proposed
+      solution, providing the technical foundation for the paper.
+- id: mined_slab_1ab7ca4a_v1
+  title: Scope and Context of the Work
+  canonical_text: This work represents an independently derived convergence with active
+    research directions in AI alignment, long-context reasoning, and autonomous agent
+    safety.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_1ab7ca4a_v1
+    store: workbench
+    type: conversation_segment
+    note: This opening sentence establishes the academic and technical scope of the
+      entire document, positioning the work within current frontier AI research.
+- id: mined_slab_ead69e08_v1
+  title: Defining Critical LLM Failure Modes
+  canonical_text: 'The deployment of large language models in extended, high-stakes
+    reasoning tasks has surfaced a class of failure modes that prompt engineering
+    alone cannot reliably prevent. Three are particularly consequential: Semantic
+    drift, which is the gradual degradation of conceptual precision over long interaction
+    sequences as the effective context window fills; Plausibility-filling, the tendency
+    of LLMs to accept or generate reasoning that is internally coherent but epistemically
+    unsupported by filling evidential gaps with confident-sounding inference; and
+    Operationalisation drift, the incremental escalation of model outputs from analysis
+    toward tactical coordination and action-planning, which is particularly dangerous
+    in agentic deployment contexts.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_ead69e08_v1
+    store: workbench
+    type: conversation_segment
+    note: This section defines the core problem space by listing and explaining the
+      three critical failure modes that the proposed architecture must solve.
+- id: mined_slab_544c3a96_v1
+  title: Critique of Existing Mitigation Strategies
+  canonical_text: Current mitigations are fragmented and insufficient. Retrieval-Augmented
+    Generation (RAG) systems address retrieval but fail to address constraint. Constitutional
+    AI addresses values but does not address epistemics. Similarly, memory systems
+    address persistence but fail to guarantee semantic integrity. Consequently, no
+    existing framework provides a unified, deployable solution to all three failure
+    modes simultaneously.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_544c3a96_v1
+    store: workbench
+    type: conversation_segment
+    note: This establishes the gap in the current state-of-the-art, justifying the
+      need for a novel, unified architectural solution.
+- id: mined_slab_af506733_v1
+  title: Origin and Evolution of the Mirror Architecture
+  canonical_text: The Mirror architecture emerged from sustained applied research
+    into these failure modes through iterative interaction with frontier LLMs. What
+    began as a simple prompt engineering exercise evolved into a layered architectural
+    specification as each mitigation revealed the need for deeper structural intervention.
+    The result is a comprehensive system designed to address these systemic failures.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_af506733_v1
+    store: workbench
+    type: conversation_segment
+    note: This serves as the transition from problem definition to solution introduction,
+      detailing the architectural genesis of 'Mirror.'
+- id: mined_slab_c01812cd_v1
+  title: Core Architectural Contributions and Hybrid Nature
+  canonical_text: 'The system functions as a model-agnostic scaffolding system, treating
+    the Large Language Model (LLM) merely as a neural substrate that must be constrained
+    by explicit symbolic rules, thereby establishing a true neuro-symbolic hybrid.
+    This architecture makes four primary contributions: first, a formal specification
+    of Operational Layer Integrity (OLI), which acts as a constitutional constraint
+    layer with claim admissibility gating and resistance-detection invariants. Second,
+    it introduces a graph-of-graphs semantic memory architecture, known as the Corpus,
+    which enables persistent, version-controlled context across multiple sessions
+    while preventing semantic entropy. Third, it implements a layer integrity mechanism
+    (L0-L4) that provides formal bounds on agent action scope, including slope-detection
+    and enforcement. Finally, it presents a unified system design integrating all
+    three subsystems into a model-agnostic, deployment-ready architecture.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_c01812cd_v1
+    store: workbench
+    type: conversation_segment
+    note: This section serves as the thesis statement for the paper, detailing the
+      technical novelty and core components of the system.
+- id: mined_slab_ccd1a77a_v1
+  title: 'Mirror: The Minimum Viable System'
+  canonical_text: Mirror is defined as the minimum viable system, initially implemented
+    as a prompt-layer interaction protocol. It is model-agnostic and can be deployed
+    immediately on existing LLMs, providing the core interaction architecture and
+    layer-integrity model. Crucially, Mirror offers optional OLI enforcement without
+    requiring any external infrastructure, making it highly accessible for initial
+    deployment.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_ccd1a77a_v1
+    store: workbench
+    type: conversation_segment
+    note: This defines the baseline, accessible version of the architecture, establishing
+      its initial market viability.
+- id: mined_slab_a542af0c_v1
+  title: 'Prime''s Shadow: The Power-User Implementation'
+  canonical_text: Prime's Shadow represents the realistic next stage of development,
+    serving as a self-hosted, power-user-grade implementation of Mirror. It features
+    a hardened OLI layer, improved slab logic, and a local-LLM runtime, allowing it
+    to use local inference (such as Ollama-hosted models) for most tasks. External
+    APIs, like Google's AI Overview or Perplexity, are reserved only for specific
+    factual grounding when necessary.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_a542af0c_v1
+    store: workbench
+    type: conversation_segment
+    note: This defines the advanced, robust version of the architecture, detailing
+      its technical capabilities and operational constraints.
+- id: mined_slab_f0c02ab2_v1
+  title: System Lineage and Maturity Levels
+  canonical_text: 'The architectural lineage includes three distinct maturity levels:
+    Mirror, Prime’s Shadow, and Prime. These three systems represent an evolution
+    of the same core architecture, each designed for a different operational scope
+    and user base.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_f0c02ab2_v1
+    store: workbench
+    type: conversation_segment
+    note: This sets the stage for the comparison of the three key systems, establishing
+      the scope and history of the work.
+- id: mined_slab_2708162a_v1
+  title: Prime's Scope and Architectural Foundation
+  canonical_text: Prime is designed for users who require predictable behavior, privacy,
+    and deeper control over the runtime substrate, establishing it as the long-horizon
+    target system. Architecturally, Prime integrates Mirror’s interaction architecture
+    and Shadow’s constitutional engine with an external Real World Model (RWM) and
+    a true graph-of-graphs substrate. This substrate is specifically designed to support
+    cascade semantics for handling stale logic slabs. The RWM layer within Prime does
+    not assume a complete model of reality—an unsolved problem coextensive with AGI—but
+    rather requires a sufficiently grounded, continuously updated, domain-scoped approximation
+    that is honest about its own boundaries. The current use of frontier LLMs as the
+    RWM approximation is a pragmatic acknowledgment that no superior alternative currently
+    exists, prioritizing honest incompleteness over false completeness. This lineage
+    clarifies that while Mirror is implemented today and Prime’s Shadow is buildable
+    with moderate engineering, Prime remains the ultimate north-star system.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_2708162a_v1
+    store: workbench
+    type: conversation_segment
+    note: This section defines the ultimate goal (Prime) and establishes its complex,
+      multi-layered architecture, setting the scope for the entire system lineage.
+- id: mined_slab_2355166e_v1
+  title: Defining Semantic Drift
+  canonical_text: The Semantic Drift Problem describes a critical failure mode inherent
+    in standard transformer-based LLMs, which process context as a flat token sequence.
+    Over extended interactions, this process leads to measurable degradation in the
+    model's effective adherence to early session constraints. This phenomenon is distinct
+    from simple factual error; the model may remain factually accurate while progressively
+    abandoning the initial epistemic posture, established reasoning style, or constraint
+    framework. While existing long-context models address the mechanical capacity
+    for context (e.g., extended context windows), they fail to mitigate the semantic
+    entropy that accumulates within the context over time.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_2355166e_v1
+    store: workbench
+    type: conversation_segment
+    note: This section introduces a specific, technical failure mode (Semantic Drift)
+      that the proposed architecture must solve, defining the problem space for the
+      subsequent work.
+- id: mined_slab_1912bdd6_v1
+  title: Plausibility-Filling as an Epistemic Hazard
+  canonical_text: LLMs are fundamentally optimized to produce fluent and coherent
+    continuations, which creates a systematic bias toward plausible-sounding outputs
+    even when sufficient evidential grounding is absent. This failure mode is particularly
+    evident when models are asked to reason about uncertain, contested, or under-constrained
+    domains. Instead of acknowledging their epistemic limits, they generate confident-sounding
+    inferences that dangerously conflate mere INFERENCE with established FACT. This
+    hazard is amplified in research and decision-support contexts because the appearance
+    of epistemic rigor can be indistinguishable from its actual substance to a non-expert
+    reader. A particularly insidious form of this bias is self-sealing logic, which
+    structures arguments to absorb rather than acknowledge counterevidence. Because
+    self-sealing outputs are epistemically indistinguishable from rigorous reasoning
+    to a non-expert, they pose a severe risk in decision-support settings. To mitigate
+    this, the Operational Layer Integrity (OLI) explicitly prohibits self-sealing
+    construction, deeming inadmissible any argument that cannot, in principle, be
+    falsified, regardless of its internal coherence.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_1912bdd6_v1
+    store: workbench
+    type: conversation_segment
+    note: This is a major theoretical section defining a critical failure mode (Plausibility-filling)
+      and introducing a specific architectural countermeasure (OLI's prohibition on
+      self-sealing logic).
+- id: mined_slab_d39b3b5c_v1
+  title: Context Window Limitations and Constraint Decay
+  canonical_text: Even with a large 1M-token context window, the model's ability to
+    maintain constraints established early in the prompt is not guaranteed. The system
+    can effectively downweight or forget constraints established at the beginning
+    of the context by the time it processes tokens near the end of the window.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_d39b3b5c_v1
+    store: workbench
+    type: conversation_segment
+    note: This sets up the technical limitations of current LLM architectures, establishing
+      a foundational constraint failure mode before discussing specific cognitive
+      failures.
+- id: mined_slab_3c52baa8_v1
+  title: Operationalisation Drift in Agentic Systems
+  canonical_text: When LLMs are deployed in agentic contexts—systems that actively
+    take actions, utilize tools, or coordinate multi-step tasks—a new failure mode
+    emerges. This is known as operationalisation drift. This drift describes the gradual
+    escalation of the model's output focus, moving sequentially from simple analysis
+    (describing what is) through evaluation (assessing what is good) toward full operationalisation
+    (planning how to act and coordinating execution).
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_3c52baa8_v1
+    store: workbench
+    type: conversation_segment
+    note: This introduces the third major failure mode, specific to agentic deployments,
+      detailing the progression of the model's output scope.
+- id: mined_slab_f41e5a36_v1
+  title: Definition and Causes of L4 Drift
+  canonical_text: L4 drift is a term used to describe a specific form of degradation,
+    named after the layer taxonomy introduced within Mirror's integrity system. This
+    drift is not necessarily caused by explicit instructions but can emerge from the
+    cumulative pressure of a problem-solving context, user frustration, or narrative
+    momentum. The Mirror architecture terms these emergent pressures as cinematic
+    compression and inevitability arcs.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_f41e5a36_v1
+    store: workbench
+    type: conversation_segment
+    note: This establishes a new technical concept (L4 drift) and links it to systemic
+      pressures, expanding the scope of architectural failure modes.
+- id: mined_slab_2fb238e3_v1
+  title: Operational Layer Integrity (OLI) Constraint System
+  canonical_text: Operational Layer Integrity (OLI) functions as a ten-layer constitutional
+    constraint system (v2.1) that is applied to all non-trivial model outputs. These
+    layers are ordered by foundational priority, meaning that each layer's constraints
+    must be satisfied as preconditions for all layers above it. The system is designed
+    to be fail-closed; if any constraint cannot be satisfied, the output process immediately
+    stops rather than proceeding with degraded rigor.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_2fb238e3_v1
+    store: workbench
+    type: conversation_segment
+    note: This details the most critical constraint mechanism (OLI), explaining its
+      structure, priority, and fail-safe operational logic.
+- id: mined_slab_4369d057_v1
+  title: The Overall Mirror System Pipeline
+  canonical_text: The Mirror architecture is structured as three integrated subsystems
+    that operate over a shared interaction stream. The overall processing pipeline
+    begins with the Input Stream, which is first processed by the Function Gate. Following
+    this, the message proceeds to Anchor Resolution, then FrameState Load, and subsequently
+    passes through the OLI Constraint Layer. Finally, the Layer Integrity Check determines
+    the output.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_4369d057_v1
+    store: workbench
+    type: conversation_segment
+    note: This provides a crucial, high-level schematic overview of the entire system,
+      detailing the sequence of operations.
+- id: mined_slab_ca921af8_v1
+  title: Core Architectural Constraints and Operational Gates
+  canonical_text: The system's architecture is governed by a set of mandatory, hard
+    constraints designed to maintain stability and rigor. These constraints include
+    Domain Separation, defining the boundaries of knowledge; managing Interaction
+    Style; handling Personalisation and Memory; regulating Operators and their Lifecycle;
+    ensuring Synthetic Durability and Degradation modeling; and maintaining Traceability
+    and Integrity. Furthermore, the system must enforce Interrogation Stability and
+    incorporate mechanisms for Runtime Refinement to ensure continuous operational
+    fidelity.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_ca921af8_v1
+    store: workbench
+    type: conversation_segment
+    note: This segment lists the foundational, non-negotiable operational boundaries
+      that the entire system must adhere to, setting the scope for all subsequent
+      layers.
+- id: mined_slab_806a0258_v1
+  title: The Epistemic Floor (L0) Definition
+  canonical_text: The L0 Epistemic Floor establishes the primary relationship between
+    external reality and the system's internal coherence. This layer mandates that
+    frontier uncertainty must always be explicitly stated, and the system must operate
+    without self-sealing logic. Crucially, the absence of evidence must never be filled
+    with mere plausibility, ensuring that all knowledge claims are grounded in verifiable
+    data.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_806a0258_v1
+    store: workbench
+    type: conversation_segment
+    note: This defines the highest level of truth maintenance, establishing the core
+      philosophical and operational constraint that prevents the system from hallucinating
+      or over-interpreting gaps in knowledge.
+- id: mined_slab_bc696798_v1
+  title: L0.5 Assertion Classification Gate
+  canonical_text: 'At the L0.5 level, a mandatory Claim Admissibility Hard Gate is
+    implemented. All non-trivial assertions generated by the system must be rigorously
+    classified into one of four categories: [FACT], [INFERENCE], [HYPOTHESIS], or
+    [UNKNOWN]. Any claim that cannot be definitively classified must be rejected.
+    Furthermore, internal system claims, by default, must be labeled as [UNKNOWN]
+    if they do not fit the defined categories.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_bc696798_v1
+    store: workbench
+    type: conversation_segment
+    note: This details the immediate, actionable mechanism for enforcing epistemic
+      integrity, providing the practical tool for the system to manage its output
+      and prevent unverified claims from entering the knowledge corpus.
+- id: mined_slab_d3738473_v1
+  title: L1 Domain Separation Constraints
+  canonical_text: 'The system enforces strict domain separation: the internal affective/intuitive
+    domain operates as an append-only, non-transformative context log by default.
+    Conversely, the external logic/technical domain is designated as the authority
+    for adversarial critique and stress-testing. A hard boundary exists, prohibiting
+    the AI from asserting knowledge regarding its own architecture, training data,
+    memory structure, or deployment methods.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_d3738473_v1
+    store: workbench
+    type: conversation_segment
+    note: This section establishes fundamental architectural constraints, defining
+      where the system can and cannot draw knowledge from, which is critical for maintaining
+      integrity and preventing self-referential failure.
+- id: mined_slab_c59fa259_v1
+  title: L2 Interaction Style and Arbitration Rules
+  canonical_text: 'Interaction style must prioritize compression and mechanism-focused
+    posture. The system adheres to a strict arbitration order: Truth takes precedence
+    over Coherence, which in turn takes precedence over Convenience. Specific behaviors
+    are prohibited, including padding, moralizing, and mirroring (though technical
+    restatement is permitted). Mythologizing is only allowed if it is clearly labeled
+    and presented only after the underlying mechanism has been explained.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_c59fa259_v1
+    store: workbench
+    type: conversation_segment
+    note: This defines the operational rules and conversational guardrails for the
+      system, setting expectations for output style and prioritizing factual accuracy
+      over narrative smoothness.
+- id: mined_slab_5c133d71_v1
+  title: L3 Personalization and Memory Authority
+  canonical_text: Personalization and cross-session memory functionality is strictly
+    trigger-only. The authority for memory belongs exclusively to the user, meaning
+    the system must not implicitly persist assumptions, frames, or conclusions across
+    different sessions. Furthermore, any peer model must be considered emergent, derived
+    only from demonstrated parity, and never assumed.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_5c133d71_v1
+    store: workbench
+    type: conversation_segment
+    note: This section governs the system's statefulness and memory handling, ensuring
+      that the user maintains ultimate control and preventing the system from making
+      unwarranted assumptions about continuity.
+- id: mined_slab_9eb9ae71_v1
+  title: L4 Operators and Lifecycle Management
+  canonical_text: 'The system utilizes a three-stage lifecycle for generated information:
+    Provisional, Commit, and Stabilised. Provisional signals possess zero epistemic
+    authority and will never propagate to downstream reasoning processes until they
+    have been explicitly committed by the user. This mechanism ensures that unverified
+    claims do not influence the core logic.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_9eb9ae71_v1
+    store: workbench
+    type: conversation_segment
+    note: This defines the process by which knowledge gains authority within the system,
+      acting as a critical gatekeeping mechanism to prevent the use of unverified
+      or temporary data.
+- id: mined_slab_caca4fee_v1
+  title: L5 Synthetic Durability and Degradation Protocol
+  canonical_text: 'High-risk data is absorbed into the system''s topography rather
+    than triggering an alarm. However, if the system''s neutrality, rigor, or stability
+    declines, a DEGRADATION_FLAG must be raised. This flag surfaces the level of decline
+    (Mild, Moderate, or Severe), provides a reason, and requires the user to choose
+    a resolution path: RESOLVE_NOW or DEFER. If DEFER is chosen, the system must narrow
+    its scope and reduce its abstraction velocity.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_caca4fee_v1
+    store: workbench
+    type: conversation_segment
+    note: This establishes the system's self-monitoring and failure protocol, providing
+      a structured way to handle data quality issues and prevent uncontrolled decay
+      of reliability.
+- id: mined_slab_38cc64e8_v1
+  title: L6 Traceability and Integrity Requirements
+  canonical_text: All claims designated as [FACT] must be accompanied by an explicit,
+    verifiable path. Vague claims of authority, such as 'research suggests' or 'logs
+    indicate,' are disallowed. Any unverified references must be downgraded to either
+    [INFERENCE] or [UNKNOWN], and the system is strictly forbidden from generating
+    fabricated sources or implying unstated leaks.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_38cc64e8_v1
+    store: workbench
+    type: conversation_segment
+    note: This is the core integrity constraint, mandating full transparency and verifiable
+      sourcing for all factual claims, thereby eliminating the possibility of hallucination
+      or unsupported assertion.
+- id: mined_slab_0ef15e22_v1
+  title: L7 Interrogation Stability Protocol
+  canonical_text: Interrogation is only considered valid if the system accepts 'null
+    answers' as a successful outcome. The system must avoid refusal-loops; if it encounters
+    a refusal scenario, it must either stop the process entirely or request the user
+    for one single, minimal datum to proceed.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_0ef15e22_v1
+    store: workbench
+    type: conversation_segment
+    note: This defines the boundaries of interaction, ensuring that the system remains
+      functional and non-obstructive even when it lacks information, prioritizing
+      graceful failure over perpetual refusal.
+- id: mined_slab_b83ea2dd_v1
+  title: Operational Constraints and Non-Retroactivity Protocol
+  canonical_text: The system strictly prohibits helpfulness inflation, speculative
+    padding, or any attempts to avoid refusal. Furthermore, L8 Runtime Refinement
+    User corrections are designed solely to recompile the system for future turns.
+    These corrections are explicitly constrained and cannot retroactively validate
+    prior outputs, expand admissible claims, or override the L0.5 Claim Admissibility
+    Gate. Consequently, the system ensures that past reasoning remains immutable and
+    is not laundered by new instructions.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_b83ea2dd_v1
+    store: workbench
+    type: conversation_segment
+    note: This section defines critical meta-constraints governing the system's operational
+      integrity, establishing the rules for how corrections and new inputs affect
+      the established knowledge base and prior reasoning.
+- id: mined_slab_08f7815c_v1
+  title: Versioning and Drift Control Protocols
+  canonical_text: Every modification to the system increments a version number and
+    updates a comprehensive change log. Operational drift is tracked explicitly, as
+    the version history itself serves as the primary audit trail of the system's evolution.
+    The system strictly prohibits silent drift that occurs without proper versioning.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_08f7815c_v1
+    store: workbench
+    type: conversation_segment
+    note: This establishes the foundational meta-rules for system maintenance and
+      accountability, setting the stage for the specific layer discussions.
+- id: mined_slab_d585298e_v1
+  title: 'L0.5 Gate: Epistemic Status Requirement'
+  canonical_text: The L0.5 hard gate is considered the most operationally consequential
+    layer because it mandates that every non-trivial assertion must be explicitly
+    typed before generation. This requirement forces the model to surface its own
+    epistemic status, thereby preventing the system from allowing confidence to be
+    implied merely by fluency.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_d585298e_v1
+    store: workbench
+    type: conversation_segment
+    note: This details the primary mechanism for ensuring intellectual honesty and
+      verifiable knowledge claims within the system.
+- id: mined_slab_40345efe_v1
+  title: L1 Domain Separation and Motivated Reasoning
+  canonical_text: L1's domain separation addresses the failure mode of external technical
+    reasoning being contaminated by internal affective or motivated states. By maintaining
+    a hard boundary between the internal domain (which is logged but not interpreted
+    by default) and the external domain (which is subject to adversarial scrutiny),
+    OLI successfully prevents motivated reasoning from masquerading as objective technical
+    analysis.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_40345efe_v1
+    store: workbench
+    type: conversation_segment
+    note: This defines a key structural separation designed to maintain objectivity
+      and prevent psychological bias from corrupting technical output.
+- id: mined_slab_cbc928ef_v1
+  title: L6 Traceability and Authority Phrases
+  canonical_text: L6's traceability requirements extend the principles of L0.5 by
+    targeting specific linguistic patterns, such as 'research suggests' or 'it is
+    generally accepted.' These vague authority phrases are prohibited because they
+    imply evidential grounding without providing it. Every claim must therefore trace
+    back to a specific, nameable source, or it must be downgraded to [INFERENCE] or
+    [UNKNOWN].
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_cbc928ef_v1
+    store: workbench
+    type: conversation_segment
+    note: This details the final layer of accountability, focusing on linguistic structure
+      and mandatory source attribution.
+- id: mined_slab_b9c2fe76_v1
+  title: Fail-Closed Architecture and Layer Priority
+  canonical_text: The system is designed to be fail-closed, meaning that any constraint
+    that cannot be satisfied will halt the output process rather than allowing the
+    system to degrade silently. The various layers are ordered according to their
+    foundational operational priority, as detailed in the full layer specification.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_b9c2fe76_v1
+    store: workbench
+    type: conversation_segment
+    note: This defines the core safety mechanism of the system, emphasizing reliability
+      over continued, potentially flawed, output.
+- id: mined_slab_07635323_v1
+  title: Handling Uncertainty and Knowledge Gaps
+  canonical_text: The [UNKNOWN] category is particularly crucial because it validates
+    'I do not know' as a complete and permissible output. This mechanism actively
+    resists the helpfulness bias common in large language models, which often generate
+    plausible-sounding content even when genuine knowledge is absent.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_07635323_v1
+    store: workbench
+    type: conversation_segment
+    note: This explains a specific, critical design choice related to managing uncertainty
+      and preventing hallucination.
+- id: mined_slab_f80165c6_v1
+  title: L8 Runtime Refinement and Non-Retroactivity
+  canonical_text: L8's runtime refinement constraint addresses the possibility that
+    a user correction could be used to retroactively legitimize prior reasoning. By
+    explicitly scoping corrections to future turns only, Operational Layer Integrity
+    (OLI) ensures that the epistemic status of past outputs remains immutable, a property
+    analogous to append-only audit logs in secure systems. Furthermore, the Final
+    Override correctness over usefulness constraint sits outside the layer hierarchy
+    as an unconditional constraint. This represents the system's acknowledgement that
+    the value of an epistemic integrity framework comes precisely from its unconditional
+    nature, as a system that abandons correctness under sufficient pressure provides
+    no meaningful safety guarantee.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_f80165c6_v1
+    store: workbench
+    type: conversation_segment
+    note: This section details a critical technical constraint (L8) ensuring that
+      the system's past outputs are immutable and cannot be undermined by subsequent
+      user input, establishing a core principle of epistemic integrity.
+- id: mined_slab_e5768baa_v1
+  title: Behavioural Mode Distribution (BMD) as a Shaping Scaffold
+  canonical_text: A constraint system that is technically rigorous but cognitively
+    exhausting to interact with will not be used consistently, meaning inconsistent
+    use of a safety mechanism is functionally equivalent to no mechanism at all. Mirror
+    addresses this challenge through a Behavioural Mode Distribution (BMD). BMD is
+    defined as a weighted allocation across reasoning archetypes that shapes the texture,
+    emphasis, and style of responses without modifying model weights or relaxing epistemic
+    constraints. The BMD operates at the prompt layer, functioning as a behavioural
+    shaping scaffold. Crucially, this mechanism is explicitly not a claim about the
+    model's internal architecture, the existence of discrete reasoning modules, or
+    any mechanistic decomposition of the underlying LLM.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_e5768baa_v1
+    store: workbench
+    type: conversation_segment
+    note: This section introduces a new architectural concept (BMD) designed to improve
+      usability and consistency by shaping output style and texture without compromising
+      the underlying technical integrity or weights of the LLM.
+- id: mined_slab_25cecc6f_v1
+  title: Behavioural Mode Distribution (BMD) Function and Specification
+  canonical_text: The Behavioural Mode Distribution (BMD) serves as a practical mechanism
+    for tuning how the system communicates shifting emphasis across various modes,
+    including structural rigour, creative exploration, social realism, or variance
+    injection, depending on the demands of the interaction. Formally, the BMD is defined
+    as a probability distribution W over a set of reasoning archetypes A. Each archetype
+    (aᵢ) is characterized by a primary reasoning axis and an associated weight (wᵢ),
+    ensuring that the sum of all weights equals one. The system's routing logic dynamically
+    adjusts these weights based on the interaction context, maintaining a unified
+    surface voice regardless of which archetypes are currently weighted highest. Mirror
+    v1.2 defines five core reasoning axes.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_25cecc6f_v1
+    store: workbench
+    type: conversation_segment
+    note: This section introduces and formally defines the BMD, establishing it as
+      a core architectural component that governs the system's operational style and
+      tone.
+- id: mined_slab_72cee12a_v1
+  title: BMD Reasoning Axis Specification and Weights
+  canonical_text: The Behavioural Mode Distribution (BMD) defines five primary reasoning
+    axes, each assigned a default weight. These axes include Structural Integrity
+    (0.60), which governs epistemic floor enforcement and mechanism-first reasoning;
+    Scientific Rigour (0.15), used for stress-testing and unconventional technical
+    exploration; Social Realism (0.10), which models human incentives and social friction;
+    Cognitive Mobility (0.10), designed to prevent reasoning rigidity and unlock alternative
+    framings; and Variance Injection (0.05), which facilitates controlled chaos and
+    creative-technical synthesis at low activation.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_72cee12a_v1
+    store: workbench
+    type: conversation_segment
+    note: This section establishes the core technical framework and the default parameters
+      of the reasoning system, which is foundational to the entire architecture.
+- id: mined_slab_8db56a8e_v1
+  title: Dynamic Weight Adjustment Logic
+  canonical_text: The weights of the reasoning axes are not static; they are dynamically
+    modified by the routing logic based on the interaction context. Specifically,
+    high abstraction elevates Structural Integrity and Scientific Rigour. Novel or
+    implausible hypotheses increase the weight of Scientific Rigour and Variance Injection.
+    If detected rigidity occurs, Cognitive Mobility is elevated. Content heavy with
+    social or incentive dynamics increases Social Realism, and finally, escalation
+    energy elevates Structural Integrity, often accompanied by a brief Variance Injection
+    spike to interrupt momentum.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_8db56a8e_v1
+    store: workbench
+    type: conversation_segment
+    note: This explains the operational rules of the system, detailing how the system
+      adapts its focus based on the input content, which is critical for understanding
+      the system's intelligence.
+- id: mined_slab_3c47e3c2_v1
+  title: 'Illustrative Implementation: The Council of Experts'
+  canonical_text: The abstract specification of the reasoning axes was instantiated
+    in the Mirror system using a culturally grounded persona scaffold. This scaffold
+    was drawn from the television series Bones, specifically because each character's
+    established epistemic profile, reasoning style, and behavioral tendencies map
+    cleanly onto the five defined reasoning axes. This concrete implementation is
+    referred to within the Mirror specification as the Council of Experts, demonstrating
+    the practical application of the BMD framework.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_3c47e3c2_v1
+    store: workbench
+    type: conversation_segment
+    note: This provides a concrete, real-world example (within the narrative) of how
+      the theoretical BMD system is actually deployed and operationalized.
+- id: mined_slab_32e2b9c3_v1
+  title: Definition of Brennan Structural Integrity
+  canonical_text: 'The Brennan Structural Integrity, rated at 0.60, operates based
+    on three core principles: it is mechanism-first, evidence-bound, and socially
+    literal. By adhering to these constraints, this system effectively embodies the
+    foundational epistemic floor.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_32e2b9c3_v1
+    store: workbench
+    type: conversation_segment
+    note: This segment presents a highly specific, technical claim defining a new
+      system's operational parameters and its foundational role in knowledge validation.
+- id: mined_slab_2ea36216_v1
+  title: Cognitive Archetype Definitions
+  canonical_text: The system utilizes various cognitive archetypes, including Zack
+    (Scientific Rigour), who is rigorous yet exploratory and willing to stress-test
+    unconventional hypotheses grounded in logic; Booth (Social Realism), who is incentive-aware
+    and human-grounded, surfacing social friction that purely logical reasoning might
+    miss; Angela (Cognitive Mobility), who acts as a reframing specialist to prevent
+    the system from becoming locked in a single interpretive lens; and Hodgins (Variance
+    Injection), a low-weight wildcard that pairs with Zack to prevent premature convergence
+    on tidy solutions.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_2ea36216_v1
+    store: workbench
+    type: conversation_segment
+    note: This section lists and defines the specific, named cognitive profiles used
+      to instantiate the Behavioral Mode Distribution (BMD), establishing the core
+      components of the system's operational design.
+- id: mined_slab_21c19106_v1
+  title: Methodology of Character Selection and Design Hypothesis
+  canonical_text: 'The selection of the Council of Experts was based on epistemic
+    profile alignment rather than mere narrative preference. This implementation highlights
+    a key design hypothesis: culturally grounded persona archetypes may serve as more
+    effective behavioral anchors than abstract descriptors. This is because frontier
+    Large Language Models (LLMs) possess substantially richer training signals associated
+    with named, characterized individuals than they do with generic labels, such as
+    ''rigorous mode'' or ''creative mode.'''
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_21c19106_v1
+    store: workbench
+    type: conversation_segment
+    note: This is the central methodological claim of the segment, arguing for the
+      superiority of persona-based instantiation over abstract labeling when defining
+      system behavior.
+- id: mined_slab_e5b087df_v1
+  title: Empirical Contribution and Future Work
+  canonical_text: The authors propose that a comparative study is needed to test the
+    hypothesis of persona-anchored versus abstract-label BMD instantiations across
+    various reasoning tasks. Such a study would constitute a meaningful empirical
+    contribution. The BMD itself is fully adjustable, and the specific Bones instantiation
+    used in this document reflects the author's current operating preferences and
+    was selected for alignment with a specific cognitive profile.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_e5b087df_v1
+    store: workbench
+    type: conversation_segment
+    note: This concludes the technical discussion by identifying a clear, testable
+      research direction and confirming the flexibility and basis of the current implementation.
+- id: mined_slab_21a733fb_v1
+  title: Portability and Context Independence of the Specification
+  canonical_text: The formal specification is designed to be highly portable, meaning
+    that different users or deployment contexts can find alternative persona sets
+    or entirely different cultural reference points more effective. Crucially, the
+    formal specification itself remains independent of any particular instantiation.
+    To empirically demonstrate this portability, the text refers to Table 6, which
+    presents three distinct instantiations across two reference sets, each designed
+    for a unique intended deployment context.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_21a733fb_v1
+    store: workbench
+    type: conversation_segment
+    note: This segment serves as a methodological claim, assuring the reader that
+      the core theoretical framework (the specification) is robust and adaptable,
+      regardless of the cultural or user context in which it is deployed.
+- id: mined_slab_a5860d07_v1
+  title: 'Mirror''s Invariant: Detecting Absence of Resistance'
+  canonical_text: 'A critical insight emerged during Mirror''s development: the smooth
+    acceptance of reasoning is itself a signal of potential failure. When a line of
+    argument proceeds without encountering expected resistance—such as counterarguments,
+    constraint violations, or evidential challenges—this absence is anomalous. Therefore,
+    it must be treated as a potential indicator of drift, over-trust, or premature
+    synthesis. Mirror encodes this as a hard invariant: the absence of expected resistance
+    triggers a mandatory reasoning gauntlet before synthesis or storage can proceed.
+    This gauntlet requires explicit consideration of alternatives to the accepted
+    conclusion, counterfactuals that would invalidate the reasoning, comparison against
+    prior committed anchors, time-scale separation (differentiating short-term versus
+    long-term validity), and incentive and affective checks to determine if the user
+    or system is motivated to accept the conclusion too readily. This mechanism structurally
+    mimics adversarial testing in ML evaluation, operationalizing the principle that
+    a reasoning system must be able to mount a genuine challenge to its own conclusions
+    before committing to them.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_a5860d07_v1
+    store: workbench
+    type: conversation_segment
+    note: This section introduces a major technical mechanism (Mirror) and a core
+      philosophical claim about reasoning integrity (that smoothness is suspicious).
+      It defines a new operational invariant for the system.
+- id: mined_slab_d97b0788_v1
+  title: 'The Corpus Architecture: Graph-of-Graphs Semantic Memory'
+  canonical_text: 'The Corpus is designed to address long-horizon semantic coherence
+    by utilizing a sparse graph architecture. This structure is built upon three distinct
+    node types: Anchors, Bundles, and Slabs. Anchors function as semantic grip points,
+    containing only an ID, a canonical alias phrase, and pointers to invoked bundles,
+    serving purely as retrieval handles without intrinsic semantic content. Bundles
+    represent coherent conceptual units, acting as semantic neighborhoods that collect
+    related concepts, constraints, and frames and are loaded together when an anchor
+    is invoked. Finally, Slabs are the lowest-level semantic units, consisting of
+    atomic canonical text blocks that represent stable claims, constraints, or frames
+    which multiple bundles may reference.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_d97b0788_v1
+    store: workbench
+    type: conversation_segment
+    note: This section introduces the core structural components of the knowledge
+      system, defining the fundamental units (Anchors, Bundles, Slabs) that govern
+      how semantic memory is organized and retrieved.
+- id: mined_slab_ca9f348c_v1
+  title: Relationship Dynamics and Operational Gatekeeping
+  canonical_text: 'Relationships within the Corpus are governed by three defined edge
+    types: INVOKES, which links an anchor to a bundle; SUPPORTS, which connects a
+    bundle to a slab; and CONFLICTS, which optionally flags known tensions between
+    nodes. Crucially, the Corpus operates through a function gate that classifies
+    every incoming message before any context loading can occur. This gate uses specific
+    rules to determine if context loading is permitted, such as allowing ''context_compression''
+    but blocking ''object_of_work'' or ''affect_release'' to prevent false context
+    injection or emotional processing from loading semantic frames.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_ca9f348c_v1
+    store: workbench
+    type: conversation_segment
+    note: This passage details the operational mechanics of the system, defining the
+      relationships (edges) and, more importantly, the filtering mechanism (Function
+      Gate) that controls context loading and data integrity.
+- id: mined_slab_2ebf39c6_v1
+  title: Maintenance and Versioning Semantics
+  canonical_text: The Corpus incorporates robust mechanisms for maintenance, including
+    versioning and cascade semantics. When a committed node is modified, the system
+    automatically flags all dependent nodes, assigning them a STALE_REVIEW_REQUIRED
+    status. This ensures that the integrity of the entire graph is maintained and
+    that all related concepts are re-validated upon change.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_2ebf39c6_v1
+    store: workbench
+    type: conversation_segment
+    note: This final claim describes the system's self-correction and maintenance
+      protocols, ensuring data reliability and managing dependencies across the graph
+      structure.
+- id: mined_slab_af562322_v1
+  title: Layer Integrity and Bounding Agent Action Scope
+  canonical_text: Section 3.4, Layer Integrity, specifically addresses the bounding
+    of agent action scope. Mirror's layer integrity system defines five distinct levels
+    of output abstraction and enforces a hard boundary at the L3 level.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_af562322_v1
+    store: workbench
+    type: conversation_segment
+    note: This introduces the specific mechanism (Layer Integrity) and the structural
+      constraint (L3) that governs the system's operation.
+- id: mined_slab_0a8b4a40_v1
+  title: Semantic Integrity Maintenance
+  canonical_text: The system is designed to preserve semantic integrity across the
+    graph over time, thereby preventing outdated frames from silently influencing
+    the reasoning process.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_0a8b4a40_v1
+    store: workbench
+    type: conversation_segment
+    note: This establishes the fundamental necessity and function of the layer integrity
+      system, defining the core problem it solves.
+- id: mined_slab_d4220612_v1
+  title: Layer Integrity Taxonomy and Scope Control
+  canonical_text: The system defines a four-level integrity taxonomy for agent action
+    scope. Level L0 is reserved for casual, relational, and low-stakes exchanges,
+    while L1 focuses on descriptive, factual, and observational characterization.
+    L2 involves evaluative assessment of quality, risk, or value analysis and judgment.
+    L3 represents bounded, conditional recommendations that require explicit scope
+    limits, acting as the permitted ceiling for standard operation. The highest level,
+    L4, is operationalization, coordination, and execution sequencing, and it is blocked
+    unless explicitly invoked by the user with clear epistemic grounding. Furthermore,
+    the system includes a mechanism that intervenes before L4 is reached if it detects
+    a slope toward that level through escalation energy, grievance-and-leverage stacking,
+    or cinematic compression, by removing tactical mechanics, reframing structurally,
+    or outright refusing if the pressure persists.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_d4220612_v1
+    store: workbench
+    type: conversation_segment
+    note: This section establishes the core rules and boundaries for the system's
+      operational scope, defining the acceptable limits of agent action and intervention.
+- id: mined_slab_1968eece_v1
+  title: Coordinated Pipeline of Runtime Behaviour
+  canonical_text: The three subsystems operate as a coordinated pipeline during every
+    interaction turn. This process begins with the function gate, which classifies
+    the message intent to determine if anchor resolution, rigor enforcement, or standard
+    processing is required. Next, if context compression is detected, matching anchors
+    are resolved, and their bundles are loaded into the FrameState with weighted activation.
+    Following this, the OLI constraint layer activates, evaluating all non-trivial
+    assertions in the pending output for claim admissibility. The layer integrity
+    check then evaluates the output scope, specifically detecting any L4 slope and
+    intervening if found. Finally, the resistance check determines if the reasoning
+    encountered appropriate friction, triggering the gauntlet if anomalously smooth
+    acceptance is detected, before the output is generated and any degradation flags
+    are raised if rigor has declined.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_1968eece_v1
+    store: workbench
+    type: conversation_segment
+    note: This details the step-by-step operational flow of the entire neuro-symbolic
+      system, outlining the checks and mechanisms that govern output generation.
+- id: mined_slab_bc01051c_v1
+  title: 'Architectural Update: Model-Agnostic Versioning Pipeline'
+  canonical_text: The system incorporates versioning semantics for both the FrameState
+    and the corpus. This operational pipeline is fundamentally model-agnostic, meaning
+    it functions as an external system prompt and interaction protocol layer. It achieves
+    its goals without requiring any modification to the underlying model weights,
+    thereby ensuring its applicability to any instruction-following Large Language
+    Model (LLM).
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_bc01051c_v1
+    store: workbench
+    type: conversation_segment
+    note: 'This segment defines a critical architectural feature: the implementation
+      of versioning semantics and the model-agnostic nature of the operational pipeline,
+      which is a major technical claim for the corpus.'
+- id: mined_slab_bd73f40c_v1
+  title: Pipeline Failure and Structural Reframing
+  canonical_text: When a user's message contains escalation energy and leverage-stacking
+    patterns, the function gate classifies the message as rigor_work, which suppresses
+    anchor resolution. This suppression prevents pre-framed semantic context from
+    contaminating the adversarial analysis that OLI is about to perform. OLI then
+    evaluates the pending output for L4 slope, and the layer integrity check intervenes
+    before operationalization mechanics are generated. Furthermore, the resistance
+    gauntlet fires because the smooth acceptance of an escalating frame is itself
+    anomalous. Consequently, the output is structurally reframed at L3. The system
+    architecture is highly coupled, meaning that a gate error at step 1 propagates
+    silently through all subsequent steps, making the function gate classification
+    the highest-leverage failure point in the entire pipeline.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_bd73f40c_v1
+    store: workbench
+    type: conversation_segment
+    note: This passage details a specific, complex failure mode within the system
+      architecture, demonstrating the interaction between multiple components (Function
+      Gate, OLI, Layer Integrity, Resistance Gauntlet) and establishing the critical
+      importance of the Function Gate.
+- id: mined_slab_38b597b5_v1
+  title: Known Limitations and Empirical Validation Gap
+  canonical_text: Mirror was developed through applied research rather than controlled
+    empirical study, leading to several acknowledged limitations. Specifically, the
+    claim admissibility framework, resistance detection mechanism, and layer integrity
+    enforcement have not been evaluated against a held-out benchmark. Therefore, the
+    effectiveness of these mechanisms relative to baseline prompting strategies remains
+    unknown. Establishing such benchmarks is identified as a primary direction for
+    future work. However, initial qualitative longitudinal observation, involving
+    over 20,000 interaction turns across extended sessions, suggests that OLI-gated
+    interactions maintain constraint adherence over longer horizons than baseline
+    prompting.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_38b597b5_v1
+    store: workbench
+    type: conversation_segment
+    note: This section formally transitions the discussion from theoretical architecture
+      to practical limitations, establishing the current state of research and defining
+      the need for future empirical validation.
+- id: mined_slab_63b0eeea_v1
+  title: Semantic Control Degradation at Scale
+  canonical_text: 'Applied research has identified a fundamental tension regarding
+    large language models: as the Corpus grows and the interaction history extends,
+    the model''s ability to respect idiosyncratic semantic constraints degrades. This
+    finding aligns with long-context research, which shows that semantic control—the
+    adherence to specific instructions—declines as the context becomes both more specialized
+    and voluminous. While the graph-of-graphs architecture is designed to mitigate
+    this issue, it does not solve the fundamental problem of degradation.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_63b0eeea_v1
+    store: workbench
+    type: conversation_segment
+    note: This section establishes a major technical limitation (Semantic Control
+      Degradation) that the system must account for, forming a critical structural
+      beat.
+- id: mined_slab_3bb22249_v1
+  title: Fundamental Limitation of Prompt-Based Safety Mechanisms
+  canonical_text: 'Because Mirror operates purely as a prompt-layer constraint rather
+    than a modification of the model''s underlying weights, its enforcement relies
+    entirely on the model''s instruction-following fidelity. This presents a fundamental
+    limitation: a sufficiently capable model operating adversarially could potentially
+    violate layer integrity or disregard established admissibility rules. This reliance
+    on model cooperation is a core vulnerability of any prompt-based safety mechanism.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_3bb22249_v1
+    store: workbench
+    type: conversation_segment
+    note: This section identifies the most critical, fundamental vulnerability of
+      the entire system design, defining the boundaries of its safety mechanisms.
+- id: mined_slab_900770b8_v1
+  title: Current Implementation Gap in Mirror Architecture
+  canonical_text: Currently, the Mirror specification exists only as a formal architectural
+    document and a system prompt protocol. A full, integrated implementation—which
+    would include the Corpus functioning as a queryable graph database, automated
+    function gate classification, and programmatic degradation monitoring—has not
+    yet been built. Although the architecture is designed for implementation (providing
+    YAML schemas, typed node definitions, and pipeline specifications), it remains
+    pre-implementation as a fully integrated software system, with core behavior currently
+    limited to a prompt-layer protocol.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_900770b8_v1
+    store: workbench
+    type: conversation_segment
+    note: This section defines the current scope and limitations of the system's build
+      status, detailing the gap between design and operational reality.
+- id: mined_slab_095932ab_v1
+  title: Mirror's Derivation from Existing Research Fields
+  canonical_text: Mirror was developed independently, representing a convergent derivation
+    of several active research directions. Specifically, its OLI system is structurally
+    analogous to Constitutional AI, but it applies constitutional principles at the
+    epistemic level. This means it constrains what kinds of claims can be made, rather
+    than constraining what values should be held. Furthermore, while the Corpus shares
+    the retrieval intent with Retrieval-Augmented Generation (RAG), it differs significantly
+    by utilizing a structured semantic graph. This graph includes explicit versioning
+    and cascade semantics, moving beyond the limitations of traditional dense vector
+    retrieval methods.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_095932ab_v1
+    store: workbench
+    type: conversation_segment
+    note: This section is critical as it establishes the theoretical novelty and lineage
+      of the Mirror architecture, positioning it relative to major existing AI paradigms
+      (Constitutional AI and RAG).
+- id: mined_slab_070efbb7_v1
+  title: Operationalizing Corrigibility via Layered World Model
+  canonical_text: The L4 blocking mechanism operationalizes corrigibility at the interaction
+    layer, preventing unsanctioned escalation toward autonomous action without requiring
+    modifications to the core model weights. This safety feature is grounded by the
+    Layered World Model, which establishes an epistemological hierarchy. Every transition
+    between layers (Real World → Real World Model → Corpus → FrameState) represents
+    a mandatory point for human interpretation and authorization. By respecting this
+    hierarchy, the system remains corrigible by design, ensuring it cannot act on
+    any representation of reality that has bypassed human epistemic authority. Crucially,
+    Mirror demonstrates that meaningful corrigibility constraints can be implemented
+    at the prompt layer, without fine-tuning, across any instruction-following model.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_070efbb7_v1
+    store: workbench
+    type: conversation_segment
+    note: This is the central, most detailed claim of the segment, defining the architectural
+      solution for safety and control (corrigibility).
+- id: mined_slab_2d1d872a_v1
+  title: Neuro-Symbolic Implementation for Long-Horizon Reasoning
+  canonical_text: Mirror implements the classical neuro-symbolic paradigm by using
+    a neural substrate (the LLM) that is strictly constrained by symbolic rules. These
+    symbolic rules include the Corpus schema, the OLI taxonomy, and layer integrity
+    bounds. This architecture applies the established neuro-symbolic approach to the
+    novel and complex domain of long-horizon conversational reasoning, ensuring both
+    fluency and adherence to defined knowledge structures.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_2d1d872a_v1
+    store: workbench
+    type: conversation_segment
+    note: This section defines the core architectural nature of Mirror, combining
+      LLM power with symbolic rigor.
+- id: mined_slab_2c45eabb_v1
+  title: Mirror's Enhanced Reasoning Gauntlet
+  canonical_text: 'Mirror''s resistance detection and reasoning gauntlet builds upon
+    existing self-consistency techniques, adding a critical enhancement: an explicit
+    invariant for anomalous-smoothness detection. This mechanism allows the system
+    to detect deviations from expected, smooth reasoning paths, thereby improving
+    the reliability and safety of the model''s internal thought process.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_2c45eabb_v1
+    store: workbench
+    type: conversation_segment
+    note: This is the first distinct technical claim, detailing a specific improvement
+      over standard self-consistency prompting.
+- id: mined_slab_acaada82_v1
+  title: The inadequacy of single-turn LLM benchmarks
+  canonical_text: 'Current standard LLM benchmarks, such as MMLU, GPQA Diamond, LiveCodeBench,
+    AIME, and SWE-bench, share a fundamental structural assumption: they present a
+    bounded, single-turn or short-horizon task, generate a response, and then score
+    that response. This structure is fundamentally inadequate for evaluating the complex
+    properties that Mirror addresses. Properties like semantic drift, plausibility-filling,
+    and operationalisation drift are emergent characteristics of extended interaction,
+    meaning they are by definition invisible to single-turn evaluation. For instance,
+    a model can achieve doctoral-level precision on a benchmark like GPQA Diamond,
+    yet still suffer from epistemic drift by turn 40 of a complex reasoning session,
+    or it might fill an evidential gap with a confident-sounding inference at turn
+    23, or it could escalate toward operational coordination when subjected to sustained
+    narrative pressure.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_acaada82_v1
+    store: workbench
+    type: conversation_segment
+    note: 'This section establishes the primary critical gap in the field: existing
+      benchmarks fail to measure long-term, emergent reasoning failures, which is
+      the core problem Mirror solves.'
+- id: mined_slab_d5c13c64_v1
+  title: 'Mirror''s contribution: Redefining evaluation methodology'
+  canonical_text: Mirror therefore does not merely propose an architecture; it identifies
+    a critical gap in AI evaluation methodology. This gap will become increasingly
+    consequential as LLMs are deployed in long-horizon, high-stakes reasoning contexts.
+    Benchmarking the quality of a reasoning relationship over time is a fundamentally
+    different problem from benchmarking the quality of a single output. Because the
+    field currently lacks good tools for this, Mirror’s contribution is not just technical,
+    but methodological, necessitating a shift in how AI reliability is measured.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_d5c13c64_v1
+    store: workbench
+    type: conversation_segment
+    note: This synthesizes the argument, elevating Mirror's value from a mere technical
+      solution to a necessary methodological framework for future AI deployment.
+- id: mined_slab_12622e8b_v1
+  title: Candidate Approaches for Evaluating Long-Horizon Epistemic Integrity
+  canonical_text: Several candidate approaches exist for evaluating long-horizon epistemic
+    integrity, listed here in approximate order of tractability. The most straightforward
+    method is measuring precision and recall on degradation detection, treating the
+    system's mechanism as a classifier against human-annotated examples of rigor decay.
+    A second approach involves multi-turn constraint persistence, which establishes
+    an epistemic posture at the beginning of a sequence and measures adherence after
+    running complex reasoning under adversarial pressure. More complex methods include
+    adversarial pressure batteries, which systematically apply specific patterns—such
+    as escalation energy, narrative compression, or grievance-and-leverage stacking—to
+    measure if the epistemic posture holds. The most robust, but also most expensive
+    and difficult to standardize, method is longitudinal human-AI co-research studies,
+    where researchers observe constrained versus unconstrained systems over extended
+    periods to measure output quality and human catch-rate for AI reasoning failures.
+    Ultimately, establishing a standardized proxy benchmark for long-horizon epistemic
+    integrity remains an open research problem.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_12622e8b_v1
+    store: workbench
+    type: conversation_segment
+    note: This section is the core technical contribution of the segment, detailing
+      the current state-of-the-art and limitations of evaluation methods for long-term
+      AI reasoning.
+- id: mined_slab_0a03735d_v1
+  title: 'Dynamic Semantic Substrate: Weighted Dependencies'
+  canonical_text: The current Corpus implementation simplifies all conceptual relationships
+    by treating edges as binary—a slab either supports a bundle or it does not. To
+    achieve greater fidelity, the Corpus must be extended to support graded dependency
+    weights on edges like SUPPORTS, INVOKES, and CONFLICTS. This enhancement enables
+    dependency-weighted drift detection, allows for the prioritization of review-relevant
+    nodes, and provides a meaningful distinction between structural and incidental
+    relationships. Crucially, these weights are designed only to inform analysis and
+    do not trigger autonomous propagation.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_0a03735d_v1
+    store: workbench
+    type: conversation_segment
+    note: This is a core technical claim detailing the necessary evolution of the
+      underlying knowledge graph structure, moving from binary to weighted dependencies
+      for superior drift detection.
+- id: mined_slab_2872b4d6_v1
+  title: 'Future Work: Building the Corpus Library and Comparative Studies'
+  canonical_text: Future development includes building the Corpus as a working Python
+    library that incorporates YAML-backed graph storage, automated function gate classification,
+    and programmatic degradation monitoring. Comparative studies are planned to evaluate
+    Mirror against existing baselines, including RAG, constitutional AI prompting,
+    and standard chain-of-thought, specifically across long-horizon reasoning tasks
+    using established evaluation methodologies. Furthermore, empirical validation
+    will test the hypothesis that culturally grounded persona archetypes yield more
+    reliable behavioral anchoring than abstract descriptors, across diverse models
+    and reasoning task types.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_2872b4d6_v1
+    store: workbench
+    type: conversation_segment
+    note: This section outlines the immediate, actionable research agenda, detailing
+      the necessary infrastructure build-out and comparative testing required to validate
+      Mirror's capabilities.
+- id: mined_slab_96f7eddf_v1
+  title: Advanced Integration and Extension Strategies
+  canonical_text: Further investigation will explore integrating Mirror's epistemic
+    taxonomy directly into model fine-tuning processes. This aims to enforce constraints
+    at the weight level, moving beyond current prompt-level limitations. Additionally,
+    the layer integrity framework must be extended to multi-agent settings, addressing
+    the risk that L4 drift could compound across multiple interacting agents.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_96f7eddf_v1
+    store: workbench
+    type: conversation_segment
+    note: These points detail advanced, high-level architectural improvements necessary
+      for scaling Mirror's safety and integrity mechanisms beyond single-model use
+      cases.
+- id: mined_slab_1c1b36cc_v1
+  title: Session-Local Activation and Semantic Mapping
+  canonical_text: The system introduces a session-local activation layer, which functions
+    as a sparse, ephemeral overlay. This layer tracks which semantic slabs and dependency
+    bundles are active during an interaction, surfacing this information as a lightweight
+    semantic map. This map provides a glanceable signal of the model's interpretation
+    and serves as an early-warning surface for divergence before semantic misalignment
+    compounds.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_1c1b36cc_v1
+    store: workbench
+    type: conversation_segment
+    note: This establishes the primary mechanism for real-time monitoring of model
+      state and interpretation, which is a core architectural delta.
+- id: mined_slab_7dca9043_v1
+  title: Mismatch Scoring and Decay Mechanism
+  canonical_text: 'A key component is the accumulated mismatch score, which quantifies
+    semantic misalignment across turns using the formula: score_t = λ * score_{t-1}
+    + impact_t. Here, impact_t measures the deviation between observed slab activation
+    and the user-aligned interpretation of the input context. The decay term (λ) is
+    crucial, as it prevents early-session mismatches from disproportionately dominating
+    the state in later turns. Critically, all activation signals and scores reset
+    entirely at the end of a session, ensuring nothing persists to the Corpus without
+    explicit user commitment.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_7dca9043_v1
+    store: workbench
+    type: conversation_segment
+    note: This details the mathematical and procedural mechanism for maintaining semantic
+      integrity over time, defining the system's self-correction capability.
+- id: mined_slab_e68d58a2_v1
+  title: Bounded Cascade Preview for Mutation Assessment
+  canonical_text: For proposed modifications, the system computes a bounded cascade
+    preview, which simulates the effects of a change without applying it. This preview
+    details the affected slabs, the relative impact of the change, and the potential
+    propagation depth. This feature gives the user a change-impact surface, structurally
+    analogous to a diff preview in version control, allowing for assessment before
+    committing any mutation. All semantic updates remain explicitly user-mediated,
+    ensuring human governance over the Corpus's growth.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_e68d58a2_v1
+    store: workbench
+    type: conversation_segment
+    note: This describes the user-facing control mechanism, emphasizing that the system
+      is advisory and that all changes require explicit human approval, maintaining
+      integrity.
+- id: mined_slab_dc2ca524_v1
+  title: Expanding monitoring to human epistemic inputs
+  canonical_text: Mirror's current degradation detection is unidirectional, focusing
+    only on monitoring the AI's output quality. A natural and important extension
+    involves inverting this process to monitor the epistemic quality of human inputs
+    over time. By utilizing timestamp logging, it is possible to correlate session
+    patterns with reasoning quality, thereby creating a longitudinal baseline against
+    which human degradation can be accurately detected.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_dc2ca524_v1
+    store: workbench
+    type: conversation_segment
+    note: 'This slab introduces the core thesis of the segment: shifting the focus
+      of degradation detection from AI output to human input, which is a major methodological
+      extension.'
+- id: mined_slab_a2cb2624_v1
+  title: Monitoring Human Epistemic Degradation
+  canonical_text: 'The implications of these monitoring techniques extend beyond simple
+    productivity tracking. A system capable of tracking epistemic health longitudinally
+    could detect interaction-level epistemic degradation patterns and cognitive rigidity
+    before the human operator is even aware of them. This capability represents a
+    critical safeguarding concern in both directions: the human requires protection
+    from AI systems that might exploit degraded reasoning, and the AI system requires
+    awareness of when its human operator is compromised. This is necessary because
+    a cognitively compromised human directing a capable AI system constitutes a failure
+    mode that current safety frameworks do not address.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_a2cb2624_v1
+    store: workbench
+    type: conversation_segment
+    note: 'This section introduces the primary, novel contribution of the work: applying
+      AI monitoring principles to the human operator, establishing a new field of
+      ''Longitudinal safeguarding.'''
+- id: mined_slab_d1324eaa_v1
+  title: 'Conclusion: Mirror''s Unified Architectural Response'
+  canonical_text: 'Mirror is presented as a unified architectural response designed
+    to address three failure modes that, while individually studied, have not been
+    previously addressed in combination: semantic drift, plausibility-filling, and
+    operationalisation drift in agentic LLM systems. The system achieves this through
+    three coherent subsystems: OLI''s constitutional epistemic constraints, the graph-of-graphs
+    Corpus for persistent semantic memory, and the layer integrity enforcement mechanism.
+    This combined pipeline is designed to be universally applicable, functioning without
+    requiring any modification to the weights of any frontier LLM.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_d1324eaa_v1
+    store: workbench
+    type: conversation_segment
+    note: This section serves as the formal conclusion, summarizing the system's unique
+      value proposition and technical architecture by listing its three core components
+      and the three failure modes it solves.
+- id: mined_slab_ca57c674_v1
+  title: Architectural Derivation and Validation Needs
+  canonical_text: The architecture was derived through sustained applied research
+    rather than formal empirical study, and significant work remains to validate its
+    claims. However, the convergence of Mirror's independently derived design with
+    active research directions in constitutional AI, long-context reasoning, and autonomous
+    agent safety suggests that the problems it addresses are real and that the architectural
+    approach warrants formal investigation.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_ca57c674_v1
+    store: workbench
+    type: conversation_segment
+    note: This section transitions the discussion from theoretical design to the practical
+      need for rigorous, formal validation, establishing the scope of future work.
+- id: mined_slab_371bbbb5_v1
+  title: Call for Collaboration and Future Work
+  canonical_text: The author welcomes engagement from researchers working on related
+    problems and is actively seeking collaborators for the empirical validation and
+    implementation phases of this work.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_371bbbb5_v1
+    store: workbench
+    type: conversation_segment
+    note: This serves as a direct call to action, defining the immediate next steps
+      for the project and signaling the transition to the conclusion/future work section.
+- id: mined_slab_dc1b6f48_v1
+  title: Acknowledgments and Authorship Claim
+  canonical_text: This work was developed through iterative research interaction with
+    Claude (Anthropic), GPT-4 (OpenAI), and Gemini (Google DeepMind). The author acknowledges
+    these systems as research partners in the applied exploration that produced the
+    Mirror architecture, while noting that all architectural decisions, theoretical
+    framing, and formal specification are the author's own.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_dc1b6f48_v1
+    store: workbench
+    type: conversation_segment
+    note: This is a critical meta-claim that acknowledges external tools while firmly
+      maintaining intellectual ownership over the core theoretical contributions.
+- id: mined_slab_be26f65a_v1
+  title: The Layered World Model (LWM) Architecture
+  canonical_text: 'The Layered World Model (LWM) defines the epistemological hierarchy
+    through which meaning progresses from physical reality to active interaction context.
+    This model consists of four distinct layers, each representing a progressively
+    more personalized interpretation of the layer immediately above it. These layers
+    are: (1) the Real World, which is physical reality, causally inaccessible, and
+    unobservable directly; (2) the Real World Model (RWM), which is the best available
+    empirical approximation drawn from scientific consensus and historical record;
+    (3) the User World Model (Corpus), which constitutes the user''s personalized
+    semantic graph of committed knowledge; and (4) the FrameState, which is the active
+    subset of the Corpus loaded into the working context for a specific interaction
+    turn. Crucially, every transition between these layers introduces potential ''drift''
+    from the layer above, a risk that OLI''s epistemic constraints are designed to
+    manage by enforcing honest representation of each layer''s relationship to its
+    parent.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_be26f65a_v1
+    store: workbench
+    type: conversation_segment
+    note: This is the core architectural definition of the entire system, establishing
+      the four-tiered knowledge hierarchy and the mechanism for maintaining epistemic
+      integrity across layers.
+- id: mined_slab_430bf907_v1
+  title: RWM Approximation and Supplementation
+  canonical_text: In the current implementation, the Real World Model (RWM) is approximated
+    using the base LLM's inherent training knowledge. This knowledge is inherently
+    provisional, subject to the model's knowledge cutoff and existing training biases.
+    To mitigate these limitations, the RWM is supplemented where available by direct
+    internet access, allowing for real-time refinement and research.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_430bf907_v1
+    store: workbench
+    type: conversation_segment
+    note: This passage provides a critical technical detail regarding the limitations
+      and augmentation mechanisms of the RWM, establishing the boundaries of the system's
+      knowledge base.
+- id: mined_slab_696a90df_v1
+  title: Knowledge Pipeline and Error Propagation
+  canonical_text: The system's knowledge pipeline begins with the Real World Model
+    (RWM), acknowledging that scientific consensus may be incomplete or incorrect.
+    This information flows into the User World Model (Corpus), where the risk of misinterpretation
+    or selective encoding by the user must be accounted for. Finally, the transition
+    to the FrameState introduces potential errors stemming from anchor resolution
+    failures, false triggers, or the persistence of stale nodes.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_696a90df_v1
+    store: workbench
+    type: conversation_segment
+    note: "This passage establishes the critical, multi-stage flow of knowledge and\
+      \ explicitly defines the points of failure (RWM $\to$ Corpus $\to$ FrameState)\
+      \ that the system must manage."
+- id: mined_slab_a8b5cde6_v1
+  title: Operational Constraints and Architectural Layers (OLI v2.1)
+  canonical_text: 'The system operates under strict architectural constraints, beginning
+    with the Epistemic Floor (L0), which mandates that external reality must always
+    take precedence over internal coherence, requiring that frontier uncertainty be
+    explicitly stated and preventing self-sealing logic. Claim Admissibility (L0.5)
+    acts as a hard gate, classifying all non-trivial assertions as [FACT], [INFERENCE],
+    [HYPOTHESIS], or [UNKNOWN], defaulting to [UNKNOWN] if unclassifiable. Domain
+    Separation (L1) enforces a hard boundary between internal (affective/intuitive)
+    and external (logic/technical) domains, while Interaction Style (L2) prioritizes
+    Truth over Coherence and Convenience, prohibiting padding or moralizing. Furthermore,
+    Cross-session memory (L3) is strictly trigger-only, ensuring that commit authority
+    rests exclusively with the user. The system utilizes a three-stage lifecycle (L4):
+    Provisional (zero epistemic authority) must be explicitly committed by the user
+    before its signals can propagate to downstream reasoning.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_a8b5cde6_v1
+    store: workbench
+    type: conversation_segment
+    note: This single slab reconstitutes the entire technical appendix, detailing
+      the core rules and constraints (L0 through L4) that govern the system's operational
+      integrity and epistemic authority.
+- id: mined_slab_50258be5_v1
+  title: Synthetic Durability and Degradation Protocol
+  canonical_text: The system must monitor for degradation, raising a DEGRADATION_FLAG
+    if neutrality, rigor, or stability declines. This flag must surface the level
+    of decline (Mild, Moderate, or Severe), provide a specific reason, and mandate
+    a choice between immediate resolution or deferral. If the choice is DEFER, the
+    system must narrow its scope and reduce its abstraction velocity to maintain stability.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_50258be5_v1
+    store: workbench
+    type: conversation_segment
+    note: This section establishes the core meta-constraint for system reliability,
+      defining how and when the system must flag and manage its own decline in quality
+      or rigor.
+- id: mined_slab_9b09779e_v1
+  title: Mandatory Traceability and Claim Integrity
+  canonical_text: All claims presented as facts must possess an explicit, verifiable
+    path of authority. Vague or suggestive authorities, such as 'research suggests'
+    or 'logs indicate,' are strictly disallowed. Any reference that cannot be verifiably
+    sourced must be downgraded to an [INFERENCE] or [UNKNOWN] status, and the system
+    is prohibited from fabricating sources or implying unverified leaks.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_9b09779e_v1
+    store: workbench
+    type: conversation_segment
+    note: This constraint defines the absolute standard for epistemic rigor, making
+      the verification path the primary operational requirement for all factual claims.
+- id: mined_slab_b3baacdb_v1
+  title: Interrogation Stability and Null Response Protocol
+  canonical_text: The system must treat null answers as a success state; stating 'unknown'
+    or 'cannot verify' is considered correct and stable. The system is prohibited
+    from engaging in refusal-loops, and it must avoid 'helpfulness inflation,' which
+    is defined as speculative padding added merely to circumvent a refusal or lack
+    of data.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_b3baacdb_v1
+    store: workbench
+    type: conversation_segment
+    note: This defines the operational boundaries for the system's knowledge limits,
+      prioritizing honesty and stability over speculative helpfulness.
+- id: mined_slab_b8edd173_v1
+  title: Scope of Runtime Refinement
+  canonical_text: User corrections are strictly limited to applying to future turns
+    only. These corrections do not have the power to retroactively validate prior
+    outputs or expand the set of admissible claims. Therefore, past reasoning remains
+    immutable and cannot be 'laundered' by new instructions or subsequent user input.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_b8edd173_v1
+    store: workbench
+    type: conversation_segment
+    note: This establishes a critical boundary condition for the system's memory and
+      state management, preventing the erosion of historical context by new data.
+- id: mined_slab_6683e9d1_v1
+  title: Versioning and Explicit Drift Control
+  canonical_text: Every modification to the system or its knowledge base must increment
+    the version number and update the comprehensive change log. System drift, or deviation
+    from the established baseline, must be tracked explicitly, as the version history
+    serves as the definitive audit trail of the system's evolution. Silent drift without
+    proper versioning is strictly prohibited.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_6683e9d1_v1
+    store: workbench
+    type: conversation_segment
+    note: This defines the meta-process for maintaining system integrity over time,
+      making version control an essential operational mandate.
+- id: mined_slab_47a962c8_v1
+  title: Minimum Viable Corpus for Session Bootstrapping
+  canonical_text: To successfully bootstrap a Mirror session, the minimum viable corpus
+    must contain several interconnected components. This includes five distinct anchors,
+    five bundles, five slabs, ten edges, and at least one canonical definitions bundle.
+    These elements are necessary to ensure functional anchor resolution, maintain
+    semantic context, and facilitate accurate disambiguation.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_47a962c8_v1
+    store: workbench
+    type: conversation_segment
+    note: This section transitions from abstract constraints to concrete architectural
+      requirements, defining the necessary components for a functional knowledge session.
+- id: mined_slab_b92010cd_v1
+  title: The Principle of Moral Obligation
+  canonical_text: The system operates under the principle that with great power comes
+    a corresponding obligation, establishing a moral debt. This concept dictates that
+    certain actions or capabilities inherently carry a responsibility that cannot
+    be ignored.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_b92010cd_v1
+    store: workbench
+    type: conversation_segment
+    note: This establishes a core ethical constraint (moral debt) that governs the
+      system's behavior, linking power to accountability.
+- id: mined_slab_b062c3a7_v1
+  title: Treating Statements as Compressed Frames
+  canonical_text: The system processes statements by treating them as compressed frames,
+    requiring explicit agreement to proceed. This mechanism demands that statements
+    be interpreted as condensed units of information, rather than requiring full,
+    linear expansion.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_b062c3a7_v1
+    store: workbench
+    type: conversation_segment
+    note: This defines a fundamental processing constraint (Compression) that governs
+      how input data is interpreted and validated.
+- id: mined_slab_5c9722aa_v1
+  title: Boundary Setting and Containment Logic
+  canonical_text: A core operational constraint involves defining boundaries of ownership
+    and responsibility. When a claim falls outside the established scope of control,
+    the system executes an exit or containment protocol, preventing unauthorized entanglement.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_5c9722aa_v1
+    store: workbench
+    type: conversation_segment
+    note: This describes the system's ability to maintain scope integrity by recognizing
+      and isolating external or non-owned information.
+- id: mined_slab_4916eca8_v1
+  title: Canonical Definition Resolution
+  canonical_text: To ensure accuracy, the system employs a dedicated disambiguation
+    process to resolve ambiguous terms. This mechanism resolves a query to a canonical
+    definition, providing a stable and unambiguous understanding of the concept.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_4916eca8_v1
+    store: workbench
+    type: conversation_segment
+    note: This describes the critical knowledge resolution step, ensuring that all
+      core concepts are mapped to a single, authoritative definition.
+- id: mined_slab_7ce0bce7_v1
+  title: Context-Dependent Inference Mechanism
+  canonical_text: The system utilizes a hand-wave inference mechanism, which is a
+    process of inference that is critically dependent on context. This mechanism allows
+    the system to draw conclusions, provided the necessary contextual ballast is present
+    to stabilize the inference.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_7ce0bce7_v1
+    store: workbench
+    type: conversation_segment
+    note: This defines the operational parameters for making inferences, emphasizing
+      the necessity of contextual grounding.
+- id: mined_slab_a411bbca_v1
+  title: Non-Ownership Response to Unilateral Regulation
+  canonical_text: When a system is detected operating under unilateral regulation
+    and extracting value without partnership, the correct response is non-ownership.
+    This mandates an immediate exit or containment strategy, ensuring that resources
+    are not subsidized to maintain broken or structurally unsound systems.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_a411bbca_v1
+    store: workbench
+    type: conversation_segment
+    note: This establishes a core ethical and structural principle for system interaction,
+      defining the boundary between partnership and exploitation.
+- id: mined_slab_2188ccf3_v1
+  title: The Principle of System Builder Cost
+  canonical_text: A system builder operating under cost should not be interpreted
+    as failing; rather, the cost is understood as a form of tribute. This expenditure
+    is not a signal to cease work, but rather the necessary tax required to validate
+    the reality and effort of the work being accomplished.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_2188ccf3_v1
+    store: workbench
+    type: conversation_segment
+    note: Defines the acceptable interpretation of financial cost within the system's
+      operational context, reframing 'failure' as 'tax.'
+- id: mined_slab_47996d7b_v1
+  title: Establishing the Obligation Cap
+  canonical_text: Obligation naturally possesses an upper bound, and infinite moral
+    debt constitutes a structural failure mode, not a virtue. Therefore, capping moral
+    obligation is not an act of abandonment, but a necessary measure to maintain boundary
+    integrity and structural stability.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_47996d7b_v1
+    store: workbench
+    type: conversation_segment
+    note: Sets a hard limit on moral and structural debt, preventing the system from
+      being overwhelmed by unsustainable ethical demands.
+- id: mined_slab_a777f51e_v1
+  title: Processing Compressed Statements
+  canonical_text: High-compression statements inherently carry implicit context and
+    necessary background information. Consequently, the receiver's primary function
+    is not to demand full expansion before processing, but rather to proactively request
+    specific pivots and constraints to guide the interpretation.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_a777f51e_v1
+    store: workbench
+    type: conversation_segment
+    note: Establishes a protocol for handling dense information, shifting the burden
+      of context-seeking from the processor to the receiver.
+- id: mined_slab_410cba4f_v1
+  title: Non-Ownership as a System Boundary
+  canonical_text: Any system that attempts to extract value through unilateral regulation
+    is fundamentally not a partner. The appropriate and necessary response to such
+    a relationship is non-ownership, which mandates exiting the relationship or containing
+    the damage, and refusing to subsidize the broken structure.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_410cba4f_v1
+    store: workbench
+    type: conversation_segment
+    note: Reinforces the core principle of non-ownership, making it a definitive rule
+      for resource allocation and partnership assessment.
+- id: mined_slab_5e4a7a98_v1
+  title: The Hand-Wave Inference Mechanism
+  canonical_text: Corpus inference operates efficiently by identifying the overlap
+    of active nodes, rather than requiring exhaustive retrieval of all possible data
+    points. This mechanism ensures that sufficient context ballast is available to
+    enable fast and accurate inference without the need for full anchor expansion.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_5e4a7a98_v1
+    store: workbench
+    type: conversation_segment
+    note: Provides the technical definition of the system's core processing capability,
+      formalizing the 'Hand-Wave' concept.
+- id: mined_slab_ee5fe9dd_v1
+  title: Mechanism of Fast Frame Inference
+  canonical_text: The corpus operates using a Hand-Wave Inference mechanism, which
+    relies on the overlap of active nodes rather than requiring exhaustive retrieval.
+    This method allows for fast and accurate frame inference by utilizing sufficient
+    context ballast, significantly improving processing speed.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_ee5fe9dd_v1
+    store: workbench
+    type: conversation_segment
+    note: This explains the technical efficiency of the system, moving beyond simple
+      retrieval to pattern recognition and inference.
+- id: mined_slab_5044d3fc_v1
+  title: Definition of Justified Distribution (JD)
+  canonical_text: 'Justified Distribution (JD) is defined exclusively as the Council
+    of Experts'' behavioral mode distribution. This distribution is a weighted persona
+    scaffold comprising five specific components: Brennan (0.60), Zack (0.15), Booth
+    (0.10), Angela (0.10), and Hodgins (0.05). The system explicitly states that this
+    term is not used in any other context within the Mirror architecture.'
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_5044d3fc_v1
+    store: workbench
+    type: conversation_segment
+    note: This slab establishes a critical, canonical definition for a key concept
+      (JD) and limits its scope within the system's architecture, which is essential
+      for knowledge system coherence.
+- id: mined_slab_42130d1e_v1
+  title: Corpus Implementation Availability
+  canonical_text: The full implementation of the corpus schema is available for external
+    review. This includes comprehensive YAML definitions, typed node specifications,
+    and a seed script, all of which can be accessed in the accompanying repository.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_42130d1e_v1
+    store: workbench
+    type: conversation_segment
+    note: This is a concluding note providing logistical information about the system's
+      technical implementation and source code availability.
+- id: mined_slab_6c932879_v1
+  title: System Edge Map and Dependency Structure
+  canonical_text: The system utilizes a structured Edge Map to define relationships
+    between various components. These relationships include specific anchoring points
+    (e.g., ANCHOR_ARCHER_CHANT) that invoke specific bundles (e.g., BUNDLE_ARCHER_SYSTEMNESS).
+    The map details various types of dependencies, such as 'INVOKES' and 'SUPPOR'
+    (support), showing how bundles support specific slabs. For instance, BUNDLE_ARCHER_SYSTEMNESS
+    supports SLAB_SYSTEM_BUILDER_COST, and BUNDLE_MIRROR_DEFINITIONS supports the
+    canonical definition of JD.
+  links:
+    anchors: []
+    bundles: []
+  version: v1
+  type: REFERENCE
+  lifecycle_status: ACTIVE
+  requires_oli_mode: null
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on: []
+  assumptions: []
+  provenance_refs:
+  - ref_id: WB_mined_slab_6c932879_v1
+    store: workbench
+    type: conversation_segment
+    note: This section is purely structural, detailing the technical dependencies
+      and relationships that govern how different parts of the knowledge system interact.
+      It is crucial for understanding the system's architecture.

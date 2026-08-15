@@ -7,6 +7,9 @@ from .enums import (
     MessageFunction, ChatStatus, DraftStatus, NodeType, EdgeType,
     OLIMode, L4Posture, DriftSeverity, DomainMode, DampeningLevel,
     ClaimTag, VerificationOutcome, MatchTier,
+    SlabType, SlabLifecycleStatus, MentionType,
+    GateStage, GateOutcome,
+    DialecticSubtype, EpistemicStatus,
 )
 
 
@@ -15,6 +18,7 @@ class MessageClassification(BaseModel):
     function: MessageFunction
     explicit: bool = False
     confidence: float = Field(ge=0.0, le=1.0)
+    mention_type: Optional[MentionType] = None
     notes: Optional[str] = None
 
 
@@ -28,6 +32,12 @@ class Chat(BaseModel):
     linked_drafts: list[str] = Field(default_factory=list)
     linked_commits: list[str] = Field(default_factory=list)
     last_frame_snapshot_ref: Optional[str] = None
+    # Phase 2A: every chat binds to a collection at creation. Drafts mined
+    # during this chat's turns stamp their raw sidecar's _target_collection
+    # with this value, so the worklist filters correctly in Drafts/Verify.
+    # Optional for backward compat — pre-2A chats default to "default" at
+    # read time. All new chats get this set by the creation endpoint.
+    collection_id: Optional[str] = None
 
 
 class ChatMessage(BaseModel):
@@ -62,16 +72,49 @@ class AnchorMatchPolicy(BaseModel):
         default_factory=lambda: [MessageFunction.CONTEXT_COMPRESSION]
     )
     format_gate: Optional[str] = None
-    min_confidence_exact: float = 0.8
-    min_confidence_fuzzy: float = 0.6
+    min_confidence_exact: float = 0.70   # §8 — exact/partial is reliable, lower bar
+    min_confidence_fuzzy: float = 0.90   # §8 — fuzzy is noisy, demand high confidence
 
 
 class Anchor(BaseModel):
     id: str
     canonical_phrase: str
     aliases: list[str] = Field(default_factory=list)
+    # Identity-facing twin of Slab.description. Same job as the slab
+    # description — one dense, retrieval-oriented sentence written FOR
+    # search — but redirected at IDENTITY instead of a claim: what kind of
+    # thing this concept or entity IS, and what would let someone recognize
+    # it's the one they're looking for. Third-person, self-contained,
+    # stable across the corpus rather than tied to one incident.
+    #
+    # PRIMARY PURPOSE — non-destructive dedup / correct alias classing.
+    # A source often names one entity many ways, so a single slab links
+    # several anchors that are really the SAME referent (Harry Potter /
+    # Harry / the boy who lived). Those excess anchors should collapse
+    # into one canonical anchor + aliases. But some phrases only LOOK like
+    # aliases — a proximity-driven merge would destroy a distinct concept.
+    # The description is the identity signal that lets dedup decide on
+    # sameness-of-referent instead of embedding distance. Three cases:
+    #   - true alias  (COLLAPSE): "the boy who lived" — same referent as
+    #     Harry Potter; fold into his alias list, drop the duplicate anchor.
+    #   - contested title (KEEP + edge): "The Chosen One" — a prophesied
+    #     role ambiguously contested between two candidates; contestedness
+    #     IS its identity, so it is NOT an alias of Harry. Merging it into
+    #     him is destructive.
+    #   - category / slur (KEEP + edge): "Mudblood" — a pejorative for a
+    #     witch/wizard born to non-magical parents. Its identity names no
+    #     specific target; who it gets thrown at (e.g. Hermione) is an
+    #     INVOKES edge from the incident slab, never an alias or part of
+    #     this description. Baking "used to insult Hermione" in would be
+    #     the same collapse error, just less obvious.
+    #
+    # Populated by the universal miner; backwards-compatible — pre-
+    # description anchors default to empty and matching/dedup fall back to
+    # canonical_phrase + aliases.
+    description: str = ""
     invokes: list[str] = Field(default_factory=list)
     notes: str = ""
+    lifecycle_status: SlabLifecycleStatus = SlabLifecycleStatus.ACTIVE
     match_policy: AnchorMatchPolicy = Field(default_factory=AnchorMatchPolicy)
     meta: AnchorMeta = Field(default_factory=AnchorMeta)
     depends_on: list[str] = Field(default_factory=list)
@@ -79,21 +122,69 @@ class Anchor(BaseModel):
 
 
 # §4.1.1 — Slab (Design + Schemas doc)
+class InlineAnchor(BaseModel):
+    """An anchor record stored by-value inside a slab.
+
+    Produced by the anchor consolidation pass: anchors that fail the
+    cross-slab-reach criterion (touched by <2 slabs AND not in any
+    multi-slab bundle) get demoted from ``corpus.anchors`` into the
+    parent slab's ``links.anchors_inline`` list.
+
+    The anchor's text content is preserved verbatim (canonical_phrase,
+    aliases, notes) so synthesis-time text search and quote handling
+    still resolve. The ``id`` is preserved for traceability — if the
+    anchor is later promoted back to the corpus (e.g. another doc
+    introduces a second slab that touches the concept), the same id
+    can be re-used. The Pydantic default of empty list keeps existing
+    corpora backwards-compatible: pre-consolidation slabs have no
+    inline anchors and the field is just ``[]``.
+    """
+    id: str
+    canonical_phrase: str
+    aliases: list[str] = Field(default_factory=list)
+    # Identity description carried verbatim from the corpus Anchor so a
+    # demote→promote round-trip is lossless (see Anchor.description).
+    description: str = ""
+    notes: str = ""
+    confidence: float = 0.5
+
+
 class SlabLinks(BaseModel):
     anchors: list[str] = Field(default_factory=list)
     bundles: list[str] = Field(default_factory=list)
+    # Anchors demoted from corpus-level — see InlineAnchor docstring.
+    # Backwards-compatible: pre-consolidation slabs default to empty.
+    anchors_inline: list[InlineAnchor] = Field(default_factory=list)
 
 
 class Slab(BaseModel):
     id: str
     title: str = ""
     canonical_text: str
+    # One dense, retrieval-oriented sentence — an index-entry / LLM-wiki
+    # style summary of what this slab establishes and the questions it
+    # answers, written FOR search rather than as a restatement of the
+    # content. Distinct from canonical_text (the content itself): search
+    # embeds and ranks on this so a slab is findable by meaning. Emitted
+    # by the universal miner; backwards-compatible — pre-description slabs
+    # default to empty and fall back to title+canonical_text at search time.
+    description: str = ""
     links: SlabLinks = Field(default_factory=SlabLinks)
     version: str = "v1"
+    type: SlabType = SlabType.REFERENCE
+    lifecycle_status: SlabLifecycleStatus = SlabLifecycleStatus.ACTIVE
+    requires_oli_mode: Optional[OLIMode] = None
     meta: AnchorMeta = Field(default_factory=AnchorMeta)
     depends_on: list[str] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
     provenance_refs: list[ProvenanceRef] = Field(default_factory=list)
+    # Slab-level metadata previously held in a 1:1 "coherence bundle"
+    # corpus node. Inlined here because the bundle was structurally
+    # redundant (same content, derived only from this slab, no
+    # cross-slab role). Backwards-compatible: pre-migration slabs
+    # default to empty lists.
+    intent: list[str] = Field(default_factory=list)
+    invariants: list[str] = Field(default_factory=list)
 
 
 # §13.3 — ProvenanceRef
@@ -122,9 +213,115 @@ class KeyBundle(BaseModel):
     id: str
     payload: BundlePayload
     version: str = "v1"
+    lifecycle_status: SlabLifecycleStatus = SlabLifecycleStatus.ACTIVE
     meta: AnchorMeta = Field(default_factory=AnchorMeta)
     depends_on: list[str] = Field(default_factory=list)
     supports: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+
+
+# §6 (graph-of-graphs WIP) — Pillar overlay (Tier-0)
+# A persisted cluster meta-node that sits ABOVE the Anchor/Bundle/Slab
+# content graph as a curated navigational overlay. Pillars reference
+# content nodes by id via ``members`` and ``children``; they never
+# store substantive content. The ``summary`` is a curated distillation
+# produced at construction time — persisted because regenerating from
+# members on every render is expensive.
+#
+# Pillars are scarce by design: paper ~5-10, narrative ~3-7 major
+# beats, docs ~5-15. A multi-tier hierarchy (paper > section >
+# sub-claim) is supported via ``children`` pointing at deeper pillars.
+#
+# Provenance distinction: synthesized algorithmic clusters are
+# computed at view time from a backend partition; PillarDefinitions
+# are curated, persisted, and ingestion-authored. The frontend
+# renderer doesn't distinguish them — both present via the existing
+# ``_isCluster`` machinery.
+class PillarCrossEdge(BaseModel):
+    """A lifted pillar-to-pillar relation.
+
+    Cross-pillar edges aggregate underlying Tier-1 edges (SUPPORTS,
+    SEQUENCE, CONFLICTS, TENSIONS) when a pattern is strong enough
+    to surface at the pillar tier. Lifting is lossy by design — the
+    pillar tier is a compression layer, not a complete view.
+
+    ``underlying_edge_ids`` traces the lift back to the source Edge
+    records so the rationale is auditable.
+    """
+    to_pillar: str
+    type: EdgeType
+    weight: float = Field(ge=0.0, le=1.0, default=0.5)
+    confidence: float = Field(ge=0.0, le=1.0, default=0.5)
+    rationale: str = ""
+    underlying_edge_ids: list[str] = Field(default_factory=list)
+
+
+class PillarDefinition(BaseModel):
+    """A curated cluster meta-node at the navigational tier.
+
+    Identity contract:
+      - ``members`` and ``children`` reference existing node IDs.
+        members are content nodes (slabs / bundles / anchors);
+        children are deeper PillarDefinition IDs for nested tiers.
+      - ``parent`` is the immediate-parent pillar ID (or None at the
+        top tier). Redundant with ``children`` reverse-lookup, but
+        persisted explicitly because navigation queries walk up
+        the tier far more often than they walk down.
+      - ``origin`` records the source document / ingestion event
+        that produced this pillar, so regeneration can be scoped.
+      - ``pillar_role`` is genre-dependent ("section" / "chapter" /
+        "act" / "claim" / "concept"). Free-text — schema does not
+        constrain because the right vocabulary depends on the
+        miner that produced it.
+
+    The Anchor/Bundle/Slab graph is untouched by adding pillars;
+    they are a pure overlay. Re-running the tier-construction pass
+    produces a fresh set with ``meta.supersedes`` linking back to
+    the prior version.
+    """
+    id: str
+    label: str                                                    # short navigable headline
+    summary: str = ""                                             # 1-3 sentences shown at top zoom
+    members: list[str] = Field(default_factory=list)              # content node IDs at the next tier down
+    children: list[str] = Field(default_factory=list)             # nested PillarDefinition IDs
+    parent: Optional[str] = None                                  # immediate-parent pillar ID
+    cross_edges: list[PillarCrossEdge] = Field(default_factory=list)
+    origin: str = ""                                              # source document / ingestion event
+    pillar_role: Optional[str] = None                             # "section" / "chapter" / "act" / "claim" / etc.
+    user_curated: bool = False                                    # protects manual label/summary edits from regeneration
+    version: str = "v1"
+    lifecycle_status: SlabLifecycleStatus = SlabLifecycleStatus.ACTIVE
+    meta: AnchorMeta = Field(default_factory=AnchorMeta)
+    depends_on: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+
+
+# §8.4 — Gate + GateRule (v3 declarative gate engine)
+# Gates reify the imperative gate logic currently living in
+# anchor_matcher.gate_check() and the classifier's confidence checks
+# into data that can be edited without touching code. A Gate owns an
+# ordered list of GateRule entries; the evaluator iterates rules in
+# order, returning the outcome of the first rule whose `condition`
+# expression evaluates truthy against a context dict built from the
+# current MessageClassification, Anchor, and session state. If no rule
+# matches, the gate's default_outcome applies.
+class GateRule(BaseModel):
+    id: str
+    condition: str  # simpleeval expression; e.g. "classification.explicit == True"
+    outcome: GateOutcome
+    priority: int = 100  # lower runs first; stable sort within a Gate
+    notes: str = ""
+
+
+class Gate(BaseModel):
+    id: str
+    stage: GateStage
+    description: str = ""
+    rules: list[GateRule] = Field(default_factory=list)
+    default_outcome: GateOutcome = GateOutcome.DENY
+    version: str = "v1"
+    meta: AnchorMeta = Field(default_factory=AnchorMeta)
+    depends_on: list[str] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
 
 
@@ -135,16 +332,83 @@ class EdgeConditions(BaseModel):
 
 
 class Edge(BaseModel):
+    """Reified typed edge between two corpus nodes.
+
+    `weight` and `confidence` are semantically distinct and MUST NOT be
+    treated as aliases (they were identical in the initial hand-curated
+    seed, which caused a lot of confusion):
+
+    - **weight**: how strongly activation should cascade along this edge
+      when fired. Scales the target's inherited activation. Think
+      "signal gain". Curator-set for hand-authored edges, model-proposed
+      for mined edges.
+    - **confidence**: our epistemic belief that this edge exists and is
+      correctly typed. 1.0 for hand-curated/CONSTITUTIONAL edges (we
+      know it's real), lower for LLM-mined edges awaiting corroboration.
+      Scales cascade as a multiplier — low-confidence edges propagate
+      less until reinforced.
+
+    Effective cascade strength = weight * confidence * kernel_for_type
+    (see frame_manager.CASCADE_KERNEL).
+    """
     id: str
     type: EdgeType
     from_node: str = Field(alias="from")
     to_node: str = Field(alias="to")
     weight: float = Field(ge=0.0, le=1.0, default=0.5)
-    confidence: float = Field(ge=0.0, le=1.0, default=0.5)  # alias for weight, backward compat
+    confidence: float = Field(ge=0.0, le=1.0, default=1.0)
     tension: Optional[float] = None
     conditions: Optional[EdgeConditions] = None
+    # Free-text "why this edge exists" reasoning produced at mining
+    # time. Optional + None default for backward-compat with existing
+    # corpus YAML that doesn't have this field. Synthesis surfaces it
+    # alongside CONFLICTS / TENSIONS edges so the LLM has the model's
+    # original justification for the dialectic pair, not just the
+    # bare existence of the edge. Hand-curated edges typically leave
+    # this empty.
+    justification: Optional[str] = None
+    # Dialectic subtype — refines CONFLICTS / TENSIONS edges with
+    # the mechanism that produced them. Most relevant for edges
+    # generated by live mining's trajectory canonicalizer:
+    # - DRIFT / RETRACTION / LIVE_CORRECTION trace conversational
+    #   evolution (e.g. "user pivoted from X to Y at turn 23")
+    # - OPPOSITION / COUNTERBALANCE trace static-document framing
+    # None for non-dialectic edges (LINKS, SEQUENCE, etc.) and for
+    # pre-live-mining edges where the subtype was never recorded.
+    dialectic_subtype: Optional[DialecticSubtype] = None
+    # When this edge was emitted by live mining's trajectory pass,
+    # source_turn records the turn that triggered it (e.g. the turn
+    # where a retraction was uttered). Used to render edge "this
+    # was retracted at turn 14" tooltips and to walk a draft's
+    # full trajectory by edge timeline. None for non-temporal edges.
+    source_turn: Optional[int] = None
 
     model_config = {"populate_by_name": True}
+
+
+# Phase 3 — Proposed edges (mining output, pre-review).
+# Distinct from Edge: endpoints may reference tentative nodes that don't
+# yet exist in corpus.edges. Status transitions:
+#   PROPOSED  -> model mined it, awaiting human review
+#   ACCEPTED  -> human approved, but endpoints may still be tentative;
+#                a promote hook upgrades to COMMITTED once both exist
+#                in the live corpus
+#   COMMITTED -> written to corpus.edges; mirrors a real Edge object
+#   REJECTED  -> human discarded; kept for audit trail, never committed
+class ProposedEdge(BaseModel):
+    id: str
+    type: EdgeType
+    from_node: str  # node_id (resolved from LLM label)
+    to_node: str    # node_id (resolved from LLM label)
+    from_label: str  # original LLM label (audit trail when IDs change)
+    to_label: str
+    confidence: float = Field(ge=0.0, le=1.0, default=0.5)
+    justification: str = ""
+    status: str = "PROPOSED"  # PROPOSED | ACCEPTED | COMMITTED | REJECTED
+    source_chat_id: Optional[str] = None
+    source_turn: Optional[int] = None
+    committed_edge_id: Optional[str] = None  # set when promoted to corpus.edges
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 # §9 — FrameState
@@ -183,6 +447,12 @@ class FrameState(BaseModel):
     mismatch_score: float = 0.0
     decay: FrameDecay = Field(default_factory=FrameDecay)
     last_updated_turn: int = 0
+    # §17.3 — Truth pressure: per-node epistemic tension accumulator.
+    # Incremented when a node's claims are questioned, challenged, or
+    # when a pushback gauntlet fires against content related to the node.
+    # High truth_pressure on a node triggers targeted gauntlet checks
+    # even when the global mismatch_score is low.
+    truth_pressure: dict[str, float] = Field(default_factory=dict)  # {node_id: pressure 0.0-1.0}
     # Corpus access patterns — session-scoped instrumentation
     corpus_hits: dict[str, int] = Field(default_factory=dict)      # {node_id: total_hit_count}
     corpus_last_hit: dict[str, int] = Field(default_factory=dict)  # {node_id: turn_of_last_hit}
@@ -209,6 +479,30 @@ class DraftPacket(BaseModel):
     slab: Optional[dict] = None     # Slab dict when packet_type is "slab"
     edges: list[dict] = Field(default_factory=list)  # minimal links created by this packet
     stale_reason: Optional[str] = None
+
+    # ── Live mining trajectory fields ─────────────────────────────
+    # All optional — pre-live-mining drafts default to NEWLY_RAISED
+    # with empty reference history. The end-of-conversation
+    # canonicalizer walks the ghost stack reading these fields and
+    # writes the final epistemic_status (CONFIRMED / DRIFTED /
+    # RETRACTED / UNTOUCHED) before promote/discard actions fire.
+    epistemic_status: EpistemicStatus = EpistemicStatus.NEWLY_RAISED
+    # Turns where this draft was re-referenced after being raised.
+    # Cross-turn matcher updates this list as new turns come in
+    # and reference (semantically match) this draft's content.
+    # Length of this list is the primary "did this position hold"
+    # signal for trajectory analysis.
+    referenced_in_turns: list[int] = Field(default_factory=list)
+    # When epistemic_status == DRIFTED or RETRACTED, this points to
+    # the draft that superseded this one (e.g. user pivoted from
+    # "X is the answer" at turn 12 to "actually Y" at turn 14, the
+    # turn-12 draft's superseded_by = turn-14 draft's id).
+    superseded_by: Optional[str] = None
+    # Heat trajectory — salience values at each turn this draft was
+    # in scope. Used at canonicalization time to decide promote/
+    # discard for UNTOUCHED drafts (low salience → drop, high →
+    # preserve). Indexed parallel to source_turns + referenced_in_turns.
+    salience_trajectory: list[float] = Field(default_factory=list)
 
 
 # §14.1 — DraftStack
@@ -248,6 +542,7 @@ class EnforcementFlags(BaseModel):
     degradation_flag: Optional[str] = None
     pushback_required: bool = False
     dampening_level: DampeningLevel = DampeningLevel.NONE
+    review_mode: bool = False  # Corpus review — editorial assessment permitted
 
 
 class OperatorState(BaseModel):
@@ -265,6 +560,8 @@ class OperatorState(BaseModel):
 
 
 class RuntimeHeader(BaseModel):
+    active_model: str = ""               # Ollama model tag (e.g. "gemma3:12b", "gpt-oss:20b")
+    active_model_family: str = ""        # Model family (e.g. "gemma3", "gptoss")
     oli_mode: OLIMode = OLIMode.OFF
     oli_version: str = "v2.1"
     layer_control: dict = Field(default_factory=lambda: {
@@ -276,6 +573,8 @@ class RuntimeHeader(BaseModel):
     drift_estimate: DriftEstimate = Field(default_factory=DriftEstimate)
     enforcement_flags: EnforcementFlags = Field(default_factory=EnforcementFlags)
     operator_state: OperatorState = Field(default_factory=OperatorState)
+    anchor_hits: list[dict] = Field(default_factory=list)
+    # each: {anchor_id, canonical_phrase, notes, confidence, method, invokes}
 
 
 # Fix forward reference

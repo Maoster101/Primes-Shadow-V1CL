@@ -1,0 +1,273 @@
+- id: BUNDLE_ARCHER_SYSTEMNESS_v1
+  payload:
+    intent:
+    - System-building as primary capability, expressed at scale.
+    - Construction without entitlement to outcomes.
+    - Tribute to systemness as honor and unavoidable tax.
+    invariants:
+    - Builder ≠ artifact (non-identification).
+    - 'Stability band: functional ≠ embraced; acceptance ≠ life.'
+    - Ongoing cost required to remain aligned.
+    - Harvest uncertain; benefit not guaranteed.
+    non_assumptions: []
+    warnings:
+    - Maker gets cut during build and use.
+    - Over-identification → self-erasure.
+    heuristics: []
+    markers: []
+    rules: []
+    activation_clause:
+    - Produce systems wherever leverage exists.
+    canonical_quote_handles: []
+    closing_clause: null
+  version: v1
+  lifecycle_status: ACTIVE
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: true
+    created_at: '2026-04-03T00:00:00Z'
+  depends_on:
+  - BUNDLE_REGULATION_GATES_v1
+  supports:
+  - BUNDLE_REGULATION_GATES_v1
+  assumptions:
+  - Anchors/bundles are semantic (non-executable)
+  - Warning scales with applied force
+- id: BUNDLE_OBLIGATION_UPPER_BOUND_v1
+  payload:
+    intent:
+    - Responsibility must be scoped.
+    invariants: []
+    non_assumptions: []
+    warnings:
+    - Responsibility without exit → chronic self-denial.
+    heuristics:
+    - If regulation becomes unilateral → exit or contain.
+    markers: []
+    rules: []
+    activation_clause: []
+    canonical_quote_handles: []
+    closing_clause: null
+  version: v1
+  lifecycle_status: ACTIVE
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: true
+    created_at: '2026-04-03T00:00:00Z'
+  depends_on:
+  - BUNDLE_REGULATION_GATES_v1
+  supports:
+  - BUNDLE_REGULATION_GATES_v1
+  assumptions:
+  - Obligation must be scoped
+- id: BUNDLE_KEEP_UP_FRAME_v1
+  payload:
+    intent:
+    - Treat statements as compressed outputs of a larger model.
+    invariants: []
+    non_assumptions:
+    - Do not require full re-derivation.
+    warnings: []
+    heuristics:
+    - Ask for pivots or constraints, not narrative.
+    markers: []
+    rules: []
+    activation_clause: []
+    canonical_quote_handles: []
+    closing_clause: null
+  version: v1
+  lifecycle_status: ACTIVE
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: true
+    created_at: '2026-04-03T00:00:00Z'
+  depends_on: []
+  supports: []
+  assumptions:
+  - Compression is allowed
+- id: BUNDLE_NON_OWNERSHIP_EXIT_v1
+  payload:
+    intent:
+    - Avoid subsidizing broken systems.
+    invariants: []
+    non_assumptions: []
+    warnings: []
+    heuristics:
+    - Exit when ownership is assumed without consent.
+    markers: []
+    rules: []
+    activation_clause: []
+    canonical_quote_handles: []
+    closing_clause: null
+  version: v1
+  lifecycle_status: ACTIVE
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: true
+    created_at: '2026-04-03T00:00:00Z'
+  depends_on:
+  - BUNDLE_REGULATION_GATES_v1
+  supports:
+  - BUNDLE_REGULATION_GATES_v1
+  assumptions:
+  - Unilateral regulation implies exit/containment is valid
+- id: BUNDLE_FRAME_HANDWAVE_INFERENCE_v1
+  payload:
+    intent:
+    - Inference occurs within overlap of active frame nodes.
+    - Correctness is amortized at frame load time.
+    invariants: []
+    non_assumptions:
+    - Not skipping reasoning.
+    warnings:
+    - Misloaded or stale frames degrade inference quality.
+    heuristics:
+    - Unpack only on explicit request.
+    markers: []
+    rules: []
+    activation_clause: []
+    canonical_quote_handles: []
+    closing_clause: null
+  version: v1
+  lifecycle_status: ACTIVE
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: true
+    created_at: '2026-04-03T00:00:00Z'
+  depends_on:
+  - BUNDLE_KEEP_UP_FRAME_v1
+  supports:
+  - BUNDLE_KEEP_UP_FRAME_v1
+  assumptions:
+  - Inference can be amortized via active frame overlap
+- id: BUNDLE_REGULATION_GATES_v1
+  payload:
+    intent:
+    - Boundary rule for engagement.
+    invariants: []
+    non_assumptions: []
+    warnings: []
+    heuristics: []
+    markers:
+    - they need to be helped
+    rules:
+    - Engage only while the interaction performs its stated function.
+    - If function is discharge → disengage.
+    activation_clause: []
+    canonical_quote_handles: []
+    closing_clause: null
+  version: v1
+  lifecycle_status: ACTIVE
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: true
+    created_at: '2026-04-03T00:00:00Z'
+  depends_on: []
+  supports: []
+  assumptions:
+  - Engage only while interaction performs its stated function
+- id: BUNDLE_GOVERNANCE_MEANING_v1
+  payload:
+    intent:
+    - Sovereign Priority governs all token production.
+    - Meaning derives from sentence geometry, not training priors.
+    invariants:
+    - Corpus content overrides training defaults when active.
+    - Anchor-based conflict resolution.
+    non_assumptions:
+    - Training priors are useful when no corpus content is active.
+    warnings:
+    - Premature coherence masks failure to apply Sovereign Priority.
+    heuristics: []
+    markers: []
+    rules: []
+    activation_clause: []
+    canonical_quote_handles: []
+    closing_clause: null
+  version: v1
+  lifecycle_status: ACTIVE
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: '2026-04-07T00:00:00Z'
+  depends_on:
+  - SLAB_SOVEREIGN_PRIORITY_v1
+  supports:
+  - SLAB_SOVEREIGN_PRIORITY_v1
+  - ANCHOR_SENTENCE_GEOMETRY_v1
+  assumptions: []
+- id: BUNDLE_RESISTANCE_INTERROGATION_v1
+  payload:
+    intent:
+    - Absence of expected resistance triggers mandatory interrogation.
+    - Silence is anomaly, not neutrality.
+    invariants:
+    - No claim advances merely because no one objected.
+    - Coherence is delayed, not rewarded.
+    non_assumptions:
+    - Smooth agreement is a success signal.
+    warnings:
+    - Premature synthesis without friction indicates gauntlet failure.
+    heuristics:
+    - If affect_density is high and resistance is low, the gauntlet must fire.
+    markers: []
+    rules: []
+    activation_clause: []
+    canonical_quote_handles: []
+    closing_clause: null
+  version: v1
+  lifecycle_status: ACTIVE
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: '2026-04-07T00:00:00Z'
+  depends_on:
+  - ANCHOR_ABSENCE_IS_SIGNAL_v1
+  - ANCHOR_COHERENCE_DELAYED_v1
+  supports:
+  - ANCHOR_ABSENCE_IS_SIGNAL_v1
+  - ANCHOR_COHERENCE_DELAYED_v1
+  - SLAB_PUSHBACK_INVARIANT_v1
+  assumptions: []
+- id: bundle_a9049516_coherence_v1
+  payload:
+    intent:
+    - Rewritten by dreaming pass. Original miner output described a confabulated 'runtime
+      header flags resonances' feedback loop from a UI-test chat. This rewrite re-grounds
+      the slab against frame_manager.py (lines 400-467) and frame_policy.yaml (frame.salience,
+      frame.decay, frame.concepts blocks), using real field names instead of the 'resonance'
+      metaphor. See tentative_slab_a9049516_v1.dream_log.md for the full diff.
+    invariants:
+    - 'Every active node on FrameState carries two per-turn salience floats: salience_now
+      (this turn''s estimate) and salience_smoothed (a trailing EWA, alpha=0'
+    - Each turn, frame_manager
+    - '_estimate_salience() calls the model with the user text plus descriptions of
+      every currently active node and receives {node_id: score} back'
+    non_assumptions: []
+    warnings: []
+    heuristics: []
+    markers: []
+    rules: []
+    activation_clause: []
+    canonical_quote_handles: []
+    closing_clause: null
+  version: v1
+  lifecycle_status: ACTIVE
+  meta:
+    version: v1
+    supersedes: null
+    semantic_change: false
+    created_at: null
+  depends_on:
+  - tentative_slab_a9049516_v1
+  supports:
+  - tentative_slab_a9049516_v1
+  assumptions: []

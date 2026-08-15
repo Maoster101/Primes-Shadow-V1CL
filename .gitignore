@@ -31,10 +31,44 @@ app/events/*.jsonl
 app/library/tentative/*.json
 app/corpus/cascade/*.yaml
 app/corpus/revisions/*.yaml
+app/corpus/state/*.db
+
+# Corpora runtime state (generated at runtime, not committed)
+app/corpora/*/state/*.db
+app/corpora/*/state/session_history.jsonl
 
 # Claude Code working files
 .claude/
 .remember/
+
+# MCP workspace config (contains local paths)
+.mcp.json
+mcp_config.json
+
+# Personal / non-project files
+RESUME.md
+*.docx
+anthropic_fellows_application_notes.md
+cover_letter_*.docx
+cv_*.docx
+
+# Runtime logs
+*.log
+app/workbench/*.log
+
+# Runtime state (not already covered above)
+app/corpus/state/session_history.jsonl
+
+# Derived state — regenerable from corpus (community trees, future caches)
+app/state/
+
+# LaTeX build artifacts
+arxiv_submission/*.aux
+arxiv_submission/*.log
+arxiv_submission/*.out
+arxiv_submission/*.synctex*
+arxiv_submission/*.bbl
+arxiv_submission/*.blg
 
 # Raw document extracts (temporary working files)
 *_raw.txt

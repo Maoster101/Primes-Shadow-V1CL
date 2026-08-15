@@ -53,13 +53,17 @@ Hard parse rules (OP_01):
     ONLY text fed to fuzzy matching. Wrapped span text is excluded.
 """
 from __future__ import annotations
+import logging
 import re
 from typing import Optional
 from pydantic import BaseModel, Field
 
-from ..models.schemas import Anchor, MessageClassification
-from ..models.enums import MatchTier, MessageFunction
+logger = logging.getLogger(__name__)
+
+from ..models.schemas import Anchor, MessageClassification, Gate
+from ..models.enums import MatchTier, MessageFunction, GateOutcome, GateStage
 from .corpus import CorpusStore
+from .gate_eval import GateEvaluator, PipelineResult
 from . import ollama
 from .event_log import EventLog
 
@@ -208,11 +212,19 @@ class WrappedSpan(BaseModel):
     primary_reading: str = "semantic_depth"
 
 
+class CorpusRef(BaseModel):
+    """A reference to a non-anchor corpus object (slab or bundle)."""
+    node_id: str
+    node_type: str          # "slab" | "bundle"
+    matched_phrase: str
+    confidence: float = 1.0
+
 class AnchorMatchResult(BaseModel):
     auto_activate: list[AnchorMatch] = Field(default_factory=list)
     candidates: list[AnchorMatch] = Field(default_factory=list)
     weak: list[AnchorMatch] = Field(default_factory=list)
     wrapped_spans: list[WrappedSpan] = Field(default_factory=list)
+    corpus_refs: list[CorpusRef] = Field(default_factory=list)
     correction_hint: Optional[str] = None
 
 
@@ -399,12 +411,51 @@ def compute_wrap_affect_boost(result: "AnchorMatchResult") -> float:
 
 class AnchorMatcher:
 
-    def __init__(self, corpus: CorpusStore):
+    def __init__(self, corpus: CorpusStore, *, use_declarative_gates: bool = False):
         self.corpus = corpus
         self._embed_cache: dict[str, list[tuple[str, list[float]]]] = {}
+        self._gate_eval = GateEvaluator()
+        self._use_declarative = use_declarative_gates
+        # Cache the ordered gate pipeline from corpus (sorted by stage order)
+        self._gate_pipeline: list[Gate] = []
+        self._build_gate_pipeline()
 
-    async def warm_cache(self) -> None:
+    def _build_gate_pipeline(self) -> None:
+        """Build the ordered 3-stage gate pipeline from corpus gates."""
+        stage_order = {
+            GateStage.FUNCTION: 0,
+            GateStage.EXPLICITNESS: 1,
+            GateStage.CONFIDENCE: 2,
+        }
+        self._gate_pipeline = sorted(
+            self.corpus.gates.values(),
+            key=lambda g: stage_order.get(g.stage, 99),
+        )
+
+    async def warm_cache(self, only_new: bool = False) -> None:
+        """Embed anchor canonical phrases + aliases for fast matching.
+
+        Args:
+          only_new: when True, skip anchors that already have a cache
+            entry. Use during bulk promotion — each commit only embeds
+            the just-promoted anchor instead of rebuilding the entire
+            cache. Turns per-commit cost from O(N) to O(1).
+            Default False preserves the original full-rebuild semantics
+            for startup and collection-activation callers, where the
+            corpus view may have changed under the cache.
+
+        Pre-fix history: this used to walk the entire corpus on every
+        call, including from drafts.py after each individual anchor
+        promotion. With N anchors in the corpus, the M-th promotion
+        re-embedded all M anchors, giving O(M²) total embed work to
+        promote M drafts. On the pod run (~800 anchors), that was
+        observed at ~51s per anchor wall-time, ~7-8 hours for the
+        batch. With ``only_new=True``, each commit embeds exactly one
+        anchor — the new one — and the batch finishes in minutes.
+        """
         for anchor in self.corpus.anchors.values():
+            if only_new and anchor.id in self._embed_cache:
+                continue
             phrases = [anchor.canonical_phrase] + anchor.aliases
             embeddings = await ollama.embed(phrases)
             self._embed_cache[anchor.id] = list(zip(phrases, embeddings))
@@ -412,15 +463,121 @@ class AnchorMatcher:
     def _invalidate_cache(self, anchor_id: str) -> None:
         self._embed_cache.pop(anchor_id, None)
 
+    async def top_k_anchors(
+        self, query_text: str, max_k: int = 20, threshold: float = 0.4,
+    ) -> list[tuple[str, float]]:
+        """Return ``(anchor_id, cosine)`` for anchors semantically closest to
+        ``query_text``, sorted descending. The anchor analog of
+        ``SlabMatcher.top_k_for`` — reuses the warm phrase-embedding cache
+        (raw convention, matching warm_cache). Used to build a
+        relevance-scoped catalog for the extraction prompt instead of dumping
+        every anchor phrase.
+        """
+        import numpy as np
+        if not query_text or not query_text.strip() or not self._embed_cache:
+            return []
+        try:
+            qv = np.array(await ollama.embed_single(query_text.strip()))
+        except Exception:
+            return []
+        qn = float(np.linalg.norm(qv))
+        if qn < 1e-8:
+            return []
+        qv = qv / qn
+        scored: list[tuple[str, float]] = []
+        for aid, pairs in self._embed_cache.items():
+            best = 0.0
+            for _phrase, emb in pairs:
+                v = np.array(emb)
+                n = float(np.linalg.norm(v))
+                if n < 1e-8:
+                    continue
+                s = float(np.dot(qv, v / n))
+                if s > best:
+                    best = s
+            if best >= threshold:
+                scored.append((aid, best))
+        scored.sort(key=lambda t: t[1], reverse=True)
+        return scored[:max_k]
+
     def gate_check(self, anchor: Anchor, classification: MessageClassification) -> bool:
-        """§8 — Pure code gate."""
+        """§8 — Pure code gate (imperative path).
+
+        Gate policy: anchors should match during normal conversation.
+        The gate only BLOCKS matching when:
+        - gate_required=True AND the function is not in allowed_functions
+          AND the function is not a 'safe default' (object_of_work, neutral,
+          rigor_work, meta_schema all allow matching — only affect_release
+          is blocked by default since corpus activation during emotional
+          venting is usually unwanted).
+        """
         if not anchor.match_policy.gate_required:
             return True
         if classification.explicit:
             return True
         if classification.function in anchor.match_policy.allowed_functions:
             return True
+        # Safe defaults: allow matching for substantive message types
+        # even if not explicitly listed in allowed_functions
+        from ..models.enums import MessageFunction
+        safe_functions = {
+            MessageFunction.OBJECT_OF_WORK,
+            MessageFunction.NEUTRAL,
+            MessageFunction.RIGOR_WORK,
+            MessageFunction.META_SCHEMA,
+        }
+        if classification.function in safe_functions:
+            return True
         return False
+
+    def declarative_gate_check(
+        self, anchor: Anchor, classification: MessageClassification,
+    ) -> PipelineResult:
+        """§8.4 — Declarative gate pipeline (parallel path).
+
+        Runs the 3-stage gate pipeline (FUNCTION → EXPLICITNESS →
+        CONFIDENCE) using the simpleeval evaluator. Returns a full
+        PipelineResult with outcome, matched rules, and trace.
+        """
+        context = {"anchor": anchor, "classification": classification}
+        return self._gate_eval.run_pipeline(self._gate_pipeline, context)
+
+    def _effective_gate_check(
+        self, anchor: Anchor, classification: MessageClassification,
+    ) -> bool:
+        """Run both gate paths, log divergence, return the authoritative result.
+
+        When `use_declarative_gates` is True, the declarative pipeline is
+        authoritative. Otherwise the imperative gate_check() is
+        authoritative and the declarative result is logged for comparison.
+        """
+        imperative = self.gate_check(anchor, classification)
+
+        if not self._gate_pipeline:
+            return imperative
+
+        try:
+            declarative = self.declarative_gate_check(anchor, classification)
+            decl_pass = declarative.allowed
+        except Exception as exc:
+            logger.error(
+                "Declarative gate failed for %s, falling back to imperative: %s",
+                anchor.id, exc,
+            )
+            return imperative
+
+        if imperative != decl_pass:
+            logger.warning(
+                "Gate divergence on %s: imperative=%s declarative=%s (%s via %s)",
+                anchor.id, imperative, declarative.final_outcome.value,
+                declarative.final_outcome.value,
+                " -> ".join(
+                    f"{sr.gate_id}:{sr.outcome.value}"
+                    for sr in declarative.stage_results
+                ),
+            )
+
+        return decl_pass if self._use_declarative else imperative
 
     # ------------------------------------------------------------------
     # OP_01 parser
@@ -516,8 +673,13 @@ class AnchorMatcher:
 
             span_matches: list[AnchorMatch] = []
             for anchor in self.corpus.anchors.values():
-                if not self.gate_check(anchor, classification):
-                    continue
+                # Wrapped spans bypass the function gate — the asterisk wrap
+                # IS the format gate. Only format_gate="asterisk_wrapped_only"
+                # anchors are restricted to wraps, but once inside a wrap,
+                # the function classification is irrelevant.
+                if anchor.match_policy.format_gate != "asterisk_wrapped_only":
+                    if not self._effective_gate_check(anchor, classification):
+                        continue
                 m = self._hard_match_span(seg.text, anchor)
                 if m is not None:
                     m.span_index = wrap_index
@@ -565,10 +727,27 @@ class AnchorMatcher:
         # --- Pass B: residue fuzzy matching ---
         residue = parsed.residue
         if residue:
+            # Embed the residue ONCE for the whole pass. Previously
+            # _semantic_match re-embedded this identical text on every
+            # call — i.e. one Ollama round-trip per un-string-matched
+            # anchor, every turn. Mirror Pass D: embed once, then every
+            # warm-cached anchor is a pure numpy comparison.
+            import numpy as np
+            residue_vec = None
+            residue_norm = 0.0
+            try:
+                residue_vec = np.array(await ollama.embed_single(residue))
+                residue_norm = float(np.linalg.norm(residue_vec))
+            except Exception:
+                logger.warning(
+                    "Pass B: residue embedding failed, semantic fallback "
+                    "disabled this turn"
+                )
+
             for anchor in self.corpus.anchors.values():
                 if anchor.id in wrapped_hits:
                     continue
-                if not self.gate_check(anchor, classification):
+                if not self._effective_gate_check(anchor, classification):
                     continue
                 # Hard format gate: asterisk_wrapped_only anchors can
                 # only enter via a wrapped span.
@@ -576,8 +755,10 @@ class AnchorMatcher:
                     continue
 
                 match = self._string_match(residue, anchor)
-                if match is None:
-                    match = await self._semantic_match(residue, anchor)
+                if match is None and residue_vec is not None and residue_norm > 1e-8:
+                    match = await self._semantic_match(
+                        residue, anchor, residue_vec, residue_norm
+                    )
                 if match is None:
                     continue
 
@@ -591,6 +772,62 @@ class AnchorMatcher:
                 else:
                     match.tier = MatchTier.WEAK_SEMANTIC
                     result.weak.append(match)
+
+        # --- Pass D: corpus-wide semantic sweep (embedding similarity) ---
+        # Catches paraphrases, cultural quotes, and thematic resonance that
+        # substring matching can never reach. Bypasses the function gate —
+        # like wrapped spans, semantic resonance IS the signal — but requires
+        # a higher confidence threshold to compensate for the lack of
+        # explicit invocation.
+        #
+        # Example: "when you can do what I do and you don't, and the bad
+        # things happen, they happen because of you" should light up
+        # ANCHOR_SPIDERMAN_RESP_v1 ("great power, great responsibility")
+        # even though it shares zero keywords.
+        already_matched = (
+            {m.anchor_id for m in result.auto_activate}
+            | {m.anchor_id for m in result.candidates}
+            | wrapped_hits
+        )
+        await self._semantic_sweep(user_text, already_matched, result)
+
+        # --- Pass C: corpus-wide name matching (slabs + bundles) ---
+        # Check if the user referenced any slab or bundle by title/name.
+        # This catches references like "epistemic floor", "pushback invariant",
+        # "archer bundle" that aren't anchors but are still corpus objects.
+        full_text_lower = user_text.lower()
+        matched_ids = {m.anchor_id for m in result.auto_activate + result.candidates}
+
+        for slab in self.corpus.slabs.values():
+            if slab.id in matched_ids:
+                continue
+            # Match against slab title (cleaned) and ID-derived name
+            title = (slab.title or "").lower()
+            id_name = slab.id.lower().replace("slab_", "").replace("_v1", "").replace("_", " ")
+            for phrase in [title, id_name]:
+                if phrase and len(phrase) > 3 and phrase in full_text_lower:
+                    result.corpus_refs.append(CorpusRef(
+                        node_id=slab.id, node_type="slab",
+                        matched_phrase=phrase, confidence=0.9,
+                    ))
+                    matched_ids.add(slab.id)
+                    break
+
+        for bundle in self.corpus.bundles.values():
+            if bundle.id in matched_ids:
+                continue
+            # Match against bundle intent phrases and ID-derived name
+            intents = bundle.payload.intent if hasattr(bundle.payload, 'intent') else []
+            id_name = bundle.id.lower().replace("bundle_", "").replace("_v1", "").replace("_", " ")
+            for phrase in list(intents) + [id_name]:
+                phrase_lower = phrase.lower() if phrase else ""
+                if phrase_lower and len(phrase_lower) > 3 and phrase_lower in full_text_lower:
+                    result.corpus_refs.append(CorpusRef(
+                        node_id=bundle.id, node_type="bundle",
+                        matched_phrase=phrase_lower, confidence=0.9,
+                    ))
+                    matched_ids.add(bundle.id)
+                    break
 
         result.auto_activate.sort(key=lambda m: m.confidence, reverse=True)
         result.candidates.sort(key=lambda m: m.confidence, reverse=True)
@@ -703,12 +940,22 @@ class AnchorMatcher:
         return None
 
     async def _semantic_match(
-        self, user_text: str, anchor: Anchor
+        self,
+        user_text: str,
+        anchor: Anchor,
+        user_arr: "np.ndarray",
+        user_norm: float,
     ) -> Optional[AnchorMatch]:
-        import numpy as np
+        """Semantic (embedding) fallback for a single anchor.
 
-        user_vec = await ollama.embed_single(user_text)
-        user_arr = np.array(user_vec)
+        ``user_arr``/``user_norm`` are the caller's pre-embedded,
+        pre-normed residue vector (see match_all Pass B). On the hot
+        path — anchor warm-cached — this does ZERO Ollama round-trips:
+        just a numpy dot product per cached phrase. Only cold anchors
+        (not yet in the warm cache) incur an embed, and only for the
+        anchor's own phrases via the unchanged cosine_similarity helper.
+        """
+        import numpy as np
 
         best_sim = 0.0
         best_phrase = ""
@@ -717,13 +964,16 @@ class AnchorMatcher:
         if cached:
             for phrase, emb in cached:
                 anc_arr = np.array(emb)
-                sim = float(np.dot(user_arr, anc_arr) / (
-                    np.linalg.norm(user_arr) * np.linalg.norm(anc_arr)
-                ))
+                denom = user_norm * np.linalg.norm(anc_arr)
+                if denom < 1e-8:
+                    continue
+                sim = float(np.dot(user_arr, anc_arr) / denom)
                 if sim > best_sim:
                     best_sim = sim
                     best_phrase = phrase
         else:
+            # Cold anchor (not warm-cached) — rare. Unchanged from the
+            # original path: cosine_similarity re-embeds per phrase.
             from . import embeddings
             phrases = [anchor.canonical_phrase] + anchor.aliases
             for phrase in phrases:
@@ -741,3 +991,131 @@ class AnchorMatcher:
                 match_method="semantic",
             )
         return None
+
+    # ------------------------------------------------------------------
+    # Pass D — corpus-wide semantic sweep
+    # ------------------------------------------------------------------
+
+    async def _semantic_sweep(
+        self,
+        user_text: str,
+        already_matched: set[str],
+        result: AnchorMatchResult,
+    ) -> None:
+        """Embed full user text once; batch-compare against ALL anchor
+        embeddings. Gate-free — semantic resonance is the signal.
+
+        Tiered thresholds:
+          ≥ 0.72  → auto_activate  (strong thematic match)
+          ≥ 0.58  → candidates     (probable reference)
+          ≥ 0.45  → weak           (faint echo, logged only)
+
+        These are deliberately higher than Pass B thresholds because
+        Pass D bypasses the function gate. The higher bar compensates.
+
+        Uses the warm_cache when available — if anchors were pre-embedded
+        at startup, only the user text needs embedding (1 vector vs N+1).
+        """
+        import numpy as np
+
+        anchors = [
+            a for a in self.corpus.anchors.values()
+            if a.id not in already_matched
+        ]
+        if not anchors:
+            return
+
+        # Embed user text (always needed)
+        try:
+            user_vec = np.array(await ollama.embed_single(user_text))
+        except Exception:
+            logger.warning("Pass D: user embedding failed, skipping")
+            return
+        user_norm = np.linalg.norm(user_vec)
+        if user_norm < 1e-8:
+            return
+
+        # Collect anchor phrase embeddings — prefer warm cache
+        # If cache is cold for some anchors, batch-embed the uncached ones
+        cached_pairs: list[tuple[str, str, np.ndarray]] = []  # (anchor_id, phrase, vec)
+        uncached_phrases: list[str] = []
+        uncached_map: list[tuple[str, str]] = []  # (anchor_id, phrase)
+
+        for anchor in anchors:
+            if anchor.id in self._embed_cache:
+                for phrase, emb in self._embed_cache[anchor.id]:
+                    cached_pairs.append((anchor.id, phrase, np.array(emb)))
+            else:
+                for phrase in [anchor.canonical_phrase] + anchor.aliases:
+                    if phrase:
+                        uncached_phrases.append(phrase)
+                        uncached_map.append((anchor.id, phrase))
+
+        # Batch-embed any uncached phrases
+        if uncached_phrases:
+            try:
+                uncached_vecs = await ollama.embed(uncached_phrases)
+                for i, (anchor_id, phrase) in enumerate(uncached_map):
+                    cached_pairs.append((anchor_id, phrase, np.array(uncached_vecs[i])))
+            except Exception:
+                logger.warning("Pass D: anchor embedding failed for %d uncached phrases", len(uncached_phrases))
+
+        logger.debug("[Pass D] %d anchors to sweep, %d cached pairs, %d uncached",
+                     len(anchors), len(cached_pairs), len(uncached_phrases))
+
+        # Find best similarity per anchor
+        best_per_anchor: dict[str, tuple[float, str]] = {}
+        for anchor_id, phrase, vec in cached_pairs:
+            norm = np.linalg.norm(vec)
+            if norm < 1e-8:
+                continue
+            sim = float(np.dot(user_vec, vec) / (user_norm * norm))
+            prev = best_per_anchor.get(anchor_id)
+            if prev is None or sim > prev[0]:
+                best_per_anchor[anchor_id] = (sim, phrase)
+
+        # Debug: per-anchor similarities. Cheap-skip when DEBUG isn't enabled
+        # so we don't burn the sort + format on every turn at INFO level.
+        if logger.isEnabledFor(logging.DEBUG):
+            for aid, (sim, phrase) in sorted(best_per_anchor.items(), key=lambda x: -x[1][0]):
+                logger.debug("[Pass D]   %s: %.4f (%s)", aid, sim, phrase[:50])
+
+        # Tier the results
+        # Thresholds tuned for nomic-embed-text 768-dim cosine similarity.
+        # Paraphrases of the same idea score ~0.55-0.65; exact quotes ~0.85+.
+        # The candidate band (0.55-0.70) catches "same theme, different words"
+        # which is exactly where cultural references and indirect invocations live.
+        THRESHOLD_AUTO = 0.70
+        THRESHOLD_CANDIDATE = 0.55
+        THRESHOLD_WEAK = 0.42
+
+        sweep_hits = []
+        for anchor_id, (sim, phrase) in best_per_anchor.items():
+            if sim < THRESHOLD_WEAK:
+                continue
+            match = AnchorMatch(
+                anchor_id=anchor_id,
+                confidence=round(sim, 4),
+                matched_phrase=phrase,
+                match_method="semantic_sweep",
+                tier=MatchTier.WEAK_SEMANTIC,  # default, overridden below
+            )
+            if sim >= THRESHOLD_AUTO:
+                match.tier = MatchTier.EXACT_OR_PARTIAL
+                result.auto_activate.append(match)
+            elif sim >= THRESHOLD_CANDIDATE:
+                match.tier = MatchTier.AMBIGUOUS_FUZZY
+                result.candidates.append(match)
+            else:
+                result.weak.append(match)
+            sweep_hits.append(match)
+
+        if sweep_hits:
+            logger.info(
+                "Pass D semantic sweep: %d hits — %s",
+                len(sweep_hits),
+                ", ".join(
+                    f"{m.anchor_id}@{m.confidence:.2f}"
+                    for m in sorted(sweep_hits, key=lambda x: -x.confidence)[:5]
+                ),
+            )

@@ -14,32 +14,112 @@ from ..models.schemas import (
     ChatMessage, RuntimeHeader, FrameState, FrameStateSummary, GateState,
 )
 from ..models.enums import OLIMode
-from ..prompts.oli_constitutional import OLI_CONSTITUTIONAL_PROMPT, BMD_SCAFFOLD
+from ..models.schemas import Slab
+from ..prompts.oli_constitutional import (
+    OLI_CONSTITUTIONAL_PROMPT, OLI_BOOTSTRAP_PROMPT, BMD_SCAFFOLD,
+)
+
+import os
+# Phase 7: Use bootstrap pointer by default (saves ~18k chars of context).
+# Set PS_OLI_FULL_PROMPT=1 to revert to the full constitutional prompt.
+_USE_FULL_PROMPT = os.environ.get("PS_OLI_FULL_PROMPT", "0") == "1"
 
 
-# Rough token estimate: ~4 chars per token for English text
-CHARS_PER_TOKEN = 4
-TARGET_CONTEXT_TOKENS = 128_000
+from .policy import policy
+
+# Injected into the system prompt when review_mode=True. Scopes the
+# constitutional constraints so the model can make editorial judgments
+# about corpus objects without hitting the Epistemic Floor / Sovereign
+# Priority wall. The constitutional rules themselves stay loaded — this
+# addendum clarifies their scope, not overrides them.
+_REVIEW_MODE_ADDENDUM = (
+    "[CORPUS REVIEW MODE ACTIVE]\n"
+    "The user is asking you to assess, compare, or curate corpus objects "
+    "(anchors, slabs, bundles, collections). These are internal working "
+    "documents — drafts, mining outputs, tentative structures — not "
+    "established truth.\n\n"
+    "In this mode:\n"
+    "- You MAY evaluate quality, identify redundancy, recommend merges, "
+    "deletions, or edits to corpus objects.\n"
+    "- You MAY compare competing interpretations and recommend which to "
+    "keep, merge, or discard based on structural utility, coverage, and "
+    "coherence.\n"
+    "- You MAY say 'this anchor is redundant' or 'this slab contradicts "
+    "that one' — these are editorial engineering judgments, not truth claims.\n"
+    "- Epistemic Floor (L0) still governs claims about EXTERNAL REALITY. "
+    "You cannot claim a real-world fact is true or false without grounding. "
+    "But you CAN and SHOULD assess whether corpus objects are well-formed, "
+    "useful, accurate representations of what they claim to capture.\n"
+    "- Sovereign Priority still applies to the constitutional rules themselves "
+    "— you are not reviewing THOSE. You are reviewing corpus content under "
+    "those rules.\n\n"
+    "Be direct. The user wants honest editorial assessment, not hedged "
+    "non-answers. If something should be deleted, say so. If two objects "
+    "should be merged, explain why and propose the merge."
+)
+
+# Context budget reads from frame_policy.yaml, with env var override.
+import os
+CHARS_PER_TOKEN = policy.context.chars_per_token
+TARGET_CONTEXT_TOKENS = int(os.environ.get("PS_NUM_CTX", str(policy.context.target_tokens)))
 TARGET_CONTEXT_CHARS = TARGET_CONTEXT_TOKENS * CHARS_PER_TOKEN
 
 
 def build_system_prompt(
     oli_mode: OLIMode = OLIMode.OFF,
     runtime_header: Optional[RuntimeHeader] = None,
+    base_set_slabs: Optional[list[Slab]] = None,
+    catalog_slabs: Optional[list[Slab]] = None,
+    collection_by_id: Optional[dict[str, str]] = None,
 ) -> str:
-    """Build the full system message: constitutional prompt + runtime header."""
+    """Build the full system message: constitutional prompt + catalog +
+    retrieved/full-text slabs + runtime header.
+
+    ``base_set_slabs`` — slabs whose FULL TEXT is injected under
+    ``[CORPUS BASE SET]``. Typically CONSTITUTIONAL + CANONICAL (always-in)
+    plus the top-ranked REFERENCE slabs selected by fused lexical, dense,
+    and graph-aware retrieval for the current message.
+
+    ``catalog_slabs`` — REFERENCE slabs that did not receive full-text budget.
+    They are collapsed into collection-level awareness counts rather than
+    exposing ids or summaries. Direct evidence turns may omit this awareness
+    block entirely to keep lookup answers focused.
+    """
     parts = []
 
     if oli_mode == OLIMode.ON:
-        parts.append(OLI_CONSTITUTIONAL_PROMPT)
+        # Phase 7: Bootstrap pointer relies on corpus slabs for OLI layer
+        # definitions, saving ~18k chars. Use PS_OLI_FULL_PROMPT=1 to revert.
+        if _USE_FULL_PROMPT:
+            parts.append(OLI_CONSTITUTIONAL_PROMPT)
+        else:
+            parts.append(OLI_BOOTSTRAP_PROMPT)
     else:
         # OLI OFF: still inject BMD scaffold + OLI-off rules
         parts.append(BMD_SCAFFOLD)
 
     parts.append(_build_base_system())
 
+    # Catalog — compact index of slabs the model could reference but
+    # whose full text isn't warranted this turn. Placed BEFORE the base
+    # set so the model first understands the shape of available content,
+    # then sees the details of what's currently loaded.
+    if catalog_slabs:
+        parts.append(_format_catalog(catalog_slabs, collection_by_id))
+
+    # Full-text slab injection (CONSTITUTIONAL + CANONICAL + retrieved REFERENCE)
+    if base_set_slabs:
+        parts.append(_format_base_set_slabs(base_set_slabs, collection_by_id))
+
     if runtime_header:
         parts.append(_format_runtime_header(runtime_header))
+
+        # Corpus review mode — conditional addendum that scopes the
+        # constitutional constraints for editorial assessment. Injected
+        # AFTER the runtime header so the model sees review_mode=True
+        # in the header and then immediately gets the permission grant.
+        if runtime_header.enforcement_flags.review_mode:
+            parts.append(_REVIEW_MODE_ADDENDUM)
 
     return "\n\n".join(parts)
 
@@ -98,7 +178,8 @@ def _build_base_system() -> str:
         "- When you produce structured data (JSON objects, arrays, configs, schemas, "
         "plans-as-data), ALWAYS wrap it in a fenced code block with a language tag, "
         "e.g. ```json ... ``` or ```yaml ... ```. Never emit raw JSON as prose.\n"
-        "- Code goes in fenced blocks with the appropriate language tag.\n\n"
+        "- Code goes in fenced blocks with the appropriate language tag.\n"
+        "- Use unicode symbols (→ ← ↔ ≥ ≤ ≠ ×), never LaTeX notation ($\\rightarrow$, $\\geq$, etc.) — the frontend renders markdown, not LaTeX.\n\n"
         "OUTPUT FORMATTING (tool calls / structured extraction):\n"
         "When the application asks you for structured extraction via a schema prompt, "
         "return ONLY raw JSON — no markdown fences, no comments, no explanation — "
@@ -111,6 +192,8 @@ def _format_runtime_header(header: RuntimeHeader) -> str:
     """Format §26.3 runtime control header as structured text for the model."""
     lines = [
         "[RUNTIME HEADER]",
+        f"active_model: {header.active_model}",
+        f"active_model_family: {header.active_model_family}",
         f"oli_mode: {header.oli_mode.value}",
         f"oli_version: {header.oli_version}",
         (f"layer_control: max_layer={header.layer_control['max_layer']}, "
@@ -129,7 +212,8 @@ def _format_runtime_header(header: RuntimeHeader) -> str:
         (f"enforcement: admissibility={header.enforcement_flags.claim_admissibility_required}, "
          f"degradation={header.enforcement_flags.degradation_flag}, "
          f"pushback={header.enforcement_flags.pushback_required}, "
-         f"dampening={header.enforcement_flags.dampening_level.value}"),
+         f"dampening={header.enforcement_flags.dampening_level.value}, "
+         f"review_mode={header.enforcement_flags.review_mode}"),
     ]
 
     # OP_01 operator state — feature-based wrapped span inventory.
@@ -235,7 +319,160 @@ def _format_runtime_header(header: RuntimeHeader) -> str:
             "primary_reading."
         )
 
+    # Anchor hits — which corpus concepts the user's message activated.
+    # This tells the model HOW to engage: thematically, not as claims.
+    if header.anchor_hits:
+        lines.append("anchor_hits (this turn):")
+        for hit in header.anchor_hits:
+            aid = hit.get("anchor_id", "?")
+            phrase = hit.get("canonical_phrase", "")
+            notes = hit.get("notes", "")
+            conf = hit.get("confidence", 0)
+            method = hit.get("method", "?")
+            invokes = hit.get("invokes", [])
+            lines.append(f"  hit: {phrase} ({aid}, {conf:.0%} via {method})")
+            if notes:
+                lines.append(f"       ~{notes}")
+            if invokes:
+                lines.append(f"       invokes: {invokes}")
+        lines.append(
+            "  ## ANCHOR HIT — RESPONSE CONTRACT:"
+        )
+        lines.append(
+            "  ## The user is referencing a concept from their personal corpus."
+        )
+        lines.append(
+            "  ## This is a CULTURAL REFERENCE, QUOTE, or THEMATIC INVOCATION."
+        )
+        lines.append(
+            "  ## DO NOT treat it as a factual claim. DO NOT add [UNKNOWN] or other tags."
+        )
+        lines.append(
+            "  ## DO NOT challenge, verify, or demand evidence."
+        )
+        lines.append(
+            "  ## INSTEAD: Engage with the theme. Discuss its meaning, explore it,"
+        )
+        lines.append(
+            "  ## connect it to the conversation. The anchor's notes give you context."
+        )
+
     lines.append("[/RUNTIME HEADER]")
+    return "\n".join(lines)
+
+
+def _slab_summary(slab: Slab, n: int = 80) -> str:
+    """One-line summary for a slab: first ``n`` chars of canonical_text,
+    newlines collapsed. Cheap, no embedding roundtrip.
+    """
+    text = (slab.canonical_text or "").replace("\n", " ").strip()
+    return text[:n] + ("…" if len(text) > n else "")
+
+
+def _format_catalog(
+    slabs: list[Slab],
+    collection_by_id: Optional[dict[str, str]] = None,
+) -> str:
+    """Compact index of slabs the model could invoke but whose full text
+    isn't injected this turn.
+
+    Format, one line per slab::
+
+        SLAB_ID [TYPE, collection=<cid>]: Title — first 80 chars of summary…
+
+    The ``collection=<cid>`` tag is the key affordance: it lets the model
+    distinguish slabs with near-identical titles across mining passes
+    (e.g. two collections both have a "Final Reflection" slab). Without
+    this, the model conflates collections when asked to compare them.
+    """
+    if not slabs:
+        return ""
+    cmap = collection_by_id or {}
+    # Collapse per-collection so the surface is a short awareness summary,
+    # NOT an enumerated list of IDs the model will parrot verbatim. Smaller
+    # models (gemma 3, and any model that hasn't been RLHF'd against echoing
+    # structured context) treat per-slab catalog lines as a transcript to
+    # recite. A per-collection count keeps the affordance ("these corpora
+    # exist, this one has N reference slabs") without the echo surface.
+    by_coll: dict[str, int] = {}
+    uncollected = 0
+    for slab in slabs:
+        coll = cmap.get(slab.id)
+        if coll:
+            by_coll[coll] = by_coll.get(coll, 0) + 1
+        else:
+            uncollected += 1
+    lines = ["[CORPUS AWARENESS]"]
+    lines.append(
+        "The user's corpus contains additional reference slabs beyond what "
+        "is loaded below. The bodies of these slabs are NOT in your context "
+        "this turn — you cannot read them. You are only being told what "
+        "collections exist so you don't claim ignorance of them. If the "
+        "user asks about specific content in one of these collections, say "
+        "you'd need it loaded first; do NOT invent retrieval syntax, tool "
+        "calls, or fabricated slab contents."
+    )
+    lines.append("Collections with slabs not loaded this turn:")
+    for coll in sorted(by_coll):
+        lines.append(f"  - {coll}: {by_coll[coll]} reference slab(s)")
+    if uncollected:
+        lines.append(f"  - (unassigned): {uncollected} slab(s)")
+    lines.append("[/CORPUS AWARENESS]")
+    return "\n".join(lines)
+
+
+def _format_base_set_slabs(
+    slabs: list[Slab],
+    collection_by_id: Optional[dict[str, str]] = None,
+) -> str:
+    """§Phase 5 — Format base set slab canonical text for system prompt injection.
+
+    Each slab's canonical_text is injected under a [CORPUS BASE SET] block so
+    the model has access to constitutional layer rules and domain context from
+    turn 0. Slabs are already dependency-sorted by CorpusStore.base_set_slabs().
+
+    Slab headers include ``collection=<cid>`` when known, so the model can
+    tell which collection each full-text slab belongs to — critical for
+    comparison queries across mining passes.
+
+    Truncation policy is type-aware:
+      - CONSTITUTIONAL / CANONICAL: full ``policy.context.slab_truncation``
+        budget (~8000 chars). These are foundational and need to be complete.
+      - REFERENCE: tighter ~1500-char cap. REFERENCE slabs are mined narrative
+        content included so the model can answer meta-questions about cold
+        corpus, but they don't need every word — one beat's worth of context
+        is usually enough for the model to know the slab exists and can be
+        invoked for full detail via anchor match.
+    """
+    if not slabs:
+        return ""
+    from ..models.enums import SlabType
+    _full_max = policy.context.slab_truncation
+    _ref_max = min(1500, _full_max)
+    cmap = collection_by_id or {}
+
+    lines = ["[CORPUS BASE SET]"]
+    lines.append(
+        "EVIDENCE RULES: For factual or specification questions, use the "
+        "full-text slabs below as evidence. Distinguish explicit text from "
+        "calculation or inference; if the requested detail is absent, say so. "
+        "Do not invent a missing configuration or extrapolate possible design "
+        "changes unless the user explicitly asks for inference. When useful, identify the "
+        "supporting slab by its human-readable title and collection. Never expose internal "
+        "object ids such as mined_slab_... in a user-facing answer."
+    )
+    for slab in slabs:
+        coll = cmap.get(slab.id)
+        tag = f"{slab.type.value}" + (f", collection={coll}" if coll else "")
+        display_title = (slab.title or "").strip() or "Untitled corpus reference"
+        lines.append(f"--- {display_title} ({tag}) ---")
+        text = slab.canonical_text or ""
+        _max = _ref_max if slab.type == SlabType.REFERENCE else _full_max
+        if len(text) > _max:
+            text = text[:_max] + "\n[... truncated ...]"
+        lines.append(text)
+        lines.append("")  # blank line separator
+    lines.append("[/CORPUS BASE SET]")
     return "\n".join(lines)
 
 

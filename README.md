@@ -1,6 +1,6 @@
 # Prime's Shadow
 
-**A full-stack LLM desktop application implementing the Mirror architecture — persistent epistemic integrity, graph-of-graphs semantic memory, and live user-controlled salience steering.**
+**A full-stack neuro-symbolic LLM application implementing the Mirror architecture — persistent epistemic integrity, graph-of-graphs semantic memory, automated knowledge extraction with grounding verification, and live user-controlled salience steering.**
 
 > *"I am the bone of my sword."*
 
@@ -10,13 +10,15 @@
 
 Prime's Shadow is a local AI assistant built around a novel architecture for maintaining epistemic integrity and semantic context across long-horizon LLM interactions. It is the working implementation of [Mirror](./preprint), a neuro-symbolic system documented in a technical preprint currently under external review.
 
-Three things make it architecturally distinct from any existing LLM interface:
+Four things make it architecturally distinct from any existing LLM interface:
 
-1. **Live user-controlled salience steering** — users directly manipulate model attention weights at runtime by interacting with the corpus graph. Double-click a node to heat it (increase salience), cool or dismiss via context menu. The model sees the updated frame header on the next turn. Dismissed nodes are not deleted — they are evicted from the active frame but remain in the corpus and can be organically re-detected if the conversation warrants it. No known prior implementation of this interaction primitive exists.
+1. **Automated knowledge pipeline with grounding verification (Mine → Dream → Review → Commit)** — concepts are extracted from conversations by a mining pass, then automatically audited and rewritten by a *dreaming pass* that retrieves relevant source code and conversation context via embedding similarity, detects confabulated content, and produces grounded rewrites. The dreaming pass auto-detects whether a draft references system internals (CODE mode — grounds against source code) or captures external domain knowledge (DOMAIN mode — grounds against the conversation). Human review remains the gatekeeper: enriched output is never auto-promoted.
 
-2. **Persistent graph-of-graphs semantic memory (Corpus)** — concepts detected across sessions are stored as a typed graph (Anchor → Bundle → Slab) with edge semantics (INVOKES / SUPPORTS / CONFLICTS), versioning, and cascade propagation. The corpus persists across sessions and is validated on startup. Session state is restored on chat select, including tentative nodes, edges, and corpus access patterns.
+2. **Live user-controlled salience steering** — users directly manipulate model attention weights at runtime by interacting with the corpus graph. Double-click a node to heat it (increase salience), cool or dismiss via context menu. The model sees the updated frame header on the next turn. Dismissed nodes are not deleted — they are evicted from the active frame but remain in the corpus and can be organically re-detected if the conversation warrants it. No known prior implementation of this interaction primitive exists.
 
-3. **Three-layer constitutional constraint injection (OLI)** — a ten-layer epistemic constraint system injected at three levels: constitutional prompt (~2,900 tokens), per-turn runtime header (~50 tokens), and code-side post-generation validator. Enforces hard-gated claim admissibility (FACT / INFERENCE / HYPOTHESIS / UNKNOWN), layer integrity bounds (L0–L4), and surfaces epistemic rigour decay in real time.
+3. **Persistent graph-of-graphs semantic memory (Corpus)** — concepts detected across sessions are stored as a typed graph (Anchor → Bundle → Slab) with edge semantics (INVOKES / SUPPORTS / CONFLICTS / LINKS), versioning, and cascade propagation. The corpus persists across sessions and is validated on startup. Edges are auto-generated at commit time from inline structural fields (invokes, links, supports) with tiered placeholder weights. Session state is restored on chat select, including tentative nodes, edges, and corpus access patterns.
+
+4. **Three-layer constitutional constraint injection (OLI)** — a ten-layer epistemic constraint system injected at three levels: constitutional prompt (~2,900 tokens), per-turn runtime header (~50 tokens), and code-side post-generation validator. Enforces hard-gated claim admissibility (FACT / INFERENCE / HYPOTHESIS / UNKNOWN), layer integrity bounds (L0–L4), and surfaces epistemic rigour decay in real time.
 
 ---
 
@@ -25,8 +27,9 @@ Three things make it architecturally distinct from any existing LLM interface:
 | Layer | Technology | Purpose |
 |---|---|---|
 | LLM | GPT-OSS 20B via Ollama | Primary face model — MoE, 128k context, 3.6B active params/token |
-| Embeddings | nomic-embed-text via Ollama | 768-dim embeddings for semantic X-axis positioning, anchor matching, dedup |
-| Backend | Python 3.13 + FastAPI + Uvicorn | API server on port 8420 |
+| Embeddings | nomic-embed-text via Ollama | 768-dim embeddings for anchor matching, dreaming retrieval, dedup, semantic positioning |
+| Vector Index | sqlite-vec + sentence-transformers (all-MiniLM-L6-v2) | 384-dim vector store for future corpus-scale retrieval |
+| Backend | Python 3.13 + FastAPI + Uvicorn | Async API server on port 8420, background task pipeline |
 | Frontend | Single-page HTML + vanilla JS | Two canvas renderers with custom 3D projection + force-directed physics |
 | Storage | YAML (corpus) + JSON (chats, sessions, frames) | All local, file-backed, no database |
 | Web Search | DDG (default) / Google Gemini / OpenAI / Serper.dev | Configurable, zero-key fallback to DDG |
@@ -55,17 +58,36 @@ Three things make it architecturally distinct from any existing LLM interface:
 ```
 User message
   → classify_message()          — Function gate (6 types)
-  → anchor_matcher.match_all()  — Two-phase: string → semantic, soft * format gate
+  → anchor_matcher.match_all()  — Hybrid: string match → semantic sweep (embedding cosine)
   → asyncio.gather(
-      frame_manager.update_turn(),  — Activate nodes, salience, decay, corpus hits
+      frame_manager.update_turn(),  — Activate nodes, salience EWA, decay, corpus hits
       estimate_drift()              — Affect density, claim volatility, rigor drop
     )
   → build_runtime_header()      — Gate state + frame summary + drift for model
-  → build_system_prompt()       — Constitutional + BMD + header
+  → build_system_prompt()       — Constitutional + base set slabs + header
   → ollama.chat_stream()        — Streaming response (web search if mode=on/auto)
   → oli_validator.validate_output() — Code-side L0-L4 flag-and-surface
   → yield SSE chunks to frontend
-  → background: draft_manager.extract_proposals() every 8 turns
+  → background: extract_proposals()  — Mine concepts from conversation
+  → background: dreaming_pass()      — Ground-truth audit + rewrite via code/chat retrieval
+```
+
+### Knowledge Pipeline (Mine → Dream → Review → Commit)
+
+```
+Conversation / Imported text
+  → extract_proposals()             — LLM extracts load-bearing concepts as DraftPackets
+  → dreaming_pass.dream()           — Two-stage grounding:
+      1. _CodeIndex.retrieve()         Embed draft text → top-K code/config chunks (cosine sim)
+      2. Mode detection                CODE (score ≥ 0.60) or DOMAIN (score < 0.60)
+      3. Grounding audit               Compare claims against retrieved reference material
+      4. Content rewrite               Corrected inline dict with real terms + file references
+  → .enriched.json + .dream_log.md  — Output: enriched packet + human-readable audit trail
+  → human review (accept/reject)    — cp enriched.json → .json to accept
+  → review_draft(promote_corpus)    — Three-deep fallback: inline dict → packet → raw
+  → _generate_commit_edges()        — INVOKES/LINKS/SUPPORTS edges from structural fields
+  → _generate_minimum_bundle()      — §4.1.3 auto-coherence bundle for committed slabs
+  → corpus.save()                   — Persisted to YAML, edges to edges.yaml
 ```
 
 ---
@@ -73,28 +95,37 @@ User message
 ## Corpus & Data Model
 
 ### Corpus Objects (YAML, authoritative)
-- **Anchors** — invocation handles; named, characterised, callable by the * operator
+- **Anchors** — invocation handles; named, characterised, callable by the \* operator
 - **Bundles** — structured semantic neighbourhoods grouping related concepts
 - **Slabs** — heavyweight canonical content nodes (50+ line markdown); the atomic unit of committed knowledge
-- **Edges** — typed: INVOKES, SUPPORTS, CONFLICTS, LINKS, PARENT_OF with weight, confidence, tension, conditions
+- **Edges** — typed: INVOKES, SUPPORTS, CONFLICTS, LINKS, PARENT_OF with tiered weights (INVOKES=1.0, LINKS=0.8, SUPPORTS=0.7), confidence, tension, conditions. Auto-generated at commit time from inline structural fields with deduplication guard.
 
 ### Runtime Objects (JSON, session-scoped)
 - **FrameState** — active nodes by type, salience_now/smoothed, structural weight, decay model (0.85/turn), corpus access patterns (hit_count + last_hit_turn)
-- **DraftStack** — tentative proposals, max 10/session
+- **DraftStack** — tentative proposals, max 10/session, with dreaming enrichment status tracking
 - **Tentative Registry** — concept detection, parent/child hierarchy, promotion state
 - **Tentative Edges** — PARENT_OF between tentative nodes
+- **Dream Artifacts** — `.enriched.json` (grounded rewrite) + `.dream_log.md` (human-readable audit trail) per draft
 
 ### Promotion Chain
 ```
 conversation turn
   → concept detected (ephemeral, no authority)
   → if similar to existing: PARENT_OF edge (auto-hierarchical)
+  → extract_proposals() — LLM mines load-bearing concepts as DraftPackets
+  → dreaming_pass.dream() — automated grounding audit + content rewrite
+      (CODE mode: grounds against source code via embedding retrieval)
+      (DOMAIN mode: grounds against conversation context + existing corpus)
+  → .enriched.json + .dream_log.md — output for human review
   → 3+ children: events feed suggests bundling
   → user Ctrl+select → right-click → Create bundle
   → user right-click bundle → Promote to anchor
   → slab proposed ONLY on explicit request or session end
+  → human review: accept/reject enriched drafts (cp enriched.json → .json)
+  → review_draft() — three-deep fallback: inline dict → packet → raw sidecar
+  → _generate_commit_edges() — INVOKES/LINKS/SUPPORTS from structural fields
+  → _generate_minimum_bundle() — §4.1.3 auto-coherence bundle
   → corpus commit requires OLI ON + FACT verification
-  → auto-generates minimum coherence bundle at slab commit
 ```
 
 ---
@@ -149,7 +180,7 @@ Tentative nodes: yellow dashed ring overlay. Rejected: grey dashed ring.
 - **System Philosophy**: human-as-loop, absence of command = hard deny, summaries = zero authority
 - **\* operator**: three functions — anchor invocation, semantic depth, stabilised analysis
 
-**BMD (Bones Mode Distribution)**: Brennan 0.60 / Zack 0.15 / Booth 0.10 / Angela 0.10 / Hodgins 0.05. Routing adjusts contextually.
+**BMD (Behavioural Model Distribution)**: Brennan 0.60 / Zack 0.15 / Booth 0.10 / Angela 0.10 / Hodgins 0.05. Routing adjusts contextually.
 
 ---
 
@@ -160,6 +191,9 @@ Tentative nodes: yellow dashed ring overlay. Rejected: grey dashed ring.
 | Chats | JSON files | Forever, until user archives |
 | FrameState | JSON per session | Restored on chat select (includes tentative registry, edges, corpus access patterns) |
 | Corpus | YAML files | Persistent, validated on startup (6 checks) |
+| Edges | edges.yaml | Persistent, auto-generated at commit time with dedup guard |
+| Drafts | JSON per draft | Session-scoped, promoted or discarded at review |
+| Dream artifacts | .enriched.json + .dream_log.md | Per-draft, created by dreaming pass, consumed at review |
 | Events | Append-only JSONL logs | Gate, match, drift, frame, proposal, verification events |
 
 ---
@@ -185,6 +219,33 @@ python -m uvicorn src.app:app --host 0.0.0.0 --port 8420
 
 Open `http://localhost:8420` in your browser.
 
+### Optional: Ollama Cloud (hosted inference)
+
+To run chat against Ollama-hosted large models (e.g. `gpt-oss:120b-cloud`,
+`qwen3-coder:480b-cloud`, `kimi-k2:1t-cloud`) without local GPU:
+
+```bash
+# 1. Pull a cloud model with the local CLI (one-time auth):
+ollama signin
+ollama pull gpt-oss:120b-cloud
+
+# 2a. EASY PATH — local daemon proxies to cloud transparently.
+#     No env vars needed. Just pick the -cloud model in the UI dropdown.
+python -m uvicorn src.app:app --host 0.0.0.0 --port 8420
+
+# 2b. DIRECT PATH — talk to ollama.com without a local daemon.
+#     Embeddings stay local (cloud doesn't host nomic-embed-text cheaply):
+export PS_OLLAMA_HOST=https://ollama.com
+export PS_OLLAMA_API_KEY=<your-key-from-ollama.com>
+export PS_OLLAMA_EMBED_HOST=http://localhost:11434
+export PS_CHAT_MODEL=gpt-oss:120b-cloud
+python -m uvicorn src.app:app --host 0.0.0.0 --port 8420
+```
+
+In cloud mode the runtime flags (`PS_NUM_CTX`, `PS_NUM_GPU`, `PS_NUM_BATCH`,
+`keep_alive`) are stripped from outgoing requests — the hosted runtime
+manages its own context window and scheduling.
+
 ---
 
 ## Relation to Mirror
@@ -193,9 +254,45 @@ Prime's Shadow is the working implementation of the Mirror architecture. The Mir
 
 ---
 
+## Project Structure
+
+```
+src/
+  api/routes.py          — FastAPI endpoints, SSE streaming, background task orchestration
+  models/
+    enums.py             — 14 enums: message function, claim tags, edge types, OLI modes, match tiers
+    schemas.py           — Pydantic v2 models: Anchor, Bundle, Slab, Edge, FrameState, DraftPacket, etc.
+  prompts/
+    constitutional.py    — OLI ON/OFF system prompts, BMD scaffold, layer integrity
+    dreaming.py          — Two-stage grounding audit + rewrite prompts (CODE/DOMAIN mode-aware)
+  services/
+    corpus.py            — CorpusStore: YAML load/save, 6-check validation, cascade propagation
+    frame_manager.py     — FrameState: salience EWA, decay, activation, corpus access patterns
+    anchor_matcher.py    — Hybrid matching: exact string → alias → semantic embedding sweep
+    draft_manager.py     — DraftStack: three-deep fallback commit, auto-edge generation, minimum bundles
+    dreaming.py          — DreamingPass: code index, embedding retrieval, mode detection, grounding pipeline
+    pipeline.py          — Per-turn orchestration: classify → match → frame → header → stream → validate
+    context_packer.py    — System prompt assembly: constitutional + base set + runtime header
+    oli_validator.py     — Post-generation L0–L4 violation detection
+app/
+  corpus/objects/        — YAML corpus: anchors, bundles, slabs, edges (authoritative)
+  corpus/state/          — JSON session state: frames, drafts, tentative registry
+  static/index.html      — Single-page frontend: dual canvas, force-directed physics, 3D projection
+```
+
+---
+
 ## Status
 
-Active development. Fast-iteration phase. Not yet packaged for general distribution — local deployment only.
+Active development. Fast-iteration phase. Sole developer. Not yet packaged for general distribution — local deployment only.
+
+**Recent milestones:**
+- Automated knowledge pipeline (Mine → Dream → Review → Commit) with grounding verification
+- CODE/DOMAIN dual-mode dreaming with embedding-based retrieval and mode detection
+- Auto-edge generation at commit time with tiered weights and deduplication
+- Three-deep fallback ladder ensuring enriched dreaming content reaches corpus
+- Fire-and-forget background dreaming on all draft entry points (chat, manual extract, AI Mine)
+- Synchronous dreaming catch-up at end-of-session review
 
 ---
 

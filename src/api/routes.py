@@ -1,94 +1,39 @@
-"""API routes — chat, corpus, sessions, drafts, and system endpoints."""
-from __future__ import annotations
-import asyncio
-from datetime import datetime
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-import json
-from typing import Optional
+"""API routes — wiring hub + small endpoints (health, models, settings, upload, events).
 
-from ..models.schemas import ChatMessage, MessageClassification, DriftEstimate
-from ..models.enums import ChatStatus, OLIMode
-from ..services.chat_store import ChatStore
-from ..services.corpus import CorpusStore
-from ..services.pipeline import process_turn
-from ..services.event_log import EventLog
-from ..services.session_store import SessionStore
-from ..services.anchor_matcher import AnchorMatcher
-from ..services.frame_manager import FrameManager
-from ..services.draft_manager import DraftManager
+Sub-routers handle the heavy lifting:
+  chats.py     — chat CRUD + send_message streaming
+  sessions.py  — frame endpoints + 3D graph builder
+  drafts.py    — draft lifecycle, library/tentative, dream-all, extract-proposals
+  corpus_routes.py — corpus browser, node CRUD, collections
+  mining.py    — conversation + narrative mining, push-mined, scratch sessions
+"""
+from __future__ import annotations
+import logging
+import re
+
+logger = logging.getLogger(__name__)
+from fastapi import APIRouter, HTTPException, UploadFile, File
+from pydantic import BaseModel
+
 from ..services import ollama
+from . import deps
+from .deps import chat_store, event_log
+
+# Sub-routers
+from . import chats, sessions, drafts, corpus_routes, mining, mining_v2
 
 router = APIRouter()
-
-# --- Service instances ---
-chat_store = ChatStore()
-corpus = CorpusStore()
-event_log = EventLog()
-session_store = SessionStore()
-frame_manager = FrameManager(corpus)
-anchor_matcher = AnchorMatcher(corpus)
-draft_manager = DraftManager(corpus, session_store)
-
-from ..services.drift_monitor import DriftMonitor
-drift_monitor = DriftMonitor()
+router.include_router(chats.router)
+router.include_router(sessions.router)
+router.include_router(drafts.router)
+router.include_router(corpus_routes.router)
+router.include_router(mining.router)
+router.include_router(mining_v2.router)
 
 
-# --- Request models ---
-
-class CreateChatRequest(BaseModel):
-    title: str = "New Chat"
-
-
-class SendMessageRequest(BaseModel):
-    content: str
-    oli_mode: str = "OFF"
-    web_mode: str = "off"  # "off" | "on" | "auto"
-    think_level: str = "medium"  # "off" | "low" | "medium" | "high"
-
-
-class UpdateChatStatusRequest(BaseModel):
-    status: ChatStatus
-
-
-class ReviewDraftRequest(BaseModel):
-    action: str  # "discard" | "promote_tentative" | "promote_corpus"
-    oli_mode: str = "OFF"
-
-
-class AmendDraftRequest(BaseModel):
-    canonical_phrase: Optional[str] = None
-    canonical_text: Optional[str] = None
-    justification: Optional[str] = None
-    aliases: Optional[list[str]] = None
-
-
-class CreateBundleRequest(BaseModel):
-    node_ids: list[str]
-    label: str = ""
-
-
-class PromoteToAnchorRequest(BaseModel):
-    node_id: str
-
-
-class ExtractProposalsRequest(BaseModel):
-    explicit: bool = True
-    user_request: str = ""
-
-
-def _save_session_state(sid: str):
-    """Save frame + tentative registry + edges together."""
-    frame = frame_manager._frames.get(sid)
-    if frame:
-        session_store.save_frame(sid, frame)
-    registry = frame_manager._tentative_registry.get(sid, {})
-    edges = frame_manager._tentative_edges.get(sid, [])
-    session_store.save_registry(sid, registry, edges)
-
-
-# --- Settings ---
+# ═══════════════════════════════════════════════════════════════
+#  Settings
+# ═══════════════════════════════════════════════════════════════
 
 class SearchSettingsRequest(BaseModel):
     api_key: str = ""
@@ -112,12 +57,14 @@ async def get_search_settings():
     }
 
 
-# --- Health ---
+# ═══════════════════════════════════════════════════════════════
+#  Health
+# ═══════════════════════════════════════════════════════════════
 
 @router.get("/health")
 async def health():
     ollama_health = await ollama.health_check()
-    corpus_errors = corpus.validate()
+    corpus_errors = deps.corpus.validate()
     return {
         "status": "ok" if ollama_health["chat_model"] else "degraded",
         "ollama": ollama_health,
@@ -126,915 +73,478 @@ async def health():
     }
 
 
-# --- Chat CRUD ---
+# ═══════════════════════════════════════════════════════════════
+#  Model management
+# ═══════════════════════════════════════════════════════════════
 
-@router.post("/chats")
-async def create_chat(req: CreateChatRequest):
-    chat = chat_store.create_chat(req.title)
-    return chat.model_dump(mode="json")
+def _friendly_model_label(tag: str) -> str:
+    """Turn a raw Ollama tag into a human-legible dropdown label.
 
-
-@router.get("/chats")
-async def list_chats():
-    chats = chat_store.list_chats()
-    return [c.model_dump(mode="json") for c in chats]
-
-
-@router.get("/chats/{chat_id}")
-async def get_chat(chat_id: str):
-    chat = chat_store.get_chat(chat_id)
-    if not chat:
-        raise HTTPException(404, "Chat not found")
-    messages = chat_store.get_messages(chat_id)
-    # Find active session for this chat so frontend can restore graph
-    active_session = session_store.get_active_session(chat_id)
-    return {
-        "chat": chat.model_dump(mode="json"),
-        "messages": [m.model_dump(mode="json") for m in messages],
-        "session_id": active_session,
-    }
-
-
-@router.patch("/chats/{chat_id}/status")
-async def update_chat_status(chat_id: str, req: UpdateChatStatusRequest):
-    chat_store.update_status(chat_id, req.status)
-    return {"status": "ok"}
-
-
-# --- Chat messaging ---
-
-@router.post("/chats/{chat_id}/messages")
-async def send_message(chat_id: str, req: SendMessageRequest):
-    """Send a user message and stream the assistant response.
-
-    Integrates: classification, anchor matching, frame state update,
-    drift estimation, and background proposal extraction.
+    Examples:
+      VladimirGav/gemma4-26b-16GB-VRAM:latest -> Gemma 4 26B
+      gemma3:12b                              -> Gemma 3 12B
+      gpt-oss:20b                             -> GPT-OSS 20B
+      qwen3-vl:30b                            -> Qwen3 VL 30B
+      deepseek-r1:14b                         -> DeepSeek R1 14B
+      llama3.2:latest                         -> Llama 3.2
     """
-    chat = chat_store.get_chat(chat_id)
-    if not chat:
-        raise HTTPException(404, "Chat not found")
-    if chat.status != ChatStatus.ACTIVE:
-        raise HTTPException(400, f"Chat is {chat.status.value}, not ACTIVE")
-
-    history = chat_store.get_messages(chat_id)
-    turn = len(history) + 1
-
-    # Store user message
-    user_msg = ChatMessage(role="user", content=req.content, turn=turn)
-    chat_store.append_message(chat_id, user_msg)
-
-    # Resolve or create session
-    session_id = session_store.get_active_session(chat_id)
-    if not session_id:
-        session_id = session_store.create_session(chat_id)
-
-    # Restore frame state + tentative registry + edges if available
-    saved_frame = session_store.load_frame(session_id)
-    if saved_frame:
-        reg, edges = session_store.load_registry(session_id)
-        frame_manager.restore(session_id, saved_frame, reg or None, edges or None)
-    else:
-        frame_manager.get_or_create(chat_id, session_id)
-
-    oli_mode = OLIMode(req.oli_mode)
-
-    async def stream():
-        assistant_text = ""
-        metadata = {}
-
-        async for chunk in process_turn(
-            req.content, history, oli_mode,
-            session_id=session_id,
-            chat_id=chat_id,
-            anchor_matcher=anchor_matcher,
-            frame_manager=frame_manager,
-            drift_monitor=drift_monitor,
-            web_mode=req.web_mode,
-            think_level=req.think_level,
-        ):
-            if chunk["done"]:
-                metadata = chunk
-                assistant_text = chunk["full_response"]
-            else:
-                yield f"data: {json.dumps({'content': chunk['content']})}\n\n"
-
-        # Store assistant message
-        assistant_msg = ChatMessage(
-            role="assistant",
-            content=assistant_text,
-            turn=turn + 1,
-            classification=MessageClassification(**metadata.get("classification", {}))
-                if metadata.get("classification") else None,
-            drift_estimate=DriftEstimate(**metadata.get("drift_estimate", {}))
-                if metadata.get("drift_estimate") else None,
-        )
-        chat_store.append_message(chat_id, assistant_msg)
-
-        # Persist frame state
-        frame = frame_manager._frames.get(session_id)
-        if frame:
-            _save_session_state(session_id)
-
-        # Send final metadata (include session_id for graph refresh)
-        final: dict = {
-            "done": True,
-            "session_id": session_id,
-            "classification": metadata.get("classification"),
-            "drift_estimate": metadata.get("drift_estimate"),
-        }
-        if metadata.get("match_result"):
-            final["match_result"] = metadata["match_result"]
-        if metadata.get("frame_summary"):
-            final["frame_summary"] = metadata["frame_summary"]
-        if metadata.get("context_usage"):
-            final["context_usage"] = metadata["context_usage"]
-        yield f"data: {json.dumps(final)}\n\n"
-
-        # Background proposal extraction
-        actual_turn = metadata.get("turn", turn)
-        recent = [
-            {"role": m.role, "content": m.content, "turn": m.turn}
-            for m in chat_store.get_message_window(chat_id, last_n=12)
-        ]
-
-        # §14.2 — Explicit request path: user said "save this / anchor this / make a slab"
-        # Fires immediately (bypasses sweep cadence and draft stack cap)
-        cls = metadata.get("classification") or {}
-        if cls.get("explicit"):
-            asyncio.create_task(
-                draft_manager.extract_proposals(
-                    session_id, chat_id, recent, actual_turn,
-                    explicit=True, user_request=req.content,
-                )
-            )
-        # Periodic sweep (every SWEEP_CADENCE turns) — passive proposal extraction
-        elif draft_manager.should_sweep(actual_turn):
-            asyncio.create_task(
-                draft_manager.extract_proposals(
-                    session_id, chat_id, recent, actual_turn
-                )
-            )
-
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    import re
+    # Strip namespace, keep base + tag-suffix so we can search both for size.
+    without_ns = tag.split("/")[-1].lower()
+    base, _, tagsuffix = without_ns.partition(":")
+    # Pull an explicit size token from either segment (base carries it for
+    # community tags like gemma4-26b; tagsuffix carries it for canonical
+    # Ollama tags like gemma3:12b).
+    size_match = re.search(r"(\d+)b\b", base) or re.search(r"(\d+)b\b", tagsuffix)
+    size = size_match.group(0).upper() if size_match else ""
+    # Drop size + any noisy vram/ram qualifiers out of the stem
+    stem = re.sub(r"-?\d+b\b", "", base)
+    stem = re.sub(r"-?\d+gb[-_]?(v?ram)?", "", stem)
+    stem = stem.strip("-_ ")
+    # Canonicalize common family names
+    family_map = {
+        "gemma4": "Gemma 4",
+        "gemma3": "Gemma 3",
+        "gemma2": "Gemma 2",
+        "gpt-oss": "GPT-OSS",
+        "kimi-k2.6": "Kimi K2.6",
+        "kimi-k2.5": "Kimi K2.5",
+        "kimi-k2-thinking": "Kimi K2 Thinking",
+        "qwen3-coder": "Qwen3 Coder",
+        "qwen3-vl": "Qwen3 VL",
+        "qwen3": "Qwen3",
+        "deepseek-r1": "DeepSeek R1",
+        "deepseek-v3.1": "DeepSeek V3.1",
+        "glm-4.6": "GLM 4.6",
+        "glm-4": "GLM 4",
+        "kimi-k2": "Kimi K2",
+        "llama3.2": "Llama 3.2",
+        "llama3.1": "Llama 3.1",
+    }
+    pretty = family_map.get(stem, stem.replace("-", " ").title())
+    return f"{pretty} {size}".strip() if size else pretty
 
 
-# --- Sessions & Frame ---
-
-class NodeActionRequest(BaseModel):
-    node_id: str
-
-
-class NodeSalienceRequest(BaseModel):
-    node_id: str
-    delta: float = 0.0  # positive = heat, negative = cool
+# Models that are embedders / rerankers, not chat models. Filtered out of
+# the chat dropdown so users can't accidentally pin nomic-embed-text as their
+# conversational model.
+_NON_CHAT_FAMILIES = ("embed", "rerank", "bge", "e5-")
 
 
-@router.post("/sessions/{session_id}/frame/remove-node")
-@router.post("/sessions/{session_id}/frame/adjust-salience")
-async def adjust_salience(session_id: str, req: NodeSalienceRequest):
-    """Heat or cool a node — modifies backend salience that the model sees."""
-    frame = frame_manager._frames.get(session_id)
-    if not frame:
-        raise HTTPException(404, "No active frame for this session")
-
-    node_id = req.node_id
-    if node_id not in frame.active_nodes:
-        return {"error": "Node not in active frame"}
-
-    old = frame.salience_now.get(node_id, 0.0)
-    new_sal = max(0.0, min(1.0, old + req.delta))
-    frame.salience_now[node_id] = new_sal
-    frame.salience_smoothed[node_id] = new_sal  # immediate effect
-
-    _save_session_state(session_id)
-    action = "heated" if req.delta > 0 else "cooled"
-    event_log.log_frame_event(
-        session_id=session_id, event=f"user_{action}",
-        node_id=node_id, old=round(old, 3), new=round(new_sal, 3),
-    )
-    return {"status": action, "node_id": node_id, "salience": round(new_sal, 3)}
+# ── Featured cloud models ─────────────────────────────────────
+# Shown in the chat dropdown even when not yet pulled to the local daemon.
+# Lets the user discover hosted options without having to remember tags.
+# Override via env: PS_FEATURED_CLOUD_MODELS=tag1,tag2,tag3
+#
+# Tag notes (as of 2026-05):
+#   qwen3-coder:480b-cloud   — Qwen3 Coder 480B, confirmed on Ollama Cloud
+#   glm-4.6:cloud            — GLM 4.6 (Zhipu), hosted via Ollama Cloud
+#   gemma3:27b-cloud         — strongest Gemma on cloud at time of writing.
+#                              Swap to gemma4 tag when it ships hosted.
+import os as _os
+_DEFAULT_FEATURED = (
+    "qwen3-coder:480b-cloud,"
+    "glm-4.6:cloud,"
+    "gemma3:27b-cloud,"
+    "kimi-k2.6:cloud"  # Kimi K2.6 (Moonshot); tag may need adjustment if upstream uses kimi-k2-thinking:cloud
+)
+_FEATURED_CLOUD_MODELS = [
+    t.strip()
+    for t in _os.environ.get("PS_FEATURED_CLOUD_MODELS", _DEFAULT_FEATURED).split(",")
+    if t.strip()
+]
 
 
-@router.post("/sessions/{session_id}/frame/remove-node")
-async def remove_node_from_session(session_id: str, req: NodeActionRequest):
-    """Remove a node from the active frame.
+def _is_cloud_tag(name: str) -> bool:
+    """Detect Ollama Cloud tag conventions.
 
-    Evicts from frame but does NOT permanently delete from tentative registry.
-    Marks as 'dismissed' so the concept detector can bring it back if
-    the user organically discusses it again.
+    Ollama uses two patterns for cloud-hosted model tags:
+      - <model>:<size>-cloud   e.g. qwen3-coder:480b-cloud, gemma3:27b-cloud
+      - <model>:cloud          e.g. glm-4.6:cloud, kimi-k2.6:cloud
+
+    Both have "cloud" as a tag suffix after the colon. We treat anything
+    whose post-colon part ends in "cloud" as hosted.
     """
-    frame = frame_manager._frames.get(session_id)
-    if not frame:
-        raise HTTPException(404, "No active frame for this session")
-
-    node_id = req.node_id
-    if node_id in frame.active_nodes:
-        frame.active_nodes.remove(node_id)
-    frame.salience_now.pop(node_id, None)
-    frame.salience_smoothed.pop(node_id, None)
-    frame.structural_weight.pop(node_id, None)
-    frame.activation_sources.pop(node_id, None)
-    frame.active_anchors.pop(node_id, None)
-    frame.active_bundles.pop(node_id, None)
-    frame.active_slabs.pop(node_id, None)
-    frame.active_concepts.pop(node_id, None)
-
-    # Mark as dismissed in tentative registry — NOT deleted
-    # Can be re-added if concept detector finds it organically again
-    registry = frame_manager._tentative_registry.get(session_id, {})
-    for k, v in registry.items():
-        if v.get("id") == node_id:
-            v["dismissed"] = True
-            break
-
-    _save_session_state(session_id)
-    event_log.log_frame_event(session_id=session_id, event="node_removed", node_id=node_id)
-    return {"status": "removed", "node_id": node_id}
+    tag = name.split(":", 1)[-1] if ":" in name else ""
+    return tag == "cloud" or tag.endswith("-cloud")
 
 
-@router.post("/sessions/{session_id}/frame/reject-node")
-async def reject_node(session_id: str, req: NodeActionRequest):
-    """Mark a tentative node as rejected — stays visible but greyed out, will not be proposed for commit."""
-    node_id = req.node_id
+@router.get("/models")
+async def list_models():
+    """List available Ollama chat models + which one is active.
 
-    # Mark in tentative registry
-    registry = frame_manager._tentative_registry.get(session_id, {})
-    for k, v in registry.items():
-        if v.get("id") == node_id:
-            v["rejected"] = True
-            break
+    Talks to whichever Ollama host the rest of the app uses (local daemon
+    or Ollama Cloud — see PS_OLLAMA_HOST / PS_OLLAMA_API_KEY).
 
-    event_log.log_frame_event(session_id=session_id, event="node_rejected", node_id=node_id)
-    return {"status": "rejected", "node_id": node_id}
-
-
-@router.post("/sessions/{session_id}/frame/create-bundle")
-async def create_bundle_from_nodes(session_id: str, req: CreateBundleRequest):
-    """User-driven: group selected nodes into a tentative bundle."""
-    import uuid
-    from ..models.schemas import ActivationSource
-
-    frame = frame_manager._frames.get(session_id)
-    if not frame:
-        raise HTTPException(404, "No active frame")
-    if len(req.node_ids) < 2:
-        return {"error": "Bundle requires at least 2 nodes"}
-
-    registry = frame_manager._tentative_registry.get(session_id, {})
-
-    # Build label from children
-    child_labels = []
-    for nid in req.node_ids:
-        for name, info in registry.items():
-            if info.get("id") == nid:
-                child_labels.append(name)
-                break
-        else:
-            if nid in corpus.anchors:
-                child_labels.append(corpus.anchors[nid].canonical_phrase)
-            else:
-                child_labels.append(nid)
-
-    label = req.label or f"Bundle: {', '.join(child_labels[:3])}"
-    bundle_id = f"tentative_bundle_{uuid.uuid4().hex[:8]}"
-
-    # Create registry entry
-    registry[label] = {
-        "id": bundle_id,
-        "description": f"User-grouped: {', '.join(child_labels)}",
-        "turns_seen": 1,
-        "promoted": None,
-        "parent_id": None,
-        "children": list(req.node_ids),
-    }
-
-    # Add to frame
-    frame.active_nodes.append(bundle_id)
-    frame.active_bundles[bundle_id] = 0.7
-    frame.salience_now[bundle_id] = 0.7
-    frame.salience_smoothed[bundle_id] = 0.7
-    frame.structural_weight[bundle_id] = float(len(req.node_ids))
-    frame.activation_sources[bundle_id] = [
-        ActivationSource(source_type="user_bundling", source_ref=",".join(req.node_ids))
-    ]
-
-    # Create PARENT_OF edges from bundle to children
-    if session_id not in frame_manager._tentative_edges:
-        frame_manager._tentative_edges[session_id] = []
-    for child_id in req.node_ids:
-        frame_manager._tentative_edges[session_id].append({
-            "from": bundle_id, "to": child_id, "type": "PARENT_OF", "strength": 0.8,
-        })
-        # Update child registry to point to parent
-        for name, info in registry.items():
-            if info.get("id") == child_id:
-                info["parent_id"] = bundle_id
-                break
-        # Absorb children — remove from active frame (they live inside the bundle now)
-        if child_id in frame.active_nodes:
-            frame.active_nodes.remove(child_id)
-        frame.salience_now.pop(child_id, None)
-        frame.salience_smoothed.pop(child_id, None)
-        frame.structural_weight.pop(child_id, None)
-        frame.activation_sources.pop(child_id, None)
-        frame.active_concepts.pop(child_id, None)
-        frame.active_anchors.pop(child_id, None)
-        frame.active_bundles.pop(child_id, None)
-
-    _save_session_state(session_id)
-    event_log.log_frame_event(
-        session_id=session_id, event="bundle_created_by_user",
-        bundle_id=bundle_id, children=req.node_ids,
-    )
-    return {"status": "created", "bundle_id": bundle_id, "label": label}
-
-
-@router.post("/sessions/{session_id}/frame/promote-to-anchor")
-async def promote_to_anchor(session_id: str, req: PromoteToAnchorRequest):
-    """Promote a tentative bundle to a tentative anchor (invocation handle)."""
-    frame = frame_manager._frames.get(session_id)
-    if not frame:
-        raise HTTPException(404, "No active frame")
-
-    registry = frame_manager._tentative_registry.get(session_id, {})
-
-    # Find the node in registry
-    target_name = None
-    target_info = None
-    for name, info in registry.items():
-        if info.get("id") == req.node_id:
-            target_name = name
-            target_info = info
-            break
-
-    if not target_info:
-        return {"error": "Node not found in tentative registry"}
-
-    # Mark as promoted to anchor
-    target_info["promoted"] = "anchor"
-
-    # The node keeps its ID but the graph API will now report it as type=anchor
-    # The anchor.invokes will point to its children (the bundle contents)
-    children = target_info.get("children", [])
-
-    event_log.log_frame_event(
-        session_id=session_id, event="bundle_promoted_to_anchor",
-        node_id=req.node_id, label=target_name, children=children,
-    )
-    _save_session_state(session_id)
-    return {"status": "promoted", "node_id": req.node_id, "type": "anchor", "invokes": children}
-
-
-@router.get("/sessions/{session_id}/frame")
-async def get_frame(session_id: str):
-    # Prefer the in-memory frame — it holds unsaved hit log entries and
-    # salience updates from the current turn. Fall back to disk only when
-    # the session hasn't been restored yet (e.g. after a server restart).
-    frame = frame_manager._frames.get(session_id)
-    if frame is None:
-        frame = session_store.load_frame(session_id)
-        if frame:
-            reg, edges = session_store.load_registry(session_id)
-            frame_manager.restore(session_id, frame, reg or None, edges or None)
-    if not frame:
-        raise HTTPException(404, "No frame state for this session")
-    return frame.model_dump(mode="json")
-
-
-# --- Drafts ---
-
-@router.get("/sessions/{session_id}/drafts")
-async def list_drafts(session_id: str):
-    drafts = draft_manager.list_drafts(session_id)
-    return [d.model_dump(mode="json") for d in drafts]
-
-
-@router.get("/sessions/{session_id}/drafts/{draft_id}")
-async def get_draft(session_id: str, draft_id: str):
-    packet = session_store.load_draft_packet(session_id, draft_id)
-    if not packet:
-        raise HTTPException(404, "Draft not found")
-    # Also load raw proposal for context
-    raw_path = session_store._drafts_dir(session_id) / f"{draft_id}_raw.json"
-    raw = session_store._read_json(raw_path) or {}
-    return {
-        "draft": packet.model_dump(mode="json"),
-        "raw_proposal": raw,
-    }
-
-
-@router.get("/sessions/{session_id}/drafts/{draft_id}/preview")
-async def commit_preview(session_id: str, draft_id: str):
-    """§15.3 — Compute commit preview data for the modal.
-
-    Returns everything the user needs to review before committing.
+    Embedding / rerank models are filtered out — they're not valid chat
+    targets. Each entry carries a `label` (human-friendly) and the raw
+    `name` (what gets sent to /models/switch). Cloud models (tag suffix
+    `-cloud`) are labeled distinctly so the UI can show them as hosted.
     """
-    # Load draft packet + raw proposal
-    packet = session_store.load_draft_packet(session_id, draft_id)
-    if not packet:
-        raise HTTPException(404, "Draft not found")
-    raw_path = session_store._drafts_dir(session_id) / f"{draft_id}_raw.json"
-    raw = session_store._read_json(raw_path) or {}
+    import httpx
+    try:
+        async with httpx.AsyncClient(
+            base_url=ollama.OLLAMA_BASE,
+            headers=ollama._auth_headers(),
+            timeout=30.0,
+        ) as client:
+            resp = await client.get("/api/tags")
+            resp.raise_for_status()
+            models = resp.json().get("models", [])
+            model_list = []
+            seen_names: set[str] = set()
+            for m in models:
+                name = m["name"]
+                if any(tok in name.lower() for tok in _NON_CHAT_FAMILIES):
+                    continue
+                is_cloud = _is_cloud_tag(name)
+                label = _friendly_model_label(name)
+                if is_cloud:
+                    label = f"{label} ☁"
+                model_list.append({
+                    "name": name,
+                    "label": label,
+                    "size": m.get("size", 0),
+                    "cloud": is_cloud,
+                    "featured": name in _FEATURED_CLOUD_MODELS,
+                    "pulled": True,
+                })
+                seen_names.add(name)
 
-    # 1. Tentative insertion — what's being committed
-    insertion = {
-        "id": draft_id,
-        "type": raw.get("type", "anchor"),
-        "label": raw.get("canonical_phrase") or raw.get("canonical_text", "")[:60],
-        "status": packet.status.value,
-        "justification": packet.justification,
-    }
+            # Merge featured cloud models that aren't pulled locally yet so
+            # they're still discoverable in the dropdown. Marked `pulled:false`
+            # so the UI can hint that a pull is required before switching.
+            for tag in _FEATURED_CLOUD_MODELS:
+                if tag in seen_names:
+                    continue
+                model_list.append({
+                    "name": tag,
+                    "label": f"{_friendly_model_label(tag)} ☁",
+                    "size": 0,
+                    "cloud": True,
+                    "featured": True,
+                    "pulled": False,
+                })
 
-    # 2. Required dependency closure — what gets pulled in
-    closure = []
-    for dep_id in packet.dependency_closure:
-        if dep_id in corpus.anchors:
-            closure.append({"id": dep_id, "type": "anchor", "label": corpus.anchors[dep_id].canonical_phrase})
-        elif dep_id in corpus.bundles:
-            closure.append({"id": dep_id, "type": "bundle", "label": "; ".join(corpus.bundles[dep_id].payload.intent[:2])})
-        elif dep_id in corpus.slabs:
-            closure.append({"id": dep_id, "type": "slab", "label": corpus.slabs[dep_id].title})
-
-    # 3. Cold committed neighbourhood — what's already near
-    neighbourhood = []
-    all_ids = corpus.all_ids()
-    related_ids = set()
-    for edge in corpus.edges.values():
-        for dep in packet.dependency_closure + [draft_id]:
-            if edge.from_node == dep: related_ids.add(edge.to_node)
-            elif edge.to_node == dep: related_ids.add(edge.from_node)
-    for nid in related_ids:
-        if nid in corpus.anchors:
-            neighbourhood.append({"id": nid, "type": "anchor", "label": corpus.anchors[nid].canonical_phrase})
-        elif nid in corpus.bundles:
-            neighbourhood.append({"id": nid, "type": "bundle", "label": "; ".join(corpus.bundles[nid].payload.intent[:2])})
-        elif nid in corpus.slabs:
-            neighbourhood.append({"id": nid, "type": "slab", "label": corpus.slabs[nid].title})
-
-    # 4. Conflict / cascade preview — what might break
-    cascade_risk = []
-    for dep_id in packet.dependency_closure + [draft_id]:
-        rev_deps = corpus.get_reverse_deps(dep_id)
-        if rev_deps:
-            cascade_risk.append({"node_id": dep_id, "dependents": rev_deps})
-
-    # 5. Verification status for FACT claims
-    fact_claims = packet.fact_claims or []
-    fact_status = [{"claim": c, "verified": False} for c in fact_claims]
-    has_unverified = len(fact_claims) > 0
-
-    # 6. Drift disclosure
-    drift_info = None
-    if session_id in drift_monitor._windows:
-        window = drift_monitor._windows[session_id]
-        frame = frame_manager._frames.get(session_id)
-        if frame:
-            drift_result = window.compute(frame.last_updated_turn)
-            if drift_result["severity"].value != "low":
-                drift_info = {
-                    "severity": drift_result["severity"].value,
-                    "composite": drift_result["composite"],
-                    "dampening": drift_result["dampening"].value,
-                }
-
-    # 7. Validation — run corpus validator dry-run
-    validation_errors = []
-    obj = draft_manager._convert_to_corpus_object(draft_id, raw)
-    if obj:
-        obj_type, corpus_obj = obj
-        # Temporarily add to check validation
-        if obj_type == "anchor":
-            corpus.anchors[corpus_obj.id] = corpus_obj
-        elif obj_type == "slab":
-            corpus.slabs[corpus_obj.id] = corpus_obj
-        elif obj_type == "bundle":
-            corpus.bundles[corpus_obj.id] = corpus_obj
-        validation_errors = corpus.validate()
-        # Rollback
-        if obj_type == "anchor": corpus.anchors.pop(corpus_obj.id, None)
-        elif obj_type == "slab": corpus.slabs.pop(corpus_obj.id, None)
-        elif obj_type == "bundle": corpus.bundles.pop(corpus_obj.id, None)
-
-    return {
-        "insertion": insertion,
-        "dependency_closure": closure,
-        "neighbourhood": neighbourhood,
-        "cascade_risk": cascade_risk,
-        "fact_claims": fact_status,
-        "has_unverified_facts": has_unverified,
-        "drift_disclosure": drift_info,
-        "validation_errors": validation_errors,
-        "can_commit": not has_unverified and len(validation_errors) == 0,
-    }
+            # Sort: featured-pulled first, then locals alpha, then featured-not-pulled
+            def _sort_key(x):
+                tier = 0 if (x["featured"] and x["pulled"]) else (2 if not x["pulled"] else 1)
+                return (tier, x["label"].lower())
+            model_list.sort(key=_sort_key)
+            return {
+                "models": model_list,
+                "active": ollama.CHAT_MODEL,
+                "active_extract": ollama.EXTRACT_MODEL,
+                "has_frontier_key": bool(ollama.OLLAMA_API_KEY),
+                "transport": "cloud" if ollama.IS_CLOUD else "local",
+                "host": ollama.OLLAMA_BASE,
+                "featured_cloud": _FEATURED_CLOUD_MODELS,
+            }
+    except Exception as e:
+        return {"models": [], "active": ollama.CHAT_MODEL,
+                "active_extract": ollama.EXTRACT_MODEL, "error": str(e)}
 
 
-@router.post("/sessions/{session_id}/drafts/{draft_id}/amend")
-async def amend_draft(session_id: str, draft_id: str, req: AmendDraftRequest):
-    """§14.2 — Amend a tentative draft. Updates the raw proposal fields
-    and resets the packet status to DRAFT_UNAUTHORIZED so it must be
-    re-reviewed before any commit/stage action can be taken.
+class SwitchModelRequest(BaseModel):
+    model: str
+
+
+@router.post("/models/switch")
+async def switch_model(req: SwitchModelRequest):
+    """Hot-swap the active chat model.
+
+    Unloads the current model from VRAM, loads the new one with
+    keep_alive=-1 (pinned), and updates the global CHAT_MODEL.
     """
-    packet = session_store.load_draft_packet(session_id, draft_id)
-    if not packet:
-        raise HTTPException(404, "Draft not found")
-    raw_path = session_store._drafts_dir(session_id) / f"{draft_id}_raw.json"
-    raw = session_store._read_json(raw_path) or {}
+    import httpx
+    old_model = ollama.CHAT_MODEL
+    new_model = req.model
 
-    if req.canonical_phrase is not None:
-        raw["canonical_phrase"] = req.canonical_phrase
-    if req.canonical_text is not None:
-        raw["canonical_text"] = req.canonical_text
-    if req.justification is not None:
-        raw["justification"] = req.justification
-        packet.justification = req.justification
-    if req.aliases is not None:
-        raw["aliases"] = req.aliases
+    try:
+        async with httpx.AsyncClient(
+            base_url=ollama.OLLAMA_BASE,
+            headers=ollama._auth_headers(),
+            timeout=httpx.Timeout(120.0),
+        ) as client:
+            # Local: unload the old model so the new one has room in VRAM.
+            # Cloud: no-op — there's no local VRAM to free.
+            if old_model != new_model and not ollama.IS_CLOUD:
+                await client.post("/api/generate", json={
+                    "model": old_model, "prompt": "", "keep_alive": 0,
+                })
 
-    session_store._write_json(raw_path, raw)
+            # Load new model. On local, pin in VRAM with max GPU offload.
+            # On cloud, just validate availability (no runtime flags apply).
+            load_payload: dict = {
+                "model": new_model,
+                "prompt": "",
+                "stream": False,
+            }
+            if not ollama.IS_CLOUD:
+                load_payload["keep_alive"] = -1
+                load_payload["options"] = {"num_gpu": 99, "num_ctx": ollama._NUM_CTX}
+            resp = await client.post("/api/generate", json=load_payload)
+            resp.raise_for_status()
 
-    # Reset to unauthorized — must be re-reviewed
-    from ..models.enums import DraftStatus
-    packet.status = DraftStatus.DRAFT_UNAUTHORIZED
-    session_store.save_draft_packet(session_id, packet)
+            # Update the global model reference + auto-detect capabilities
+            ollama.CHAT_MODEL = new_model
+            from ..services import model_profiles
+            profile = await model_profiles.set_active(new_model)
 
-    return {
-        "status": "AMENDED",
-        "draft_id": draft_id,
-        "packet_status": packet.status.value,
-        "raw": raw,
-    }
+            # Inject model-switch boundary marker into active chat history
+            # so the new model knows prior identity-adjacent nodes are historical
+            if old_model != new_model:
+                try:
+                    # Find the most recent active chat
+                    all_chats = chat_store.list_chats()
+                    active = [c for c in all_chats if c.get("status") == "active"]
+                    if active:
+                        active_chat_id = active[0]["id"]
+                        from ..models.schemas import ChatMessage
+                        boundary = ChatMessage(
+                            role="system",
+                            content=(
+                                f"[MODEL SWITCH] {old_model} → {new_model}. "
+                                f"Prior messages were generated by {old_model}. "
+                                f"Identity-related frame nodes from before this point are historical context, "
+                                f"not your identity. You are {new_model} ({profile.family} family)."
+                            ),
+                        )
+                        chat_store.append_message(active_chat_id, boundary)
+                except Exception as e:
+                    logger.warning("Failed to inject model-switch boundary: %s", e)
+
+            # Build profile info for frontend
+            profile_info = {
+                "family": profile.family if profile else "",
+                "params": profile.parameter_size if profile else "",
+                "think": profile.supports_think if profile else False,
+                "tools": profile.supports_tools if profile else False,
+                "vision": profile.supports_vision if profile else False,
+            }
+
+            # Local: poll /api/ps for actual VRAM split. Cloud: skip — the
+            # endpoint reports only locally-loaded models, which is always
+            # empty when transport is cloud.
+            if not ollama.IS_CLOUD:
+                ps_resp = await client.get("/api/ps")
+                ps_data = ps_resp.json()
+                for m in ps_data.get("models", []):
+                    if m["name"] == new_model:
+                        return {
+                            "ok": True,
+                            "model": new_model,
+                            "profile": profile_info,
+                            "transport": "local",
+                            "size_vram": m.get("size_vram", 0),
+                            "size": m.get("size", 0),
+                            "gpu_pct": round(
+                                m.get("size_vram", 0) / max(1, m.get("size", 1)) * 100
+                            ),
+                        }
+            return {
+                "ok": True,
+                "model": new_model,
+                "profile": profile_info,
+                "transport": "cloud" if ollama.IS_CLOUD else "local",
+                "size_vram": 0,
+                "size": 0,
+                "gpu_pct": 0,
+            }
+    except Exception as e:
+        # Rollback on failure
+        ollama.CHAT_MODEL = old_model
+        return {"ok": False, "error": str(e), "model": old_model}
 
 
-@router.post("/sessions/{session_id}/drafts/{draft_id}/review")
-async def review_draft(session_id: str, draft_id: str, req: ReviewDraftRequest):
-    result = await draft_manager.review_draft(session_id, draft_id, req.action, req.oli_mode)
-    if "error" in result:
-        raise HTTPException(400, result["error"])
-    # If committed to corpus, warm the anchor cache
-    if result.get("status") == "COMMITTED" and "anchor" in draft_id:
-        await anchor_matcher.warm_cache()
-    return result
+class SwitchExtractRequest(BaseModel):
+    model: str
 
 
-@router.post("/sessions/{session_id}/extract-proposals")
-async def extract_proposals(session_id: str, req: ExtractProposalsRequest):
-    """Manual proposal extraction trigger."""
-    meta_path = session_store._session_dir(session_id) / "meta.json"
-    meta = session_store._read_json(meta_path)
-    if not meta:
-        raise HTTPException(404, "Session not found")
-    chat_id = meta["chat_id"]
-    messages = chat_store.get_messages(chat_id)
-    recent = [
-        {"role": m.role, "content": m.content, "turn": m.turn}
-        for m in messages[-12:]
-    ]
-    turn = len(messages)
-    drafts = await draft_manager.extract_proposals(
-        session_id, chat_id, recent, turn,
-        explicit=req.explicit, user_request=req.user_request,
-    )
-    return [d.model_dump(mode="json") for d in drafts]
+@router.post("/models/switch-extract")
+async def switch_extract_model(req: SwitchExtractRequest):
+    """Set the mining/extraction model (structured_extract target).
 
-
-@router.get("/sessions/{session_id}/end-review")
-async def end_session_review(session_id: str):
-    """§14.2 — End-of-session promotion flow.
-
-    Returns the full draft stack for batch review plus the per-turn corpus
-    access trajectory (for the conversation thread path animation).
-
-    Everything the user needs to commit, stage, or discard the session's
-    tentative work is packaged in a single call.
+    Unlike the chat model, the extraction model is NOT pinned in VRAM — it's
+    loaded on demand by structured_extract during the end-of-chat ghost sweep
+    and other authoring passes, so it can be a heavier/frontier model without
+    costing chat latency. This just updates the global; the model loads on
+    first use.
     """
-    # Ensure frame is loaded into memory so we have access to hit log
-    frame = frame_manager._frames.get(session_id)
-    if not frame:
-        frame = session_store.load_frame(session_id)
-        if frame:
-            reg, edges = session_store.load_registry(session_id)
-            frame_manager.restore(session_id, frame, reg or None, edges or None)
-
-    # 1. Full draft stack — every packet created this session, with raw
-    #    proposal data so the panel can render without a second round-trip
-    drafts_out = []
-    drafts = draft_manager.list_drafts(session_id)
-    for packet in drafts:
-        raw_path = session_store._drafts_dir(session_id) / f"{packet.id}_raw.json"
-        raw = session_store._read_json(raw_path) or {}
-        drafts_out.append({
-            "id": packet.id,
-            "type": raw.get("type", "anchor"),
-            "label": raw.get("canonical_phrase") or raw.get("canonical_text", "")[:80],
-            "canonical_text": raw.get("canonical_text", ""),
-            "justification": packet.justification or raw.get("justification", ""),
-            "status": packet.status.value,
-            "confidence": packet.confidence,
-            "source_turns": packet.source_turns,
-            "fact_claims": packet.fact_claims,
-            "has_unverified_facts": len(packet.fact_claims) > 0,
-        })
-
-    # 2. Corpus hit trajectory — per-turn [turn, [node_ids]] sequence
-    trajectory = []
-    if frame:
-        trajectory = [[entry[0], list(entry[1])] for entry in frame.corpus_hit_log]
-
-    # 3. Session summary stats
-    summary = {
-        "session_id": session_id,
-        "last_turn": frame.last_updated_turn if frame else 0,
-        "total_hits": sum(frame.corpus_hits.values()) if frame else 0,
-        "unique_nodes_hit": len(frame.corpus_hits) if frame else 0,
-        "draft_count": len(drafts_out),
-        "draft_by_status": {},
-    }
-    for d in drafts_out:
-        summary["draft_by_status"][d["status"]] = summary["draft_by_status"].get(d["status"], 0) + 1
-
-    return {
-        "summary": summary,
-        "drafts": drafts_out,
-        "trajectory": trajectory,
-    }
+    ollama.EXTRACT_MODEL = req.model.strip()
+    logger.info("Extraction model set to %r", ollama.EXTRACT_MODEL)
+    return {"ok": True, "extract_model": ollama.EXTRACT_MODEL}
 
 
-# --- Corpus ---
-
-@router.get("/corpus/status")
-async def corpus_status():
-    errors = corpus.load()
-    return {
-        "anchors": len(corpus.anchors),
-        "slabs": len(corpus.slabs),
-        "bundles": len(corpus.bundles),
-        "edges": len(corpus.edges),
-        "valid": len(errors) == 0,
-        "errors": errors,
-    }
+class FrontierKeyRequest(BaseModel):
+    key: str = ""
 
 
-@router.get("/corpus/full")
-async def corpus_full():
-    """Return full corpus for the Cold Corpus browser tab."""
-    return {
-        "anchors": [a.model_dump() for a in corpus.anchors.values()],
-        "bundles": [b.model_dump() for b in corpus.bundles.values()],
-        "slabs": [s.model_dump() for s in corpus.slabs.values()],
-        "edges": [e.model_dump(by_alias=True) for e in corpus.edges.values()],
-    }
+@router.post("/config/frontier-key")
+async def set_frontier_key(req: FrontierKeyRequest):
+    """Set (or clear) the frontier/cloud API key at runtime.
 
-
-# --- Graph data for 3D renderer ---
-
-@router.get("/sessions/{session_id}/graph")
-async def get_graph_data(session_id: str):
-    """Return full graph state for the 3D renderer.
-
-    Combines corpus objects (cold), active frame nodes, tentative nodes,
-    edges, and visual encoding fields from §11.
+    This is the Ollama Cloud bearer token used for hosted frontier models
+    (e.g. gpt-oss:120b-cloud) — handy when a local heavy model won't load and
+    you want to route the extraction/ghost-sweep to a hosted model. Empty
+    string clears it. Embedding auth is left untouched (nomic stays local).
     """
-    from ..services.embeddings import compute_x_position, compute_x_positions
+    ollama.OLLAMA_API_KEY = (req.key or "").strip()
+    ollama.IS_CLOUD = "ollama.com" in ollama.OLLAMA_BASE or bool(ollama.OLLAMA_API_KEY)
+    logger.info("Frontier API key %s", "set" if ollama.OLLAMA_API_KEY else "cleared")
+    return {"ok": True, "has_key": bool(ollama.OLLAMA_API_KEY)}
 
-    # Prefer the in-memory frame — it is the live source of truth during an
-    # active session. Only fall back to disk if nothing is loaded (e.g. the
-    # user just re-opened a chat and the session hasn't been restored yet).
-    # Reading from disk here caused a split-brain bug: active_ids came from a
-    # stale snapshot while the tentative registry came from memory, which made
-    # concepts from the previous turn look like they had "disappeared" whenever
-    # the UI refreshed the graph before the next save commit.
-    frame = frame_manager._frames.get(session_id)
-    if frame is None:
-        frame = session_store.load_frame(session_id)
-        if frame:
-            reg, edges = session_store.load_registry(session_id)
-            frame_manager.restore(session_id, frame, reg or None, edges or None)
-    active_ids = set(frame.active_nodes) if frame else set()
 
-    nodes = []
-    texts_to_embed = []
-    node_index = []
+# ═══════════════════════════════════════════════════════════════
+#  File upload
+# ═══════════════════════════════════════════════════════════════
 
-    # Collect all visible nodes: active frame + cold corpus within 2 hops
-    visible_ids: set[str] = set(active_ids)
+# Supported text-extractable file types
+_TEXT_EXTENSIONS = {
+    ".txt", ".md", ".csv", ".tsv", ".json", ".yaml", ".yml",
+    ".py", ".js", ".ts", ".jsx", ".tsx", ".html", ".css",
+    ".c", ".cpp", ".h", ".hpp", ".java", ".go", ".rs", ".rb",
+    ".sh", ".bash", ".zsh", ".ps1", ".bat",
+    ".toml", ".ini", ".cfg", ".conf", ".env", ".xml",
+    ".sql", ".r", ".m", ".swift", ".kt", ".scala", ".lua",
+    ".log", ".tex",
+}
+_MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
-    # Add cold corpus neighbors within 2 hops of active nodes (§21)
-    # Hop 1: direct edges + invokes + supports + depends_on
-    hop1 = set()
-    for node_id in list(active_ids):
-        for edge in corpus.edges.values():
-            if edge.from_node == node_id: hop1.add(edge.to_node)
-            elif edge.to_node == node_id: hop1.add(edge.from_node)
-        # Follow invokes chains
-        if node_id in corpus.anchors:
-            for inv in corpus.anchors[node_id].invokes: hop1.add(inv)
-        # Follow supports/depends_on
-        if node_id in corpus.bundles:
-            for s in corpus.bundles[node_id].supports: hop1.add(s)
-            for d in corpus.bundles[node_id].depends_on: hop1.add(d)
-    visible_ids.update(hop1)
-    # Hop 2: one more step from hop1 nodes
-    for node_id in list(hop1):
-        for edge in corpus.edges.values():
-            if edge.from_node == node_id: visible_ids.add(edge.to_node)
-            elif edge.to_node == node_id: visible_ids.add(edge.from_node)
 
-    # Build node list with all visual encoding fields
-    for anchor in corpus.anchors.values():
-        if anchor.id not in visible_ids:
-            continue  # Only show corpus nodes within 2 hops of active nodes
-        is_active = anchor.id in active_ids
-        sal_now = frame.salience_now.get(anchor.id, 0) if frame else 0
-        sal_smooth = frame.salience_smoothed.get(anchor.id, 0) if frame else 0
-        sw = frame.structural_weight.get(anchor.id, 0) if frame else 0
+def _docx_structured_text(doc) -> str:
+    """Extract DOCX text while preserving heading hierarchy as Markdown.
 
-        texts_to_embed.append(anchor.canonical_phrase)
-        node_index.append(len(nodes))
-        nodes.append({
-            "id": anchor.id,
-            "type": "anchor",
-            "status": "corpus",
-            "label": anchor.canonical_phrase,
-            "active": is_active,
-            "salience_now": sal_now,
-            "salience_smoothed": sal_smooth,
-            "structural_weight": sw,
-            "depends_on": anchor.depends_on,
-            "invokes": anchor.invokes,
-            "hit_count": frame.corpus_hits.get(anchor.id, 0) if frame else 0,
-            "last_hit_turn": frame.corpus_last_hit.get(anchor.id, 0) if frame else 0,
-        })
-
-    for slab in corpus.slabs.values():
-        if slab.id not in visible_ids:
+    Mining relies on these markers to produce descriptive source paths. Flattening
+    Heading 1/2/3 into ordinary paragraphs turns file chunks into accidental pillars.
+    """
+    blocks: list[str] = []
+    in_contents = False
+    for paragraph in doc.paragraphs:
+        value = paragraph.text.strip()
+        if not value:
             continue
-        is_active = slab.id in active_ids
-        sal_now = frame.salience_now.get(slab.id, 0) if frame else 0
-        sal_smooth = frame.salience_smoothed.get(slab.id, 0) if frame else 0
-        sw = frame.structural_weight.get(slab.id, 0) if frame else 0
-
-        texts_to_embed.append(slab.canonical_text[:120])
-        node_index.append(len(nodes))
-        nodes.append({
-            "id": slab.id,
-            "type": "slab",
-            "status": "corpus",
-            "label": slab.canonical_text[:60],
-            "active": is_active,
-            "salience_now": sal_now,
-            "salience_smoothed": sal_smooth,
-            "structural_weight": sw,
-            "depends_on": slab.depends_on,
-            "hit_count": frame.corpus_hits.get(slab.id, 0) if frame else 0,
-            "last_hit_turn": frame.corpus_last_hit.get(slab.id, 0) if frame else 0,
-        })
-
-    for bundle in corpus.bundles.values():
-        if bundle.id not in visible_ids:
-            continue
-        is_active = bundle.id in active_ids
-        sal_now = frame.salience_now.get(bundle.id, 0) if frame else 0
-        sal_smooth = frame.salience_smoothed.get(bundle.id, 0) if frame else 0
-        sw = frame.structural_weight.get(bundle.id, 0) if frame else 0
-        label = "; ".join(bundle.payload.intent[:2])
-
-        texts_to_embed.append(label)
-        node_index.append(len(nodes))
-        nodes.append({
-            "id": bundle.id,
-            "type": "key_bundle",
-            "status": "corpus",
-            "label": label[:60],
-            "active": is_active,
-            "salience_now": sal_now,
-            "salience_smoothed": sal_smooth,
-            "structural_weight": sw,
-            "depends_on": bundle.depends_on,
-            "hit_count": frame.corpus_hits.get(bundle.id, 0) if frame else 0,
-            "last_hit_turn": frame.corpus_last_hit.get(bundle.id, 0) if frame else 0,
-        })
-
-    # Add tentative nodes from FrameState (not in corpus)
-    if frame:
-        tentative_registry = frame_manager._tentative_registry.get(session_id, {})
-        for concept_name, info in tentative_registry.items():
-            node_id = info["id"]
-            if any(n["id"] == node_id for n in nodes):
-                continue  # already added
-            # Skip absorbed children (they live inside their parent bundle)
-            if info.get("parent_id") and node_id not in active_ids:
+        style_name = (getattr(getattr(paragraph, "style", None), "name", "") or "").strip()
+        match = re.fullmatch(r"Heading\s+([1-6])", style_name, re.IGNORECASE)
+        if match:
+            level = int(match.group(1))
+            if level == 1 and value.casefold() in {"contents", "table of contents"}:
+                in_contents = True
                 continue
-            sal_now = frame.salience_now.get(node_id, 0.5)
-            sal_smooth = frame.salience_smoothed.get(node_id, 0.5)
-            sw = frame.structural_weight.get(node_id, 0)
-            texts_to_embed.append(concept_name)
-            node_index.append(len(nodes))
-            # Determine semantic type from promotion state
-            promoted = info.get("promoted")
-            if promoted == "slab":          ntype = "slab"
-            elif promoted == "anchor":      ntype = "anchor"
-            elif promoted == "bundle":      ntype = "key_bundle"
-            elif "slab" in node_id:         ntype = "slab"
-            elif "bundle" in node_id:       ntype = "key_bundle"
-            elif "anchor" in node_id:       ntype = "anchor"
-            else:                           ntype = "concept"
+            if in_contents and level == 1:
+                in_contents = False
+            if not in_contents:
+                blocks.append(f"{'#' * level} {value}")
+        elif not in_contents:
+            blocks.append(value)
 
-            nodes.append({
-                "id": node_id,
-                "type": ntype,
-                "status": "tentative",
-                "label": concept_name,
-                "description": info.get("description", ""),
-                "active": node_id in active_ids,
-                "salience_now": sal_now,
-                "salience_smoothed": sal_smooth,
-                "structural_weight": sw,
-                "depends_on": [],
-                "turns_seen": info.get("turns_seen", 1),
-                "rejected": info.get("rejected", False),
-                "parent_id": info.get("parent_id"),
-                "children": info.get("children", []),
-            })
+    # python-docx exposes tables separately from paragraphs. Preserve their rows
+    # after the main body, matching the previous upload behavior.
+    for table in doc.tables:
+        for row in table.rows:
+            cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+            if cells:
+                blocks.append(" | ".join(cells))
+    return "\n\n".join(blocks)
 
-    # Compute X positions via nomic-embed-text
-    if texts_to_embed:
-        x_positions = await compute_x_positions(texts_to_embed)
-        for i, idx in enumerate(node_index):
-            nodes[idx]["x"] = x_positions[i]
+@router.post("/upload")
+async def upload_file(file: UploadFile = File(...), full: bool = False):
+    """Extract text content from an uploaded file.
+
+    Supports plaintext/code files directly, PDFs via pdfplumber, and
+    DOCX via python-docx. Returns extracted text for the frontend.
+
+    ``full=true`` lifts the extraction char cap from the chat-sized
+    default (80k ≈ 20k tokens) to a mining-sized 2M. The doc/paper
+    miner is built for whole documents — Pass 1 digests, Pass 2 drills
+    spans — so it wants the entire paper, not a chat-context-sized
+    slice. The chat path leaves ``full`` false and keeps the 80k cap.
+    """
+    import os
+    ext = os.path.splitext(file.filename or "")[1].lower()
+
+    # Read file bytes (with size guard)
+    data = await file.read()
+    if len(data) > _MAX_FILE_SIZE:
+        raise HTTPException(413, f"File too large ({len(data)} bytes). Max is {_MAX_FILE_SIZE}.")
+
+    extracted = ""
+
+    if ext == ".pdf":
+        try:
+            import pdfplumber
+            import io
+            with pdfplumber.open(io.BytesIO(data)) as pdf:
+                pages = []
+                for i, page in enumerate(pdf.pages):
+                    text = page.extract_text() or ""
+                    if text.strip():
+                        pages.append(f"--- Page {i+1} ---\n{text}")
+                extracted = "\n\n".join(pages)
+                if not extracted.strip():
+                    raise HTTPException(422, "PDF appears to contain no extractable text (scanned/image PDF).")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(422, f"Failed to extract PDF text: {exc}")
+
+    elif ext in (".docx", ".doc"):
+        try:
+            import docx
+            import io
+            doc = docx.Document(io.BytesIO(data))
+            extracted = _docx_structured_text(doc)
+            if not extracted.strip():
+                raise HTTPException(422, "DOCX appears to contain no extractable text.")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(422, f"Failed to extract DOCX text: {exc}")
+
+    elif ext in _TEXT_EXTENSIONS or ext == "":
+        # Try decoding as text
+        for encoding in ("utf-8", "utf-8-sig", "latin-1"):
+            try:
+                extracted = data.decode(encoding)
+                break
+            except (UnicodeDecodeError, ValueError):
+                continue
+        else:
+            raise HTTPException(422, f"Could not decode file as text.")
+
     else:
-        for n in nodes:
-            n["x"] = 0.5
+        raise HTTPException(
+            415,
+            f"Unsupported file type '{ext}'. Supported: PDF, DOCX, and text/code files "
+            f"({', '.join(sorted(list(_TEXT_EXTENSIONS)[:12]))}...)"
+        )
 
-    # Y = structural weight (community cluster proxy)
-    # Z = meta depth: slab=0 (deep), key_bundle=1 (mid), anchor=2 (surface), tentative=3
-    z_map = {"slab": 0, "key_bundle": 1, "anchor": 2, "concept": 3}
-    for n in nodes:
-        n["y"] = n["structural_weight"] * 0.5
-        n["z"] = z_map.get(n["type"], 2)
-
-    # Edges
-    edges = []
-    for edge in corpus.edges.values():
-        edges.append({
-            "id": edge.id,
-            "type": edge.type.value,
-            "from": edge.from_node,
-            "to": edge.to_node,
-            "confidence": edge.confidence,
-            "tension": edge.tension,
-        })
-
-    # Add structural edges from depends_on / invokes
-    for n in nodes:
-        for dep in n.get("depends_on", []):
-            edges.append({
-                "id": f"dep_{n['id']}_{dep}",
-                "type": "LINKS",
-                "from": n["id"],
-                "to": dep,
-                "confidence": 0.8,
-                "tension": None,
-            })
-        for inv in n.get("invokes", []):
-            edges.append({
-                "id": f"inv_{n['id']}_{inv}",
-                "type": "INVOKES",
-                "from": n["id"],
-                "to": inv,
-                "confidence": 0.9,
-                "tension": None,
-            })
-
-    # Add tentative edges (session-scoped, not in corpus)
-    tent_edges = frame_manager._tentative_edges.get(session_id, [])
-    for i, te in enumerate(tent_edges):
-        edges.append({
-            "id": f"tent_{i}_{te['from'][:8]}_{te['to'][:8]}",
-            "type": te.get("type", "PARENT_OF"),
-            "from": te["from"],
-            "to": te["to"],
-            "confidence": te.get("strength", 0.7),
-            "tension": None,
-        })
+    # Truncate very long files. The default cap is chat-context sized;
+    # the mining path passes full=true to raise it (see docstring).
+    char_limit = 2_000_000 if full else 80_000
+    truncated = False
+    if len(extracted) > char_limit:
+        extracted = extracted[:char_limit]
+        truncated = True
 
     return {
-        "nodes": nodes,
-        "edges": edges,
-        "frame": {
-            "active_nodes": list(active_ids),
-            "mismatch_score": frame.mismatch_score if frame else 0,
-            "current_turn": frame.last_updated_turn if frame else 0,
-            "conflicts": [c.model_dump() for c in frame.conflicts] if frame else [],
-        },
+        "filename": file.filename,
+        "extension": ext,
+        "chars": len(extracted),
+        "truncated": truncated,
+        "content": extracted,
     }
 
 
-# --- Events ---
+# ═══════════════════════════════════════════════════════════════
+#  Events
+# ═══════════════════════════════════════════════════════════════
 
 @router.get("/events/{log_name}")
 async def get_events(log_name: str, last_n: int = 50):
     valid_logs = [
-        "gate_events.jsonl", "push_events.jsonl", "degradation_flags.jsonl",
+        "gate_events.jsonl", "push_events.jsonl", "push_resolutions.jsonl",
+        "degradation_flags.jsonl",
         "verification_log.jsonl", "drift_events.jsonl",
         "match_events.jsonl", "frame_events.jsonl", "proposal_events.jsonl",
     ]

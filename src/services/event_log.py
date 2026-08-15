@@ -5,7 +5,7 @@ gate events, verification calls, and drift events.
 """
 from __future__ import annotations
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -20,7 +20,7 @@ class EventLog:
         self.root.mkdir(parents=True, exist_ok=True)
 
     def _append(self, filename: str, event: dict) -> None:
-        event["_logged_at"] = datetime.utcnow().isoformat()
+        event["_logged_at"] = datetime.now(timezone.utc).isoformat()
         path = self.root / filename
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(event, default=str, ensure_ascii=False) + "\n")
@@ -30,6 +30,16 @@ class EventLog:
 
     def log_push_event(self, **kwargs) -> None:
         self._append("push_events.jsonl", kwargs)
+
+    def log_push_resolution(self, **kwargs) -> None:
+        """Post-hoc resolution of a prior push event.
+
+        Written to a separate append-only log so `push_events.jsonl` stays
+        pure as the detection record. Join on `push_event_id` at read time.
+        Schema: {push_event_id, resolution, detector_tier, observed_at_turn,
+                 delay_turns, next_user_turn_preview, similarity_to_claim}.
+        """
+        self._append("push_resolutions.jsonl", kwargs)
 
     def log_degradation_flag(self, **kwargs) -> None:
         self._append("degradation_flags.jsonl", kwargs)
