@@ -244,6 +244,7 @@ def apply_plan(corpus: CorpusStore, plan: ConsolidationPlan) -> dict:
             id=verdict.anchor_id,
             canonical_phrase=anchor.canonical_phrase,
             aliases=list(anchor.aliases),
+            description=anchor.description or "",
             notes=anchor.notes or "",
             confidence=anchor.match_policy.min_confidence_exact
             if anchor.match_policy else 0.5,
@@ -325,6 +326,7 @@ def _materialize_proposals_to_temp_corpus(proposals, edges):
             temp.anchors[nid] = Anchor(
                 id=nid,
                 canonical_phrase=phrase,
+                description=getattr(p, "description", "") or "",
                 aliases=list(p.aliases or []),
                 notes=p.justification or "",
                 match_policy=AnchorMatchPolicy(),
@@ -488,6 +490,7 @@ def apply_to_proposals(proposals, edges, plan, id_to_proposal):
             "id": f"mined_anchor_{uuid.uuid4().hex[:8]}_v1",
             "canonical_phrase": anchor_p.canonical_phrase,
             "aliases": list(anchor_p.aliases or []),
+            "description": getattr(anchor_p, "description", "") or "",
             "notes": anchor_p.justification or "",
             "confidence": float(anchor_p.confidence),
         })

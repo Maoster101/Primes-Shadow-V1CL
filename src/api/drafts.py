@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from . import deps
 from .deps import (
-    frame_manager, session_store, draft_manager, anchor_matcher,
+    frame_manager, session_store, draft_manager, anchor_matcher, slab_matcher,
     drift_monitor, chat_store, registry, event_log,
     rebind_corpus, save_session_state,
 )
@@ -429,14 +429,16 @@ async def review_draft(session_id: str, draft_id: str, req: ReviewDraftRequest):
 
     if "error" in result:
         raise HTTPException(400, result)
-    # If committed to corpus, warm the anchor cache so matcher sees it.
-    # only_new=True: embed JUST the newly-committed anchor, not the
-    # whole corpus. Pre-fix, this was the accidental-quadratic in bulk
-    # promotion — every commit re-embedded all N anchors, making M
-    # promotions cost O(M²) embed calls. See anchor_matcher.warm_cache
-    # docstring for the math.
-    if result.get("status") == "COMMITTED" and "anchor" in draft_id:
-        await anchor_matcher.warm_cache(only_new=True)
+    # Make a committed object searchable without a server restart. Anchors and
+    # slabs use incremental cache warming; an edge refreshes slab PageRank even
+    # when there is no new slab vector. This avoids the old O(M²) bulk behavior
+    # while keeping post-promotion retrieval immediately consistent.
+    if result.get("status") == "COMMITTED":
+        if "anchor" in draft_id:
+            await anchor_matcher.warm_cache(only_new=True)
+        elif "slab" in draft_id or "edge" in draft_id:
+            # New slabs need embeddings; new edges need fresh PageRank.
+            await slab_matcher.warm_cache(only_new=True)
     return result
 
 
@@ -447,11 +449,10 @@ async def review_batch(session_id: str, req: ReviewBatchRequest):
     Per-draft semantics are identical to /review. The win is for
     ``promote_corpus``: each draft mutates its target store in memory
     with ``defer_persist=True``, then the batch runs ONE ``validate()``
-    + ONE ``save()`` per touched collection at the end, and warms the
-    anchor cache once. The per-draft path saves the whole (growing)
-    corpus YAML on every commit — an accidental O(M^2). This collapses
-    it to O(M) work + O(1) disk, turning a tens-of-seconds bulk promote
-    into ~1-3s.
+    + ONE ``save()`` per touched collection. The per-draft path previously
+    saved the whole growing corpus on every commit — accidental O(M²) work.
+    The batch now persists once and incrementally refreshes both anchor and
+    slab retrieval indexes once after all commits.
 
     ``discard`` / ``promote_tentative`` don't touch the corpus YAML, so
     they just loop the normal lifecycle path — still a single HTTP round
@@ -516,9 +517,10 @@ async def review_batch(session_id: str, req: ReviewBatchRequest):
                 validation_errors[cid or "default"] = errs
             store.save()
             saved.append(cid or "default")
-        # Warm the anchor cache once, not once-per-anchor.
+        # Warm both retrieval indexes once, not once per promoted object.
         try:
             await anchor_matcher.warm_cache(only_new=True)
+            await slab_matcher.warm_cache(only_new=True)
         except Exception as e:
             print(f"[REVIEW-BATCH] cache warm failed: {e}", flush=True)
 
@@ -675,6 +677,7 @@ async def end_session_review(session_id: str):
             "type": packet.packet_type or raw.get("type", "anchor"),
             "label": label,
             "canonical_text": inline.get("canonical_text") or raw.get("canonical_text", ""),
+            "description": inline.get("description") or raw.get("description", ""),
             "justification": packet.justification or raw.get("justification", ""),
             "status": packet.status.value,
             "confidence": packet.confidence,

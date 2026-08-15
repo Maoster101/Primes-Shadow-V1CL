@@ -254,7 +254,7 @@ def _compose_instructions(*, include_citations: bool) -> str:
 
 
 def _compose_citations(result: SynthesisResult) -> str:
-    """Citation appendix — IDs and titles for every surfaced node.
+    """Citation appendix — human-readable names for every surfaced node.
 
     Only included when ``include_citations=True``. The model uses
     these to populate inline ``[N]`` markers in its response.
@@ -274,11 +274,8 @@ def _compose_citations(result: SynthesisResult) -> str:
         return ""
     lines = ["=== CITATION DATA ===", ""]
     for i, (role, n) in enumerate(items, 1):
-        # First line of text, capped, for a recognisable handle
-        title_line = n.text.split("\n", 1)[0][:120]
-        lines.append(
-            f"[{i}] ({role}, {n.node_type}) {n.id}: {title_line}"
-        )
+        display_name = (n.display_name or n.text.split("\n", 1)[0]).strip()[:120]
+        lines.append(f"[{i}] ({role}, {n.node_type}) {display_name}")
     return "\n".join(lines)
 
 

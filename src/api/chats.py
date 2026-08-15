@@ -167,9 +167,9 @@ async def send_message(chat_id: str, req: SendMessageRequest):
         session_id = session_store.create_session(chat_id)
 
     # Restore frame state + tentative registry + edges if available.
-    # Note: base_set_slabs() now includes REFERENCE type across all active
-    # collections, so the model sees the full cold corpus (mined narratives
-    # included) without needing per-chat collection binding to unlock it.
+    # Reference prompt content is selected later inside process_turn via the
+    # bounded retrieval pipeline; restoring a frame does not preload every
+    # REFERENCE slab into the model context.
     saved_frame = session_store.load_frame(session_id)
     if saved_frame:
         reg, edges = session_store.load_registry(session_id)

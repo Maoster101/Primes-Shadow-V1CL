@@ -77,13 +77,13 @@ def build_system_prompt(
 
     ``base_set_slabs`` — slabs whose FULL TEXT is injected under
     ``[CORPUS BASE SET]``. Typically CONSTITUTIONAL + CANONICAL (always-in)
-    plus any REFERENCE slabs retrieved by SlabMatcher as semantically
-    relevant to the current user message.
+    plus the top-ranked REFERENCE slabs selected by fused lexical, dense,
+    and graph-aware retrieval for the current message.
 
-    ``catalog_slabs`` — slabs whose id + title + short summary are injected
-    under ``[CORPUS CATALOG]``. The model can see what exists (and reason
-    about what it would invoke) without paying the token cost of full text.
-    Typically: REFERENCE slabs that weren't retrieved this turn.
+    ``catalog_slabs`` — REFERENCE slabs that did not receive full-text budget.
+    They are collapsed into collection-level awareness counts rather than
+    exposing ids or summaries. Direct evidence turns may omit this awareness
+    block entirely to keep lookup answers focused.
     """
     parts = []
 
@@ -452,12 +452,20 @@ def _format_base_set_slabs(
     cmap = collection_by_id or {}
 
     lines = ["[CORPUS BASE SET]"]
+    lines.append(
+        "EVIDENCE RULES: For factual or specification questions, use the "
+        "full-text slabs below as evidence. Distinguish explicit text from "
+        "calculation or inference; if the requested detail is absent, say so. "
+        "Do not invent a missing configuration or extrapolate possible design "
+        "changes unless the user explicitly asks for inference. When useful, identify the "
+        "supporting slab by its human-readable title and collection. Never expose internal "
+        "object ids such as mined_slab_... in a user-facing answer."
+    )
     for slab in slabs:
         coll = cmap.get(slab.id)
         tag = f"{slab.type.value}" + (f", collection={coll}" if coll else "")
-        lines.append(f"--- {slab.id} ({tag}) ---")
-        if slab.title:
-            lines.append(f"# {slab.title}")
+        display_title = (slab.title or "").strip() or "Untitled corpus reference"
+        lines.append(f"--- {display_title} ({tag}) ---")
         text = slab.canonical_text or ""
         _max = _ref_max if slab.type == SlabType.REFERENCE else _full_max
         if len(text) > _max:

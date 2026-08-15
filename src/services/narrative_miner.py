@@ -52,6 +52,7 @@ from .outline_miner import (
     _outline_via_llm,
     _drill_chapter,
     _summarize_pillar,
+    _slab_summary_item,
     build_sequence_edges,
     build_outline_tree,
 )
@@ -131,15 +132,25 @@ Extract:
 
 Match density to the beat. Do not manufacture objects to hit a count.
 
+Give each slab a `description`: ONE dense sentence written FOR RETRIEVAL, like a
+wiki index entry — what the slab establishes and the questions it answers, in the
+third person about the slab, NOT a restatement of canonical_text.
+
+Give each anchor a `description` too: ONE dense sentence stating its IDENTITY — what
+the concept/entity IS, third person, self-contained, with no relational context and no
+invoking characters. Aliases are lexical alternatives for the SAME referent (Harry /
+the boy who lived); a distinct concept that merely co-occurs (a contested title, a
+category term) is its own anchor, never folded in as an alias.
+
 Output ONLY valid JSON:
 {
   "slabs": [
-    {"title": "...", "canonical_text": "...",
+    {"title": "...", "canonical_text": "...", "description": "one dense retrieval sentence",
      "references_anchors": ["..."], "confidence": 0.0-1.0,
      "justification": "..."}
   ],
   "anchors": [
-    {"canonical_phrase": "...", "aliases": ["..."], "confidence": 0.0-1.0}
+    {"canonical_phrase": "...", "aliases": ["..."], "description": "one dense identity sentence", "confidence": 0.0-1.0}
   ]
 }
 """
@@ -403,9 +414,7 @@ class NarrativeMiner:
         async def _sum_beat(beat, path: str) -> tuple[str, str]:
             async with sem:
                 slabs = slabs_by_path.get(path, [])
-                items = [
-                    f"{s.title}: {(s.canonical_text or '')[:160]}" for s in slabs
-                ]
+                items = [_slab_summary_item(s) for s in slabs]
                 summ = await _summarize_pillar(beat.label, items)
                 mining_progress.increment()
                 return path, summ
@@ -482,6 +491,7 @@ class NarrativeMiner:
                     "type": p.proposal_type,
                     "canonical_phrase": p.canonical_phrase,
                     "canonical_text": p.canonical_text or "",
+                    "description": p.description,
                     "title": p.title,
                     "label": p.label,
                     "aliases": p.aliases,

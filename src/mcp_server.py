@@ -137,6 +137,7 @@ def ps_list_slabs(args: dict) -> dict:
         result.append({
             "id": sid,
             "title": s.title,
+            "description": getattr(s, "description", "") or "",
             "type": str(s.type.value) if hasattr(s.type, "value") else str(s.type),
             "lifecycle_status": str(s.lifecycle_status.value) if hasattr(s.lifecycle_status, "value") else str(s.lifecycle_status),
             "requires_oli_mode": s.requires_oli_mode.value if s.requires_oli_mode else None,
@@ -185,6 +186,7 @@ def ps_get_slab(args: dict) -> dict:
         "id": s.id,
         "title": s.title,
         "canonical_text": s.canonical_text,
+        "description": getattr(s, "description", "") or "",
         "type": str(s.type.value) if hasattr(s.type, "value") else str(s.type),
         "lifecycle_status": str(s.lifecycle_status.value) if hasattr(s.lifecycle_status, "value") else str(s.lifecycle_status),
         "requires_oli_mode": s.requires_oli_mode.value if s.requires_oli_mode else None,
@@ -275,7 +277,7 @@ def ps_corpus_search(args: dict) -> dict:
 
     if "slabs" in types:
         for sid, s in _corpus.slabs.items():
-            searchable = f"{sid} {s.title} {s.canonical_text[:200]}".lower()
+            searchable = f"{sid} {s.title} {getattr(s, 'description', '') or ''} {s.canonical_text[:200]}".lower()
             if query in searchable:
                 results.append({"type": "slab", "id": sid, "label": s.title or sid})
 

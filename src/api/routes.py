@@ -9,6 +9,7 @@ Sub-routers handle the heavy lifting:
 """
 from __future__ import annotations
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 from fastapi import APIRouter, HTTPException, UploadFile, File
@@ -19,7 +20,7 @@ from . import deps
 from .deps import chat_store, event_log
 
 # Sub-routers
-from . import chats, sessions, drafts, corpus_routes, mining
+from . import chats, sessions, drafts, corpus_routes, mining, mining_v2
 
 router = APIRouter()
 router.include_router(chats.router)
@@ -27,6 +28,7 @@ router.include_router(sessions.router)
 router.include_router(drafts.router)
 router.include_router(corpus_routes.router)
 router.include_router(mining.router)
+router.include_router(mining_v2.router)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -410,6 +412,41 @@ _TEXT_EXTENSIONS = {
 _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
+def _docx_structured_text(doc) -> str:
+    """Extract DOCX text while preserving heading hierarchy as Markdown.
+
+    Mining relies on these markers to produce descriptive source paths. Flattening
+    Heading 1/2/3 into ordinary paragraphs turns file chunks into accidental pillars.
+    """
+    blocks: list[str] = []
+    in_contents = False
+    for paragraph in doc.paragraphs:
+        value = paragraph.text.strip()
+        if not value:
+            continue
+        style_name = (getattr(getattr(paragraph, "style", None), "name", "") or "").strip()
+        match = re.fullmatch(r"Heading\s+([1-6])", style_name, re.IGNORECASE)
+        if match:
+            level = int(match.group(1))
+            if level == 1 and value.casefold() in {"contents", "table of contents"}:
+                in_contents = True
+                continue
+            if in_contents and level == 1:
+                in_contents = False
+            if not in_contents:
+                blocks.append(f"{'#' * level} {value}")
+        elif not in_contents:
+            blocks.append(value)
+
+    # python-docx exposes tables separately from paragraphs. Preserve their rows
+    # after the main body, matching the previous upload behavior.
+    for table in doc.tables:
+        for row in table.rows:
+            cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+            if cells:
+                blocks.append(" | ".join(cells))
+    return "\n\n".join(blocks)
+
 @router.post("/upload")
 async def upload_file(file: UploadFile = File(...), full: bool = False):
     """Extract text content from an uploaded file.
@@ -456,14 +493,7 @@ async def upload_file(file: UploadFile = File(...), full: bool = False):
             import docx
             import io
             doc = docx.Document(io.BytesIO(data))
-            paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-            # Also extract text from tables
-            for table in doc.tables:
-                for row in table.rows:
-                    cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
-                    if cells:
-                        paragraphs.append(" | ".join(cells))
-            extracted = "\n\n".join(paragraphs)
+            extracted = _docx_structured_text(doc)
             if not extracted.strip():
                 raise HTTPException(422, "DOCX appears to contain no extractable text.")
         except HTTPException:

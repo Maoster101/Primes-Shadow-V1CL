@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from . import deps
-from .deps import registry, anchor_matcher, frame_manager, rebind_corpus
+from .deps import registry, anchor_matcher, slab_matcher, frame_manager, rebind_corpus
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +119,9 @@ async def toggle_collection(collection_id: str, req: ToggleCollectionRequest):
     # promote where invalidation would defeat the purpose. Explicit
     # invalidation here gates on real corpus-membership changes.
     invalidate_corpus_full_cache()
-    # Re-warm anchor matcher cache with new merged set
+    # Rebuild both retrieval indexes against the new merged collection set.
     await anchor_matcher.warm_cache()
+    await slab_matcher.warm_cache()
 
     merged = registry.merged
     return {
@@ -171,6 +172,7 @@ async def delete_collection(collection_id: str, purge: bool = False):
 
     rebind_corpus()
     await anchor_matcher.warm_cache()
+    await slab_matcher.warm_cache()
 
     merged = registry.merged
     return {
@@ -355,6 +357,7 @@ async def migrate_coherence_bundles(collection_id: str):
     rebind_corpus()
     invalidate_corpus_full_cache()
     await anchor_matcher.warm_cache()
+    await slab_matcher.warm_cache()
 
     return {
         "collection_id": collection_id,
@@ -476,6 +479,7 @@ async def consolidate(collection_id: str, req: ConsolidateRequest):
         raise HTTPException(500, f"Mutation succeeded but persist failed: {exc}")
     rebind_corpus()
     await anchor_matcher.warm_cache()
+    await slab_matcher.warm_cache()
 
     return {
         "collection_id": collection_id,
@@ -1199,11 +1203,46 @@ async def get_corpus_pillars(scope: Optional[str] = None):
     summaries: dict[str, str] = {}
     _assign_pillar_labels(tree, pillars_by_id, labels, summaries)
 
+    # Meta-edges: surface each pillar's cross_edges as inter-cluster links.
+    # The frontend keys cluster nodes by their TOP-LEVEL tree index (pathKey
+    # = "0","1",...), so roll every cross-edge up to the top-level ancestor
+    # of each endpoint and emit indices, not pillar ids. Undirected, weights
+    # aggregated so multiple slab-level links between two pillars sum into one
+    # thicker edge. (Previously hardcoded [] — the overlay's cross_edges never
+    # reached the view, so it always showed "0 inter-cluster edges".)
+    root_index = {r.id: i for i, r in enumerate(roots)}
+
+    def _root_idx_of(pid: str):
+        seen: set = set()
+        cur = pillars_by_id.get(pid)
+        while cur is not None and cur.id not in seen:
+            if not cur.parent:
+                return root_index.get(cur.id)
+            seen.add(cur.id)
+            cur = pillars_by_id.get(cur.parent)
+        return None
+
+    agg: dict[tuple[int, int], float] = {}
+    for p in pillars.values():
+        src = _root_idx_of(p.id)
+        for ce in (getattr(p, "cross_edges", None) or []):
+            tgt_id = ce.to_pillar if hasattr(ce, "to_pillar") else (ce.get("to_pillar") if isinstance(ce, dict) else None)
+            weight = ce.weight if hasattr(ce, "weight") else (ce.get("weight", 0.5) if isinstance(ce, dict) else 0.5)
+            dst = _root_idx_of(tgt_id) if tgt_id else None
+            if src is None or dst is None or src == dst:
+                continue
+            key = (src, dst) if src < dst else (dst, src)
+            agg[key] = agg.get(key, 0.0) + float(weight or 0.5)
+    meta_edges = [
+        {"from": str(a), "to": str(b), "weight": round(w, 3)}
+        for (a, b), w in agg.items()
+    ]
+
     return {
         "scope": scope,
         "has_pillars": True,
         "tree": tree,
         "labels": labels,
         "summaries": summaries,
-        "meta_edges": [],
+        "meta_edges": meta_edges,
     }

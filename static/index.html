@@ -369,7 +369,8 @@
             <button id="corpus-mode-clusters" onclick="_setCorpusMode('clusters')" style="background:transparent;border:none;color:var(--text-dim);padding:2px 8px;cursor:pointer;font-family:inherit;font-size:10px">Clusters</button>
           </span>
           <span id="corpus-breadcrumb" style="display:none;font-size:10px;color:#ff8c00;font-family:'JetBrains Mono',monospace;cursor:pointer;background:rgba(255,140,0,0.08);border:1px solid rgba(255,140,0,0.35);border-radius:4px;padding:2px 8px" onclick="_exitDrilledCluster()" title="Click to exit drilled cluster and return to overview"></span>
-          <button id="corpus-rebuild-pillars" onclick="_corpusRebuildPillars()" title="Rebuild this collection's pillar overlay from its committed doc/paper-mined slabs. Scans draft sidecars on disk — no mine result needed, works after any refresh." style="background:rgba(180,0,158,0.12);border:1px solid rgba(180,0,158,0.4);border-radius:4px;color:#d97cce;padding:2px 8px;cursor:pointer;font-family:inherit;font-size:10px">&#127963; Rebuild Pillars</button>
+          <button id="corpus-rebuild-pillars" onclick="_corpusRebuildPillars()" title="Rebuild this collection's coarse pillar overlay and deterministic sequence spine from committed mining sidecars (uses the miner's source_path headings)." style="background:rgba(180,0,158,0.12);border:1px solid rgba(180,0,158,0.4);border-radius:4px;color:#d97cce;padding:2px 8px;cursor:pointer;font-family:inherit;font-size:10px">&#127963; Rebuild Pillars</button>
+          <button id="corpus-cluster-pillars" onclick="_corpusClusterPillars()" title="Coarse overlay by CONTENT: embed + cluster the committed slabs into ~sqrt(N) pillars, ignoring the miner's source_path headings. Use when the path-based overlay fragments into too many single-slab pillars." style="background:rgba(0,212,170,0.12);border:1px solid rgba(0,212,170,0.4);border-radius:4px;color:#00d4aa;padding:2px 8px;cursor:pointer;font-family:inherit;font-size:10px">&#9673; Cluster Pillars</button>
           <button id="corpus-dedup" onclick="_corpusDedup()" title="Collapse exact-duplicate slabs/anchors in this collection to one each (cleanup for an accidental double-push), remap edges, then rebuild the pillar overlay." style="background:rgba(255,140,0,0.1);border:1px solid rgba(255,140,0,0.4);border-radius:4px;color:#ff8c00;padding:2px 8px;cursor:pointer;font-family:inherit;font-size:10px">&#10697; Dedup</button>
           <span id="corpus-filter-stats" style="font-size:9px;color:var(--text-dim);margin-left:auto"></span>
         </div>
@@ -404,6 +405,7 @@
         <div class="dn-item" data-page="gates" onclick="dashNav('gates')"><span class="dn-icon">&#9711;</span> Gates</div>
         <div class="dn-item" data-page="stale" onclick="dashNav('stale')"><span class="dn-icon">&#9888;</span> Stale Review</div>
         <div class="dn-item" data-page="mine" onclick="dashNav('mine')"><span class="dn-icon">&#9889;</span> AI Mine</div>
+        <div class="dn-item" data-page="mine2" onclick="dashNavMine2()" style="padding-left:30px"><span class="dn-icon">&#8627;</span> AI Mine 2</div>
         <div class="dn-item" data-page="dream" onclick="dashNav('dream')"><span class="dn-icon">&#9790;</span> Dream</div>
         <div class="dn-item" data-page="canonicalize" onclick="dashNav('canonicalize')"><span class="dn-icon">&#9930;</span> Canonicalize</div>
         <div class="dn-item" data-page="verify" onclick="dashNav('verify')"><span class="dn-icon">&#10003;</span> Verify</div>
@@ -1513,6 +1515,7 @@ async function showInspect(n){
       if(slab){
         deep+=`<div style="border-top:1px solid var(--border);margin-top:10px;padding-top:8px">`;
         deep+=`<div class="ir"><span class="ik" style="color:#0050EB">title</span><span class="iv">${slab.title||''}</span></div>`;
+        if(slab.description) deep+=`<div class="ir"><span class="ik" style="color:#00d4aa">desc</span><span class="iv" style="font-style:italic">${slab.description.replace(/</g,'&lt;')}</span></div>`;
         if(slab.type) deep+=`<div class="ir"><span class="ik">slab type</span><span class="iv">${slab.type}</span></div>`;
         if(slab.requires_oli_mode) deep+=`<div class="ir"><span class="ik">requires OLI</span><span class="iv">${slab.requires_oli_mode}</span></div>`;
         if(slab.canonical_text){
@@ -2066,6 +2069,7 @@ function dashPageSlabs(c){
         <div style="width:8px;height:8px;border-radius:50%;border:2px solid #0050EB;flex-shrink:0"></div>
         <div style="flex:1;min-width:0">
           <div style="font-size:12px;color:#0050EB;font-weight:500">${title}</div>
+          ${s.description?`<div style="font-size:9px;color:#00d4aa;margin-top:2px;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.description}</div>`:''}
           <div style="font-size:9px;color:var(--text-dim);margin-top:1px;font-family:JetBrains Mono,monospace">${s.id}</div>
         </div>
         <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
@@ -2083,6 +2087,10 @@ function dashPageSlabs(c){
           ${_selectRow('Type','_se_type',s.type||'CANONICAL',['CONSTITUTIONAL','INVARIANT','REFERENCE','CANONICAL'])}
           ${_selectRow('OLI Mode Requirement','_se_oli',s.requires_oli_mode||'',['','ON','OFF'])}
         </div>
+        ${s.description?`<div style="margin-bottom:12px">
+          <label style="font-size:9px;color:#00d4aa;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:6px">Description</label>
+          <div style="padding:10px 12px;background:rgba(0,212,170,0.04);border:1px solid rgba(0,212,170,0.2);border-radius:6px;font-size:11px;color:var(--text);white-space:pre-wrap;line-height:1.5;font-style:italic">${s.description}</div>
+        </div>`:''}
         <div style="margin-bottom:12px">
           <label style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:6px">Canonical Text</label>
           <div style="padding:10px 12px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:6px;font-size:10px;color:var(--text);font-family:JetBrains Mono,monospace;white-space:pre-wrap;max-height:200px;overflow-y:auto;line-height:1.5">${(s.canonical_text||'').slice(0,2000)}</div>
@@ -3214,7 +3222,7 @@ async function _ensureMiningSession(statusEl){
   try{
     const scratchRes=await fetch(`${API}/sessions/scratch`,{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({title:'AI Mine Session',collection_id:(document.getElementById('mine-collection')?.value||'default')})
+      body:JSON.stringify({title:'AI Mine Session',collection_id:((document.getElementById('mine2-collection')||document.getElementById('mine-collection'))?.value||'default')})
     });
     if(!scratchRes.ok)throw new Error('Failed to create scratch session');
     const scratch=await scratchRes.json();
@@ -3456,7 +3464,11 @@ let _dreamingSessionIds=new Set();  // sessions with an in-flight dream-all
 function dashPageDream(c){
   c.innerHTML=`
     <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--text);margin-bottom:6px">Dream <span style="font-size:13px;color:var(--text-dim);font-weight:400">grounding audit + content rewrite over pending drafts</span></div>
-    <div style="font-size:10px;color:var(--text-dim);margin-bottom:18px">Each draft gets a two-stage LLM pass: (1) audit verdict against source material, (2) rewrite if not grounded. Output written as <code>{draft_id}.enriched.json</code>. Run <strong>before</strong> Promote for best quality. Drafts already promoted to corpus are skipped.</div>
+    <div style="font-size:10px;color:var(--text-dim);margin-bottom:18px">Each draft gets a two-stage LLM pass: (1) audit verdict against source material, (2) rewrite if not grounded. Output written as <code>{draft_id}.enriched.json</code>. Run <strong>before</strong> Promote for best quality. Drafts already promoted to corpus are skipped. Dreaming is <strong>opt-in</strong> — it no longer auto-fires on push, so a large mine won't storm the model.</div>
+    <div id="dream-progress" class="dpanel" style="display:none;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:8px"><span id="dream-progress-label">Dreaming…</span><span id="dream-progress-detail" style="color:var(--text-dim)"></span></div>
+      <div style="height:7px;background:rgba(255,255,255,.05);border-radius:4px;overflow:hidden"><div id="dream-progress-fill" style="height:100%;width:0;background:linear-gradient(90deg,#7c3aed,#00d4aa);transition:width .5s"></div></div>
+    </div>
     <div id="dream-sessions-body"><div class="dpanel-empty">Loading sessions...</div></div>`;
   _dreamLoadSessions();
 }
@@ -3534,6 +3546,7 @@ async function _dreamRunSession(sessionId){
   if(_dreamingSessionIds.has(sessionId))return;
   _dreamingSessionIds.add(sessionId);
   _dreamStartPolling();
+  _dreamProgressStart();
   // Re-render to show "Dreaming..." state
   _dreamLoadSessions();
   try{
@@ -3548,7 +3561,7 @@ async function _dreamRunSession(sessionId){
     // The endpoint blocks until all dreams in this session complete,
     // so when the await returns we know this session is done.
     _dreamingSessionIds.delete(sessionId);
-    if(_dreamingSessionIds.size===0)_dreamStopPolling();
+    if(_dreamingSessionIds.size===0){_dreamStopPolling();_dreamProgressStop()}
     _dreamLoadSessions();
   }
 }
@@ -3583,6 +3596,33 @@ function _dreamStartPolling(){
 }
 function _dreamStopPolling(){
   if(_dreamPolling){clearInterval(_dreamPolling);_dreamPolling=null}
+}
+
+// Live per-draft progress bar, polling /dreaming-progress every 1.5s while
+// a dream_all_pending run is in flight. Increments as each draft completes.
+let _dreamProgressPoll=null;
+function _dreamProgressStart(){
+  const panel=document.getElementById('dream-progress');
+  if(panel)panel.style.display='block';
+  const tick=async()=>{
+    try{
+      const p=await (await fetch(`${API}/dreaming-progress`)).json();
+      const fill=document.getElementById('dream-progress-fill');
+      const label=document.getElementById('dream-progress-label');
+      const detail=document.getElementById('dream-progress-detail');
+      if(!fill)return;
+      fill.style.width=`${p.pct||0}%`;
+      label.textContent=p.status==='running'?`Dreaming ${p.completed||0}/${p.total||0}`
+        :p.status==='done'?'Dreaming complete':p.status==='error'?`Dreaming error: ${p.error||''}`:'Idle';
+      detail.textContent=`${Math.round(p.elapsed_s||0)}s`
+        +(p.skipped?` · ${p.skipped} skipped`:'')
+        +(p.status==='running'&&p.current?` · ${p.current}`:'');
+    }catch(_e){}
+  };
+  tick(); if(!_dreamProgressPoll)_dreamProgressPoll=setInterval(tick,1500);
+}
+function _dreamProgressStop(){
+  if(_dreamProgressPoll){clearInterval(_dreamProgressPoll);_dreamProgressPoll=null}
 }
 
 // ── Canonicalize page ──
@@ -4791,7 +4831,7 @@ async function _setCorpusMode(mode){
   }
 }
 
-// Rebuild the pillar overlay for the collection currently in the View
+// Rebuild the navigation layer (coarse pillars + sequence spine) for the View
 // dropdown. Stateless: the backend scans committed draft sidecars on
 // disk, so this works after any refresh and needs no mine result —
 // the fix for "the build button was stuck on the Mine page".
@@ -4807,12 +4847,12 @@ async function _corpusRebuildPillars(){
   try{
     const res=await fetch(`${API}/build-outline-pillars`,{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({target_collection:cid})
+      body:JSON.stringify({target_collection:cid,max_depth:1})
     });
     if(!res.ok){const err=await res.json();throw new Error(err.detail||JSON.stringify(err))}
     const r=await res.json();
     if(r.error){alert('Rebuild: '+r.error);return;}
-    pushEvent('proposal',`Rebuilt ${cid} pillar overlay: ${r.pillars_created} pillars · ${r.members_resolved} slabs · ${r.cross_edges} cross-edges`);
+    pushEvent('proposal',`Rebuilt ${cid} navigation: ${r.pillars_created} pillars · ${r.members_resolved} slabs · ${r.sequence_edges||0} sequence edges · ${r.cross_edges} cross-edges`);
     // Bust the client-side cluster/pillar cache so the rebuilt overlay shows.
     for(const k in _communitiesCache)delete _communitiesCache[k];
     corpusLoaded=false;
@@ -4826,6 +4866,40 @@ async function _corpusRebuildPillars(){
     alert('Pillar rebuild failed: '+e.message);
   }finally{
     if(btn){btn.disabled=false;btn.innerHTML='&#127963; Rebuild Pillars';}
+  }
+}
+
+// Content-clustering overlay: embed + cluster the committed slabs into a
+// small set of pillars, ignoring the miner's (possibly fragmented) source
+// paths. Prompts for an optional cluster count; blank = auto (~sqrt(N)).
+async function _corpusClusterPillars(){
+  const sel=document.getElementById('corpus-collection-filter');
+  const cid=sel?sel.value:'__all__';
+  if(!cid||cid==='__all__'){
+    alert('Pick a specific collection in the View dropdown — clustering runs per collection, not on the merged view.');
+    return;
+  }
+  const kRaw=prompt('Number of pillars to cluster into?\n\nLeave blank for auto (~√N).','');
+  if(kRaw===null)return; // cancelled
+  const target_k=kRaw.trim()===''?0:Math.max(2,parseInt(kRaw,10)||0);
+  const btn=document.getElementById('corpus-cluster-pillars');
+  if(btn){btn.disabled=true;btn.textContent='Clustering…';}
+  try{
+    const res=await fetch(`${API}/build-outline-pillars`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({target_collection:cid,cluster:true,target_k})
+    });
+    if(!res.ok){const err=await res.json();throw new Error(err.detail||JSON.stringify(err))}
+    const r=await res.json();
+    if(r.error){alert('Cluster: '+r.error);return;}
+    pushEvent('proposal',`Clustered ${cid}: ${r.pillars_created} pillars (k=${r.k}) · ${r.members_resolved} slabs · ${r.cross_edges} cross-edges`);
+    for(const k in _communitiesCache)delete _communitiesCache[k];
+    corpusLoaded=false;
+    if(_corpusViewMode==='clusters'){await loadCorpusGraph();}else{await _setCorpusMode('clusters');}
+  }catch(e){
+    alert('Cluster rebuild failed: '+e.message);
+  }finally{
+    if(btn){btn.disabled=false;btn.innerHTML='&#9673; Cluster Pillars';}
   }
 }
 
@@ -4844,7 +4918,7 @@ async function _corpusDedup(){
   try{
     const res=await fetch(`${API}/corpus/dedup`,{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({target_collection:cid})
+      body:JSON.stringify({target_collection:cid,max_depth:1})
     });
     if(!res.ok){const err=await res.json();throw new Error(err.detail||JSON.stringify(err))}
     const r=await res.json();
@@ -7132,5 +7206,6 @@ async function sendMessage(){
 
 init();
 </script>
+<script src="/static/ai-mine2.js"></script>
 </body>
 </html>

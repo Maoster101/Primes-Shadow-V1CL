@@ -65,6 +65,13 @@ class BuildOutlinePillarsRequest(BaseModel):
     # cross_pillars), so the build survives a page refresh and doesn't
     # need the browser to still hold the mine result. Preferred path.
     session_id: str = ""
+    max_depth: int = 0                 # 0 = full tree; 1 = coarse source-level overlay
+    # Content-clustering overlay: ignore model source_paths and derive the
+    # coarse overlay by embedding + k-means-clustering the committed slabs.
+    # Robust when a weak extraction model fragments source_path into ~1
+    # pillar/slab. target_k=0 auto-picks ~sqrt(N).
+    cluster: bool = False
+    target_k: int = 0
 
 
 class PushMinedRequest(BaseModel):
@@ -218,7 +225,19 @@ async def build_outline_pillars(req: BuildOutlinePillarsRequest):
     from ..services.outline_miner import (
         build_pillars_from_outline, build_pillars_from_session,
         build_pillars_from_collection, build_pillars_recursive,
+        build_pillars_by_clustering,
     )
+
+    # Content-clustering overlay short-circuits the path-based builders — it
+    # derives pillars from slab embeddings, so it needs neither an outline
+    # tree nor session sidecars, only the committed slabs in the store.
+    if req.cluster:
+        report = await build_pillars_by_clustering(
+            store, origin=req.origin or req.target_collection,
+            target_k=max(0, req.target_k),
+        )
+        report["target_collection"] = req.target_collection
+        return report
 
     def _is_n_tier(tree: list[dict]) -> bool:
         """True if any node has children that themselves have children —
@@ -237,6 +256,7 @@ async def build_outline_pillars(req: BuildOutlinePillarsRequest):
         # Rebuild from one mining session's committed draft sidecars.
         report = await build_pillars_from_session(
             store, session_store, req.session_id, origin=origin,
+            max_depth=max(0, req.max_depth),
         )
     elif req.outline:
         # Fresh mine result handed straight from the browser. Dispatch
@@ -251,6 +271,7 @@ async def build_outline_pillars(req: BuildOutlinePillarsRequest):
         # committed into this collection. The corpus-view button's path.
         report = await build_pillars_from_collection(
             store, session_store, origin=origin,
+            max_depth=max(0, req.max_depth),
         )
     report["target_collection"] = req.target_collection
     return report
@@ -312,6 +333,18 @@ async def get_mining_progress():
     return mining_progress.get()
 
 
+@router.get("/dreaming-progress")
+async def get_dreaming_progress():
+    """Snapshot of the current dreaming batch's progress.
+
+    Singleton, mirrors /mining-progress. The Dream page polls this while a
+    dream_all_pending run is in flight to render a live bar that increments
+    per draft (completed/total + elapsed + the draft in flight).
+    """
+    from ..services import dreaming_progress
+    return dreaming_progress.get()
+
+
 @router.post("/sessions/{session_id}/push-mined")
 async def push_mined_proposals(session_id: str, req: PushMinedRequest):
     """Push mined proposals directly into the session draft stack.
@@ -331,6 +364,10 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
 
     created = []
     created_packets = []
+    # AI Mine 2 stamps server-recoverable source order. Keep selected slab
+    # draft IDs so the backend can build an exact sequence spine after any
+    # user filtering, rather than trusting model-generated SEQUENCE edges.
+    ordered_slab_drafts: list[tuple[int, str, str]] = []
     for prop in req.proposals:
         if not isinstance(prop, dict):
             continue
@@ -382,6 +419,10 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
                 "id": draft_id,
                 "title": slab_title,
                 "canonical_text": prop.get("canonical_text", "") or "",
+                # Retrieval-oriented summary (universal miner). Carried on
+                # the packet so promote can persist it to the Slab; empty
+                # for legacy miners that don't emit it.
+                "description": prop.get("description", "") or "",
                 "links": {
                     "anchors": [],
                     "bundles": [],
@@ -451,6 +492,14 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
         stack.packets.append(draft_id)
         created.append({"id": draft_id, "type": prop_type, "label": text[:80]})
         created_packets.append(packet)
+        if prop_type == "slab" and prop.get("_source_order") is not None:
+            try:
+                ordered_slab_drafts.append((
+                    int(prop["_source_order"]), draft_id,
+                    str(prop.get("title") or prop.get("canonical_phrase") or draft_id),
+                ))
+            except (TypeError, ValueError):
+                pass
 
     session_store.save_draft_stack(session_id, stack)
 
@@ -505,6 +554,8 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
                 if not isinstance(spec, dict):
                     continue
                 etype_raw = (spec.get("type") or "LINKS").upper()
+                if etype_raw == "SEQUENCE" and spec.get("deterministic"):
+                    continue  # rebuilt below from the actually selected slabs
                 if etype_raw not in {"INVOKES", "SUPPORTS", "CONFLICTS", "TENSIONS", "LINKS", "SEQUENCE", "PARENT_OF"}:
                     etype_raw = "LINKS"
                 # Convo miner emits from/to; chat path emits from_label/to_label.
@@ -557,20 +608,37 @@ async def push_mined_proposals(session_id: str, req: PushMinedRequest):
         except Exception as e:
             print(f"[PUSH-MINED] Edge resolution failed: {e}", flush=True)
 
-    # Auto-trigger dreaming on pushed drafts (background).
-    # Uses dream_all_pending so the concurrent path (PS_DREAMING_PARALLEL)
-    # applies — a 5-draft push gets ~3 effective rounds at parallel=2
-    # rather than 5 serial calls.
-    if created_packets:
-        async def _dream_pushed():
-            try:
-                from ..services.dreaming import dream_all_pending
-                await dream_all_pending(
-                    deps.corpus, session_store, chat_store, session_id,
-                )
-            except Exception as e:
-                print(f"[DREAM] Dreaming pass failed: {e}", flush=True)
-        asyncio.create_task(_dream_pushed())
+    # Deterministic document-order edges are structural facts, so they enter
+    # ACCEPTED state immediately. The lifecycle commits each one once both
+    # selected endpoint drafts have been promoted into the corpus.
+    if len(ordered_slab_drafts) > 1:
+        ordered_slab_drafts.sort(key=lambda row: row[0])
+        sequence_edges = []
+        chat_id_for_edges = meta.get("chat_id", session_id)
+        for (_a_order, a_id, a_label), (_b_order, b_id, b_label) in zip(
+            ordered_slab_drafts, ordered_slab_drafts[1:]
+        ):
+            sequence_edges.append(ProposedEdge(
+                id=f"proposed_edge_{uuid.uuid4().hex[:8]}",
+                type=EdgeType.SEQUENCE,
+                from_node=a_id, to_node=b_id,
+                from_label=a_label, to_label=b_label,
+                confidence=0.98,
+                justification="Deterministic order of consecutive selected slabs in the source.",
+                status="ACCEPTED",
+                source_chat_id=chat_id_for_edges,
+                source_turn=0,
+            ))
+        session_store.append_proposed_edges(session_id, sequence_edges)
+        edges_persisted += len(sequence_edges)
+    # Dreaming is OPT-IN, not auto-triggered on push. Auto-dreaming every
+    # pushed draft was fine for small chat pushes (~5 drafts) but a bulk
+    # AI-Mine push of 100+ slabs fans out to hundreds of background LLM
+    # calls at PS_DREAMING_PARALLEL=2, monopolizing the local Ollama slots
+    # and starving chat queries / pillar rebuilds (ReadTimeouts). The Dream
+    # page is now the deterministic surface: the reviewer triggers
+    # dream_all_pending there when they choose, with a live progress bar.
+    # (Chat-driven pushes still dream via their own end-of-turn path.)
 
     # --- Inject mined proposals into frame_manager's tentative registry ---
     # Without this, /sessions/{id}/graph can't see the mined nodes because

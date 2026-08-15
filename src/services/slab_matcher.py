@@ -1,25 +1,22 @@
-"""Semantic retrieval for REFERENCE slabs — the "pointer" side of the
-graph-of-graphs-above-the-corpus architecture.
+"""Hybrid retrieval for REFERENCE slabs.
 
-The model's system prompt carries CONSTITUTIONAL and CANONICAL slabs in full
-(rule text and foundational curator content, non-negotiable). REFERENCE
-slabs — mined narratives, ambient domain content — are far more numerous
-and don't need to all be present every turn. Instead, the model sees:
+CONSTITUTIONAL and CANONICAL slabs remain foundational prompt content. The
+larger REFERENCE layer is selected per turn: collection names restrict the
+candidate domain, lexical BM25-style matching and dense cosine matching are
+fused with reciprocal-rank fusion, and graph rank then expands/reranks the
+bounded candidate set. Only the highest-ranked references receive full-text
+prompt budget; the rest are represented by collection-level awareness counts.
 
-  * A compact CATALOG of every REFERENCE slab (id + title + short summary),
-    so it knows what exists and can reason about what it would ask for.
-  * Full text of only the handful of REFERENCE slabs that are semantically
-    close to the current user message, above a similarity threshold and
-    capped at max_k.
-
-SlabMatcher handles the retrieval side: it embeds every REFERENCE slab's
-``canonical_text`` on warm-up, and on each turn computes cosine similarity
-against the user's message embedding to rank slabs. Mirrors the shape of
-AnchorMatcher._embed_cache but simpler (one embedding per slab, no alias
-list).
+``SlabMatcher`` owns the dense embedding cache, live lexical scan, fused
+candidate ranking, and PageRank caches. Dense embeddings include each slab's
+title and canonical text. ``warm_cache(only_new=True)`` incrementally embeds
+new immutable slabs, prunes removed entries, and refreshes graph rank.
 """
 from __future__ import annotations
+from collections import Counter
 import logging
+import math
+import re
 from typing import Optional
 
 import numpy as np
@@ -30,6 +27,37 @@ from . import ollama
 from . import graph_rank
 
 logger = logging.getLogger(__name__)
+
+
+_SEARCH_STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "based", "by", "for",
+    "from", "how", "i", "in", "is", "it", "me", "of", "on", "per",
+    "collection", "config", "configuration", "please", "pod", "spec",
+    "specification", "tell", "teh", "the", "to", "was",
+    "what", "with",
+}
+
+_SEARCH_EXPANSIONS = {
+    "dimension": {"length", "width", "height", "depth", "dimensions"},
+    "dimensions": {"length", "width", "height", "depth", "dimension"},
+    "size": {"length", "width", "height", "depth", "dimensions"},
+    "salt": {"saltwater", "saline", "salinity", "freshwater"},
+    "saltwater": {"salt", "saline", "salinity", "freshwater"},
+    "saline": {"saltwater", "salinity", "freshwater"},
+    "volume": {"litres", "liters", "cubic", "capacity"},
+}
+
+
+def _search_tokens(text: str) -> list[str]:
+    """Normalize prose, measurements, and common unit spellings for search."""
+    normalized = (text or "").lower()
+    normalized = normalized.replace("m³", " cubic metres ")
+    normalized = normalized.replace("m^3", " cubic metres ")
+    normalized = normalized.replace("salt-water", "saltwater")
+    normalized = re.sub(r"\b(?:pod_?v?|version|v)[_\s-]*\d+\b", " ", normalized)
+    normalized = re.sub(r"\bmeters?\b", "metres", normalized)
+    normalized = re.sub(r"\bliters?\b", "litres", normalized)
+    return re.findall(r"[a-z]+(?:'[a-z]+)?|\d+(?:\.\d+)?", normalized)
 
 
 class SlabMatcher:
@@ -60,12 +88,12 @@ class SlabMatcher:
         # though we only retrieve slabs. Recomputed on warm_cache.
         self._global_pr: dict[str, float] = {}
 
-    async def warm_cache(self) -> None:
+    async def warm_cache(self, only_new: bool = False) -> None:
         """Embed every ACTIVE REFERENCE slab in the current corpus.
 
-        Safe to call repeatedly — each call rebuilds from the current corpus
-        view. Intended use: once at server startup, and again after
-        collection activation changes (via rebind_corpus).
+        Safe to call repeatedly. A full warm rebuilds from the current corpus;
+        ``only_new=True`` retains existing immutable slab vectors, prunes removed
+        ids, embeds new slabs, and always refreshes graph rank.
         """
         candidates = [
             s for s in self.corpus.slabs.values()
@@ -81,18 +109,44 @@ class SlabMatcher:
 
         # Lowercase matches the convention used by embeddings.compute_positions_and_vectors
         # (nomic-embed-text is title-case sensitive without this).
-        texts = [(s.canonical_text or "").lower() for s in candidates]
-        vectors = await ollama.embed(texts)
+        candidate_ids = {s.id for s in candidates}
+        if only_new:
+            # Drop inactive/removed entries, retain immutable slabs already
+            # embedded, and pay only for content promoted since the last warm.
+            self._embed_cache = {
+                sid: vec for sid, vec in self._embed_cache.items()
+                if sid in candidate_ids
+            }
+            pending = [s for s in candidates if s.id not in self._embed_cache]
+        else:
+            self._embed_cache = {}
+            pending = candidates
 
-        self._embed_cache = {}
+        if pending:
+            texts = [
+                "\n".join(
+                    part for part in (
+                        s.title or "",
+                        getattr(s, "description", "") or "",
+                        s.canonical_text or "",
+                    ) if part
+                ).lower()
+                for s in pending
+            ]
+            vectors = await ollama.embed(texts)
+            for slab, vec in zip(pending, vectors):
+                v = np.asarray(vec, dtype=np.float32)
+                norm = float(np.linalg.norm(v))
+                if norm > 0:
+                    v = v / norm
+                self._embed_cache[slab.id] = v
+
         ordered_ids: list[str] = []
         matrix_rows: list[np.ndarray] = []
-        for slab, vec in zip(candidates, vectors):
-            v = np.asarray(vec, dtype=np.float32)
-            norm = float(np.linalg.norm(v))
-            if norm > 0:
-                v = v / norm
-            self._embed_cache[slab.id] = v
+        for slab in candidates:
+            v = self._embed_cache.get(slab.id)
+            if v is None:
+                continue
             ordered_ids.append(slab.id)
             matrix_rows.append(v)
 
@@ -112,8 +166,8 @@ class SlabMatcher:
             self._global_pr = {}
 
         logger.info(
-            "SlabMatcher: warmed %d REFERENCE slab embeddings, %d PR nodes",
-            len(self._embed_cache), len(self._global_pr),
+            "SlabMatcher: warmed %d REFERENCE slab embeddings (%d new), %d PR nodes",
+            len(self._embed_cache), len(pending), len(self._global_pr),
         )
 
     async def top_k_for(
@@ -171,6 +225,105 @@ class SlabMatcher:
             if len(results) >= max_k:
                 break
         return results
+
+    def lexical_top_k_for(
+        self,
+        query_text: str,
+        max_k: int = 20,
+        id_filter: Optional[set[str]] = None,
+    ) -> list[tuple[str, float]]:
+        """Return BM25-style title/body matches from the live corpus view.
+
+        This path deliberately does not depend on the embedding cache. Besides
+        improving exact-fact recall (measurements, configuration terms), it is
+        a safe freshness fallback during the brief interval after promotion.
+        """
+        raw_terms = [t for t in _search_tokens(query_text) if t not in _SEARCH_STOPWORDS]
+        if not raw_terms or (id_filter is not None and not id_filter):
+            return []
+
+        weighted_terms: dict[str, float] = {term: 1.0 for term in raw_terms}
+        for term in raw_terms:
+            for expanded in _SEARCH_EXPANSIONS.get(term, set()):
+                weighted_terms[expanded] = max(weighted_terms.get(expanded, 0.0), 0.55)
+
+        documents: list[tuple[str, Counter, Counter, int]] = []
+        for slab in self.corpus.slabs.values():
+            if slab.type != SlabType.REFERENCE or slab.lifecycle_status != SlabLifecycleStatus.ACTIVE:
+                continue
+            if id_filter is not None and slab.id not in id_filter:
+                continue
+            body = _search_tokens(
+                "\n".join(
+                    part for part in (
+                        getattr(slab, "description", "") or "",
+                        slab.canonical_text or "",
+                    ) if part
+                )
+            )
+            title = _search_tokens(slab.title or "")
+            documents.append((slab.id, Counter(body), Counter(title), max(1, len(body))))
+
+        if not documents:
+            return []
+
+        n_docs = len(documents)
+        avg_len = sum(length for _sid, _body, _title, length in documents) / n_docs
+        doc_freq = {
+            term: sum(1 for _sid, body, title, _len in documents if term in body or term in title)
+            for term in weighted_terms
+        }
+        k1, b = 1.2, 0.75
+        scored: list[tuple[str, float]] = []
+        for sid, body, title, length in documents:
+            score = 0.0
+            for term, query_weight in weighted_terms.items():
+                tf = body.get(term, 0) + 2.0 * title.get(term, 0)
+                if not tf:
+                    continue
+                df = doc_freq[term]
+                idf = math.log(1.0 + (n_docs - df + 0.5) / (df + 0.5))
+                saturation = (tf * (k1 + 1.0)) / (
+                    tf + k1 * (1.0 - b + b * length / max(avg_len, 1.0))
+                )
+                exact_weight = 1.75 if re.fullmatch(r"\d+(?:\.\d+)?", term) else 1.0
+                score += query_weight * exact_weight * idf * saturation
+            if score > 0:
+                scored.append((sid, score))
+
+        scored.sort(key=lambda item: item[1], reverse=True)
+        return scored[:max_k]
+
+    async def fused_top_k_for(
+        self,
+        query_text: str,
+        max_k: int = 15,
+        id_filter: Optional[set[str]] = None,
+    ) -> list[tuple[str, float, dict]]:
+        """Fuse dense and lexical ranks without requiring both to agree."""
+        dense = await self.top_k_for(
+            query_text, threshold=0.55, max_k=max(max_k, 20), id_filter=id_filter,
+        ) if self.has_cache() else []
+        lexical = self.lexical_top_k_for(
+            query_text, max_k=max(max_k, 20), id_filter=id_filter,
+        )
+        dense_scores = dict(dense)
+        lexical_scores = dict(lexical)
+        fused: dict[str, float] = {}
+        rrf_k = 60.0
+        for rank, (sid, _score) in enumerate(dense, 1):
+            fused[sid] = fused.get(sid, 0.0) + 1.0 / (rrf_k + rank)
+        for rank, (sid, _score) in enumerate(lexical, 1):
+            fused[sid] = fused.get(sid, 0.0) + 1.0 / (rrf_k + rank)
+
+        ranked = sorted(fused, key=lambda sid: fused[sid], reverse=True)[:max_k]
+        return [
+            (sid, fused[sid], {
+                "dense": round(dense_scores.get(sid, 0.0), 4),
+                "lexical": round(lexical_scores.get(sid, 0.0), 4),
+            })
+            for sid in ranked
+        ]
 
     async def hybrid_rank(
         self,

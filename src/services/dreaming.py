@@ -103,8 +103,15 @@ _CODE_DIRS = [
     "src/api",
 ]
 _CONFIG_GLOBS = [
-    "app/corpora/*/state/*.yaml",
-    "app/corpora/*/objects/*.yaml",
+    # NOTE: app/corpora/*/objects/*.yaml and .../state/*.yaml were REMOVED.
+    # Those are CORPUS DATA (slabs.yaml/anchors.yaml hold the very domain text
+    # being mined), not source code. Indexing them made every mined slab match
+    # a near-duplicate of itself (or a sibling slab in another collection) at
+    # cosine ~0.8 — sailing past the 0.60 CODE-mode threshold and routing pure
+    # domain drafts (e.g. pod design docs) through the code-grounding audit.
+    # The CODE-vs-DOMAIN detector exists to spot drafts describing the app's
+    # own SOURCE CODE, so the index must contain source code only (see
+    # _CODE_DIRS). Domain content belongs in DOMAIN mode.
 ]
 # File extensions to index
 _CODE_EXTENSIONS = {".py", ".yaml", ".yml"}
@@ -897,8 +904,21 @@ async def dream_all_pending(
     """
     import asyncio
     import os as _os
+    from . import dreaming_progress
     dreamer = DreamingPass(corpus, session_store, chat_store, project_root)
     packets = session_store.list_draft_packets(session_id)
+
+    # Pre-compute the set of drafts that will actually be dreamed so the
+    # progress bar has an accurate total from the first tick. A draft is
+    # eligible iff it's an un-promoted draft with no existing enriched file.
+    def _eligible(packet) -> bool:
+        if packet.status.value != "DRAFT_UNAUTHORIZED":
+            return False
+        enriched = session_store.drafts_dir(session_id) / f"{packet.id}.enriched.json"
+        return not enriched.exists()
+
+    to_dream = sum(1 for p in packets if _eligible(p))
+    dreaming_progress.start(to_dream)
 
     parallel = max(1, int(_os.environ.get("PS_DREAMING_PARALLEL", "2")))
     sem = asyncio.Semaphore(parallel)
@@ -920,11 +940,18 @@ async def dream_all_pending(
                 "reason": "enriched file already exists",
             }
         async with sem:
+            dreaming_progress.set_current(packet.id)
             result = await dreamer.dream(session_id, packet.id)
+            dreaming_progress.increment()
         result["draft_id"] = packet.id
         return result
 
-    raw_results = await asyncio.gather(*[_run_one(p) for p in packets])
+    try:
+        raw_results = await asyncio.gather(*[_run_one(p) for p in packets])
+        dreaming_progress.mark_done()
+    except Exception as exc:
+        dreaming_progress.mark_error(str(exc))
+        raise
     results = [r for r in raw_results if r is not None]
 
     return results

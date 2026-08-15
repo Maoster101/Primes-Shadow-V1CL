@@ -32,6 +32,7 @@ See the design conversation in this PR (WIP §6.6 genre-specific miners).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import re
 from dataclasses import dataclass, field
@@ -40,7 +41,7 @@ import numpy as np
 
 from .convo_miner import MiningProposal, EdgeProposal, deduplicate_proposals
 from . import ollama, mining_progress
-from ..models.schemas import PillarDefinition, PillarCrossEdge
+from ..models.schemas import Edge, PillarDefinition, PillarCrossEdge
 from ..models.enums import EdgeType
 
 logger = logging.getLogger(__name__)
@@ -352,11 +353,20 @@ Extract:
    - canonical_text: complete sentences. Condense dense prose faithfully;
      reconstitute terse/schematic passages into full sentences. The slab
      is stored as-is and must stand on its own.
+   - description: ONE dense sentence written FOR RETRIEVAL, like a wiki index
+     entry — what the slab establishes and the questions it answers, in the
+     third person about the slab, NOT a restatement of canonical_text. Someone
+     scanning only descriptions should know whether this is the slab they need.
    - A long section yields several slabs; a short one yields one or two.
 
 2. ANCHORS — 2-8 word phrases naming distinctive entities or coined terms
    the section introduces: named concepts, components, technical terms.
    Only things that would be referenced elsewhere. Not every noun.
+   - description: ONE dense sentence stating the anchor's IDENTITY — what
+     the concept/entity IS, third person, self-contained, no relational
+     context and no invoking characters. Aliases are lexical alternatives
+     for the SAME referent; a distinct concept that merely co-occurs is its
+     own anchor, not an alias.
    - references_anchors on a slab: anchor phrases that slab involves.
 
 Match density to the section. Do not manufacture objects to hit a count.
@@ -364,12 +374,12 @@ Match density to the section. Do not manufacture objects to hit a count.
 Output ONLY valid JSON:
 {
   "slabs": [
-    {"title": "...", "canonical_text": "...",
+    {"title": "...", "canonical_text": "...", "description": "one dense retrieval sentence",
      "references_anchors": ["..."], "confidence": 0.0-1.0,
      "justification": "..."}
   ],
   "anchors": [
-    {"canonical_phrase": "...", "aliases": ["..."], "confidence": 0.0-1.0}
+    {"canonical_phrase": "...", "aliases": ["..."], "description": "one dense identity sentence", "confidence": 0.0-1.0}
   ]
 }
 """
@@ -396,6 +406,23 @@ RULES
 
 Output ONLY valid JSON: {"summary": "..."}
 """
+
+
+def _slab_summary_item(obj) -> str:
+    """Format one slab as a pillar-summary input line.
+
+    Prefer the retrieval ``description`` when the object carries one — it is
+    the pre-distilled version of exactly what ``_summarize_pillar`` re-distills,
+    so summarising from it is sharper and cheaper than re-reading canonical
+    text. Falls back to a canonical_text excerpt for legacy / pre-description
+    slabs and for mine-time proposals (which have no description attribute).
+    Works on both committed ``Slab`` objects and mine-time proposals via
+    duck-typed ``getattr``.
+    """
+    title = getattr(obj, "title", "") or ""
+    desc = (getattr(obj, "description", "") or "").strip()
+    tail = desc if desc else (getattr(obj, "canonical_text", "") or "")[:160]
+    return f"{title}: {tail}"
 
 
 async def _summarize_pillar(label: str, items: list[str]) -> str:
@@ -460,8 +487,13 @@ async def detect_cross_pillar(
     flat = [(p, s) for p in chapter_paths for s in slabs_by_path.get(p, [])]
     if not flat:
         return {}, {}
+    # Embedding target prefers the retrieval `description` — it is the
+    # distilled "what this slab is about" written for exactly this kind of
+    # semantic comparison — and falls back to a canonical_text excerpt for
+    # legacy / pre-description slabs.
     slab_texts = [
-        f"{s.title}. {(s.canonical_text or '')[:240]}".strip() for _, s in flat
+        f"{s.title}. {(getattr(s, 'description', '') or '').strip() or (s.canonical_text or '')[:240]}".strip()
+        for _, s in flat
     ]
     try:
         pillar_vecs = await ollama.embed(pillar_texts)
@@ -1079,9 +1111,7 @@ class OutlineMiner:
         async def _sum_chapter(ch: Section, path: str) -> tuple[str, str]:
             async with sem:
                 slabs = slabs_by_path.get(path, [])
-                items = [
-                    f"{s.title}: {(s.canonical_text or '')[:160]}" for s in slabs
-                ]
+                items = [_slab_summary_item(s) for s in slabs]
                 summ = await _summarize_pillar(ch.label, items)
                 mining_progress.increment()
                 return path, summ
@@ -1163,6 +1193,7 @@ class OutlineMiner:
                     "type": p.proposal_type,
                     "canonical_phrase": p.canonical_phrase,
                     "canonical_text": p.canonical_text or "",
+                    "description": p.description,
                     "title": p.title,
                     "label": p.label,
                     "aliases": p.aliases,
@@ -1298,10 +1329,7 @@ class OutlineMiner:
             async with sem:
                 path = paths[id(leaf)]
                 slabs = slabs_by_path.get(path, [])
-                items = [
-                    f"{s.title}: {(s.canonical_text or '')[:160]}"
-                    for s in slabs
-                ]
+                items = [_slab_summary_item(s) for s in slabs]
                 summ = await _summarize_pillar(leaf.label, items)
                 mining_progress.increment()
                 return id(leaf), summ
@@ -1403,6 +1431,7 @@ class OutlineMiner:
                     "type": p.proposal_type,
                     "canonical_phrase": p.canonical_phrase,
                     "canonical_text": p.canonical_text or "",
+                    "description": p.description,
                     "title": p.title,
                     "label": p.label,
                     "aliases": p.aliases,
@@ -1647,21 +1676,64 @@ def build_pillars_from_outline(
     }
 
 
+def _normalize_sidecar_topic(value) -> str:
+    """Normalize legacy string and AI Mine 2 list-valued source paths.
+
+    List elements are path atoms. Separator text inside one atom is collapsed
+    so the prefix-tree builder does not misread siblings as deeper hierarchy.
+    """
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (list, tuple)):
+        parts = []
+        for item in value:
+            if item is None:
+                continue
+            atom = str(item).strip().replace(" / ", " + ")
+            if atom:
+                parts.append(atom)
+        return " / ".join(parts)
+    return ""
+
+
+def _sidecar_source_order(data: dict, fallback_index: int) -> int:
+    """Return stable document order for legacy and universal-miner sidecars."""
+    import re as _re
+
+    explicit = data.get("_source_order")
+    try:
+        if explicit is not None:
+            return int(explicit)
+    except (TypeError, ValueError):
+        pass
+
+    source_pairs = data.get("source_pairs") or []
+    if source_pairs:
+        try:
+            return int(source_pairs[0])
+        except (TypeError, ValueError):
+            pass
+
+    temp_id = str(data.get("temp_id") or "")
+    match = _re.match(r"^s(\d+).*?(\d+)$", temp_id, _re.IGNORECASE)
+    if match:
+        return int(match.group(1)) * 1_000_000 + int(match.group(2))
+    return 10 ** 9 + fallback_index
+
+
 def _collect_slab_records(store, raw_paths: list[str]) -> list[dict]:
     """Read draft raw sidecars into outline-rebuild records.
 
-    Keeps a sidecar only if it is a slab proposal, carries a
-    ``source_topic`` (i.e. came from the outline miner), and the slab
-    actually committed into ``store`` — so discarded / still-pending /
-    other-collection drafts are filtered out. The id↔draft_id identity
-    (``_convert_to_corpus_object``) is what lets us match committed
-    slabs to their sidecars by filename.
+    Accepts both the legacy outline miner's string `source_topic` and AI
+    Mine 2's list-valued source path. Only slabs committed into `store` are
+    retained, filtering discarded, pending, and other-collection drafts. The
+    id/draft_id identity lets us match committed slabs to their sidecars.
     """
     import json as _json
     from pathlib import Path
 
     recs: list[dict] = []
-    for raw_path in raw_paths:
+    for fallback_index, raw_path in enumerate(sorted(raw_paths)):
         try:
             d = _json.loads(Path(raw_path).read_text(encoding="utf-8"))
         except Exception:
@@ -1671,22 +1743,76 @@ def _collect_slab_records(store, raw_paths: list[str]) -> list[dict]:
         slab_id = Path(raw_path).name[:-len("_raw.json")]
         if slab_id not in store.slabs:
             continue  # discarded, still pending, or committed elsewhere
-        topic = (d.get("source_topic") or "").strip()
+        topic = _normalize_sidecar_topic(
+            d.get("source_topic") or d.get("source_path") or ""
+        )
         if not topic:
-            continue  # not outline-mined (no section tag)
-        sp = d.get("source_pairs") or []
+            continue  # no preserved document path
+        cross = [
+            _normalize_sidecar_topic(item)
+            for item in (d.get("cross_pillars") or [])
+        ]
         recs.append({
             "id": slab_id,
             "topic": topic,
-            "cross": [c for c in (d.get("cross_pillars") or []) if c],
-            "order": sp[0] if sp else 10 ** 9,
+            "cross": [item for item in cross if item],
+            "order": _sidecar_source_order(d, fallback_index),
         })
     return recs
 
 
+def rebuild_sequence_spine_from_records(store, recs: list[dict]) -> dict:
+    """Replace in-scope SEQUENCE edges with one deterministic source-order chain."""
+    by_id: dict[str, dict] = {}
+    for record in recs:
+        prior = by_id.get(record["id"])
+        if prior is None or record["order"] < prior["order"]:
+            by_id[record["id"]] = record
+    ordered = sorted(by_id.values(), key=lambda row: (row["order"], row["id"]))
+    ordered_ids = [row["id"] for row in ordered]
+    target_ids = set(ordered_ids)
+
+    original_edges = dict(store.edges)
+    removed = [
+        edge_id for edge_id, edge in store.edges.items()
+        if edge.type == EdgeType.SEQUENCE
+        and edge.from_node in target_ids and edge.to_node in target_ids
+    ]
+    for edge_id in removed:
+        store.edges.pop(edge_id, None)
+
+    additions = []
+    for source, target in zip(ordered_ids, ordered_ids[1:]):
+        digest = hashlib.sha1(f"{source}\0{target}".encode("utf-8")).hexdigest()[:12]
+        edge = Edge(
+            id=f"edge_sequence_{digest}_v1",
+            type=EdgeType.SEQUENCE,
+            **{"from": source, "to": target},
+            weight=0.75,
+            confidence=0.98,
+            justification="Deterministic order of consecutive committed slabs in the source.",
+        )
+        store.edges[edge.id] = edge
+        additions.append(edge)
+
+    errors = store.validate()
+    if errors:
+        store.edges = original_edges
+        return {
+            "sequence_edges": 0,
+            "sequence_edges_removed": 0,
+            "sequence_validation_errors": errors,
+        }
+    store.save()
+    return {
+        "sequence_edges": len(additions),
+        "sequence_edges_removed": len(removed),
+        "sequence_validation_errors": [],
+    }
+
 async def _pillars_from_slab_records(
     store, recs: list[dict], origin: str, source_tag: str,
-    regenerate_summaries: bool = True, replace: bool = True,
+    regenerate_summaries: bool = True, replace: bool = True, max_depth: int = 0,
 ) -> dict:
     """Shared core: turn outline-rebuild records into a committed overlay.
 
@@ -1712,17 +1838,24 @@ async def _pillars_from_slab_records(
                      "promote a doc/paper mine into this collection first.",
         }
 
-    # ── Group records by leaf path. Every distinct topic IS a leaf —
-    # the outline miners only stamp source_topic at the leaf level.
+    # Group records by the requested navigation depth. Full source paths stay
+    # on sidecars; a shallow pillar overlay deliberately leaves fine-grained
+    # continuity to the deterministic SEQUENCE spine.
+    def _limited_path(path: str) -> str:
+        parts = path.split(" / ")
+        return " / ".join(parts[:max_depth]) if max_depth > 0 else path
+
     leaf_data: dict[str, dict] = {}
     for r in recs:
+        topic = _limited_path(r["topic"])
         d = leaf_data.setdefault(
-            r["topic"], {"ids": [], "order": r["order"], "cross": {}},
+            topic, {"ids": [], "order": r["order"], "cross": {}},
         )
         d["ids"].append(r["id"])
         d["order"] = min(d["order"], r["order"])
-        for to_topic in r["cross"]:
-            if to_topic and to_topic != r["topic"]:
+        for raw_target in r["cross"]:
+            to_topic = _limited_path(raw_target)
+            if to_topic and to_topic != topic:
                 d["cross"][to_topic] = d["cross"].get(to_topic, 0) + 1
 
     leaf_paths = set(leaf_data.keys())
@@ -1776,9 +1909,7 @@ async def _pillars_from_slab_records(
                 for sid in leaf_data[path]["ids"]:
                     sl = store.slabs.get(sid)
                     if sl:
-                        items.append(
-                            f"{sl.title}: {(sl.canonical_text or '')[:160]}"
-                        )
+                        items.append(_slab_summary_item(sl))
                 summ = await _summarize_pillar(path.split(" / ")[-1], items)
                 return path, summ
 
@@ -1808,6 +1939,35 @@ async def _pillars_from_slab_records(
         for to_topic, count in d["cross"].items():
             cross_edges[(path, to_topic)] = count
 
+    # Restoration: AI Mine 2 emits no per-slab cross_pillars — its hierarchy is
+    # deferred to rebuild time, so at mine time there were no pillars to compare
+    # against. When the sidecars carry no cross data AND we regenerated leaf
+    # summaries, synthesise the cross-edges here with the same relative-margin
+    # embedding test the legacy outline miner's Pass 4 uses: both the leaf
+    # summaries and the committed slabs now exist, which is exactly the input
+    # detect_cross_pillar needs. The embedding target prefers each slab's
+    # `description` (see detect_cross_pillar). Legacy-mined collections already
+    # carry cross data on their sidecars, so this branch is skipped for them.
+    if not cross_edges and regenerate_summaries and len(leaf_paths) > 1:
+        leaf_summary_by_path = {
+            p: summaries.get(id(sections[section_idx[p]]), "") for p in leaf_paths
+        }
+        leaf_slab_objs = {
+            p: [store.slabs[sid] for sid in leaf_data[p]["ids"] if sid in store.slabs]
+            for p in leaf_paths
+        }
+        try:
+            _cross_by_title, synth_edges = await detect_cross_pillar(
+                list(leaf_paths), leaf_summary_by_path, leaf_slab_objs,
+            )
+            cross_edges.update(synth_edges)
+            logger.info(
+                "Cross-pillar synthesis: %d edges from embeddings (no sidecar cross data)",
+                len(synth_edges),
+            )
+        except Exception as exc:
+            logger.warning("Cross-pillar synthesis skipped: %r", exc)
+
     # ── Slab data per leaf path, for the build.
     slab_ids_by_path = {p: leaf_data[p]["ids"] for p in leaf_paths}
     slab_titles_by_path: dict[str, list[str]] = {}
@@ -1830,6 +1990,10 @@ async def _pillars_from_slab_records(
     report = build_pillars_recursive(
         store, outline_tree, origin=origin, replace=replace,
     )
+    # Rebuild the ordered spine from the same authoritative sidecars. This
+    # keeps the dashboard's rebuild action from refreshing only half of the
+    # navigation structure.
+    report.update(rebuild_sequence_spine_from_records(store, recs))
     report["sections"] = len(leaf_paths)
     report["total_sections"] = len(sections)
     report["max_depth"] = max((s.level for s in sections), default=1)
@@ -1839,7 +2003,7 @@ async def _pillars_from_slab_records(
 
 async def build_pillars_from_session(
     store, session_store, session_id: str, origin: str = "",
-    regenerate_summaries: bool = True, replace: bool = True,
+    regenerate_summaries: bool = True, replace: bool = True, max_depth: int = 0,
 ) -> dict:
     """Rebuild the pillar overlay from ONE mining session's committed drafts.
 
@@ -1857,12 +2021,13 @@ async def build_pillars_from_session(
     return await _pillars_from_slab_records(
         store, recs, origin, "session_sidecars",
         regenerate_summaries=regenerate_summaries, replace=replace,
+        max_depth=max_depth,
     )
 
 
 async def build_pillars_from_collection(
     store, session_store, origin: str = "",
-    regenerate_summaries: bool = True, replace: bool = True,
+    regenerate_summaries: bool = True, replace: bool = True, max_depth: int = 0,
 ) -> dict:
     """Rebuild the overlay from EVERY session's drafts — needs only the store.
 
@@ -1883,7 +2048,175 @@ async def build_pillars_from_collection(
     return await _pillars_from_slab_records(
         store, recs, origin, "collection_sidecars",
         regenerate_summaries=regenerate_summaries, replace=replace,
+        max_depth=max_depth,
     )
+
+
+def _kmeans_cosine(vectors, k: int, iters: int = 30, seed: int = 0) -> list[int]:
+    """Tiny cosine k-means. Returns a cluster index per input row.
+
+    Rows are L2-normalized so a dot product IS cosine; assignment is
+    argmax-cosine to each centroid, centroids are the normalized mean of
+    their members. Converges in a handful of iterations for a few hundred
+    slabs — no sklearn dependency. Empty clusters are reseeded to a random
+    row so k stays honest.
+    """
+    X = np.asarray(vectors, dtype=np.float32)
+    norms = np.linalg.norm(X, axis=1, keepdims=True)
+    X = X / np.where(norms > 0, norms, 1.0)
+    n = X.shape[0]
+    k = max(1, min(k, n))
+    rng = np.random.default_rng(seed)
+    centroids = X[rng.choice(n, size=k, replace=False)].copy()
+    labels = np.full(n, -1, dtype=np.int32)
+    for _ in range(iters):
+        new_labels = (X @ centroids.T).argmax(axis=1).astype(np.int32)
+        if np.array_equal(new_labels, labels):
+            break
+        labels = new_labels
+        for c in range(k):
+            members = X[labels == c]
+            if len(members):
+                v = members.mean(axis=0)
+                nv = float(np.linalg.norm(v))
+                centroids[c] = v / nv if nv > 0 else v
+            else:
+                centroids[c] = X[rng.integers(n)]
+    return labels.tolist()
+
+
+async def build_pillars_by_clustering(
+    store, origin: str = "", target_k: int = 0, replace: bool = True,
+) -> dict:
+    """Coarse pillar overlay derived from slab CONTENT, not model source-paths.
+
+    Where a weak extraction model gives most slabs a unique source_path top
+    atom (fragmenting the path-based overlay into ~1 pillar/slab), this
+    ignores the paths entirely: it embeds each committed slab (title +
+    description) and k-means-clusters them into ~sqrt(N) groups, labels each
+    by its medoid slab's title, summarizes it from the members' descriptions,
+    and runs the same cross-pillar embedding pass between clusters. Flat
+    (single-tier) by construction. Deterministic given the embeddings.
+    """
+    import math
+
+    slabs = list(store.slabs.values())
+    if len(slabs) < 2:
+        return {"pillars_created": 0,
+                "error": "Need at least 2 committed slabs to cluster."}
+
+    texts = [
+        f"{(s.title or '')}. "
+        f"{((getattr(s, 'description', '') or '').strip() or (s.canonical_text or '')[:240])}".strip()
+        for s in slabs
+    ]
+    try:
+        vecs = await ollama.embed(texts)
+    except Exception as exc:
+        return {"pillars_created": 0, "error": f"Embedding failed: {exc}"}
+
+    k = target_k or max(2, min(24, round(math.sqrt(len(slabs)))))
+    cluster_of = _kmeans_cosine(vecs, k)
+    norm_vecs = [_l2_normalize(v) for v in vecs]
+
+    groups: dict[int, list[int]] = {}
+    for i, c in enumerate(cluster_of):
+        groups.setdefault(c, []).append(i)
+    cluster_ids = sorted(groups)
+
+    # Label each cluster by its medoid (member nearest the cluster centroid).
+    cluster_label: dict[int, str] = {}
+    for c in cluster_ids:
+        idxs = groups[c]
+        centroid = np.mean([norm_vecs[i] for i in idxs], axis=0)
+        medoid = max(idxs, key=lambda i: float(np.dot(norm_vecs[i], centroid)))
+        cluster_label[c] = (slabs[medoid].title or f"Cluster {c + 1}").strip()
+
+    # Unique path key per cluster (labels can collide) for the cross pass.
+    path_by_c: dict[int, str] = {}
+    used_labels: dict[str, int] = {}
+    for c in cluster_ids:
+        base = cluster_label[c]
+        used_labels[base] = used_labels.get(base, 0) + 1
+        path_by_c[c] = base if used_labels[base] == 1 else f"{base} ({used_labels[base]})"
+
+    cluster_slabs = {c: [slabs[i] for i in groups[c]] for c in cluster_ids}
+
+    # Summaries from member descriptions (parallel, model-aware width).
+    sem = asyncio.Semaphore(ollama.mining_parallelism())
+
+    async def _summ(c: int) -> tuple[int, str]:
+        async with sem:
+            items = [_slab_summary_item(s) for s in cluster_slabs[c]]
+            return c, await _summarize_pillar(cluster_label[c], items)
+
+    cluster_summary = dict(await asyncio.gather(*[_summ(c) for c in cluster_ids]))
+
+    # Cross-pillar links between clusters — same relative-margin embedding
+    # test, now over cluster summaries + member slabs.
+    try:
+        _cbt, cross_edges = await detect_cross_pillar(
+            [path_by_c[c] for c in cluster_ids],
+            {path_by_c[c]: cluster_summary[c] for c in cluster_ids},
+            {path_by_c[c]: cluster_slabs[c] for c in cluster_ids},
+        )
+    except Exception as exc:
+        logger.warning("Cluster cross-pillar pass skipped: %r", exc)
+        cross_edges = {}
+
+    # Build the pillars (flat).
+    seen_ids: set[str] = set()
+    pillars: dict[str, PillarDefinition] = {}
+    path_to_pillar: dict[str, str] = {}
+
+    def _new_id(label: str) -> str:
+        slug = _pillar_slug(label)
+        pid = f"pillar_{slug}_v1"
+        n = 2
+        while pid in seen_ids:
+            pid = f"pillar_{slug}_{n}_v1"
+            n += 1
+        seen_ids.add(pid)
+        return pid
+
+    for c in cluster_ids:
+        pid = _new_id(cluster_label[c])
+        pillars[pid] = PillarDefinition(
+            id=pid, label=cluster_label[c],
+            summary=cluster_summary[c] or "",
+            members=[s.id for s in cluster_slabs[c]],
+            origin=origin, pillar_role="section",
+        )
+        path_to_pillar[path_by_c[c]] = pid
+
+    cross_count = 0
+    for (home, tgt), count in cross_edges.items():
+        pid, tp = path_to_pillar.get(home), path_to_pillar.get(tgt)
+        if not pid or not tp or pid == tp:
+            continue
+        pillars[pid].cross_edges = (pillars[pid].cross_edges or []) + [PillarCrossEdge(
+            to_pillar=tp, type=EdgeType.LINKS, weight=min(1.0, count / 5.0),
+            confidence=0.7, rationale=f"{count} slab(s) cross-relevant between pillars",
+        )]
+        cross_count += 1
+
+    if replace:
+        store.pillars = pillars
+    else:
+        store.pillars.update(pillars)
+    errors = store.validate()
+    store.save()
+    logger.info(
+        "build_pillars_by_clustering: %d clusters (k=%d) over %d slabs, %d cross-edges",
+        len(pillars), k, len(slabs), cross_count,
+    )
+    return {
+        "pillars_created": len(pillars), "top_pillars": len(pillars),
+        "sub_pillars": 0, "members_resolved": sum(len(p.members) for p in pillars.values()),
+        "cross_edges": cross_count, "clusters": len(cluster_ids), "k": k,
+        "unresolved_titles": [], "validation_errors": errors,
+        "source": "content_clustering",
+    }
 
 
 # ─── N-tier recursive build (for the paper miner) ────────────────────────
@@ -1970,8 +2303,9 @@ def build_outline_tree_recursive(
             node["cross_edges"] = sorted(
                 cross_by_home.get(path, []), key=lambda x: -x["weight"],
             )
-        else:
-            node["children"] = [_to_node(c) for c in children_of.get(id(sec), [])]
+        children = children_of.get(id(sec), [])
+        if children:
+            node["children"] = [_to_node(c) for c in children]
         return node
 
     tops = sorted(
@@ -2038,53 +2372,42 @@ def build_pillars_recursive(
         pillar id, or None if the whole subtree resolved empty."""
         pid = _new_id(node.get("label") or "Section")
 
-        if "children" in node:
-            child_ids: list[str] = []
-            for c in node["children"]:
-                cid = _build(c, parent_id=pid)
-                if cid:
-                    child_ids.append(cid)
-            if not child_ids:
-                return None  # empty subtree — drop the container
-            pillars[pid] = PillarDefinition(
-                id=pid,
-                label=(node.get("label") or "Section").strip(),
-                summary=(node.get("summary") or "").strip(),
-                children=child_ids,
-                parent=parent_id,
-                origin=origin,
-                pillar_role="section",
-            )
-        else:
-            # Leaf: prefer slab_ids (exact, from session rebuild) over
-            # slab_titles (greedy by title, from fresh mine). Mirrors
-            # build_pillars_from_outline's resolution priority.
-            ids = node.get("slab_ids")
-            if ids:
-                members = [
-                    s for s in ids if s in store.slabs and s not in used
-                ]
-                used.update(members)
-            else:
-                members = _resolve(node.get("slab_titles", []))
-            if not members:
-                return None
-            pillars[pid] = PillarDefinition(
-                id=pid,
-                label=(node.get("label") or "Section").strip(),
-                summary=(node.get("summary") or "").strip(),
-                members=members,
-                parent=parent_id,
-                origin=origin,
-                pillar_role="chapter" if parent_id else "section",
-            )
-            path = node.get("section_path")
-            if path:
-                path_to_pillar[path] = pid
-            if node.get("cross_edges"):
-                deferred_cross[pid] = node["cross_edges"]
-        return pid
+        child_ids: list[str] = []
+        for child in node.get("children", []):
+            child_id = _build(child, parent_id=pid)
+            if child_id:
+                child_ids.append(child_id)
 
+        # A source path may carry slabs and also be the parent of more
+        # specific paths. Preserve both relationships on the same pillar.
+        raw_ids = node.get("slab_ids")
+        if raw_ids is not None:
+            members = [
+                sid for sid in raw_ids if sid in store.slabs and sid not in used
+            ]
+            used.update(members)
+        else:
+            members = _resolve(node.get("slab_titles", []))
+
+        if not child_ids and not members:
+            return None
+
+        pillars[pid] = PillarDefinition(
+            id=pid,
+            label=(node.get("label") or "Section").strip(),
+            summary=(node.get("summary") or "").strip(),
+            members=members,
+            children=child_ids,
+            parent=parent_id,
+            origin=origin,
+            pillar_role="section" if child_ids or not parent_id else "chapter",
+        )
+        path = node.get("section_path")
+        if path:
+            path_to_pillar[path] = pid
+        if node.get("cross_edges"):
+            deferred_cross[pid] = node["cross_edges"]
+        return pid
     for top in outline_tree:
         _build(top, parent_id=None)
 

@@ -565,6 +565,14 @@ class MiningProposal:
     proposal_type: str         # "anchor" | "slab" | "bundle"
     canonical_phrase: str = "" # for anchors
     canonical_text: str = ""   # for slabs
+    # Retrieval-oriented one-sentence summary. For slabs: the LLM-wiki
+    # index entry describing what the slab establishes (distinct from
+    # canonical_text). For anchors: an identity description — what the
+    # concept/entity IS — used to dedup same-referent anchors without
+    # destructively merging distinct concepts (see Anchor.description).
+    # Empty when the miner didn't emit one; downstream falls back to
+    # title+canonical_text (slab) or canonical_phrase+aliases (anchor).
+    description: str = ""
     title: str = ""
     label: str = ""            # for bundles
     aliases: list[str] = field(default_factory=list)
@@ -604,6 +612,7 @@ class MiningProposal:
         return cls(
             proposal_type="anchor",
             canonical_phrase=phrase,
+            description=(raw.get("description") or "").strip(),
             aliases=[a for a in (raw.get("aliases") or []) if a],
             source_topic=source_topic,
             confidence=conf,
@@ -628,6 +637,7 @@ class MiningProposal:
         return cls(
             proposal_type="slab",
             canonical_text=text,
+            description=(raw.get("description") or "").strip(),
             title=title,
             source_topic=source_topic,
             confidence=conf,
@@ -666,8 +676,10 @@ Given a conversation segment about "{topic}", extract meaningful corpus objects.
 1. **Slabs** (PREFERRED — extract these first) — Longer canonical texts (3-10 sentences) capturing a process, principle, worldbuilding rule, narrative arc, or thematic analysis. Slabs are the primary knowledge unit. Write the FULL text — do NOT truncate.
    Examples: A full energy progression chain, a design philosophy, a narrative structure analysis, a fictional technology specification.
 
-2. **Anchors** — Short canonical phrases (2-8 words) for concepts that DON'T fit into a slab. Only create an anchor if the concept is a standalone hook worth matching independently. Include 1-3 aliases.
+2. **Anchors** — Short canonical phrases (2-8 words) for a concept or entity that DOESN'T fit into a slab. Only create an anchor if it is a standalone hook worth matching independently. Include 1-3 aliases AND a one-sentence identity description.
    Examples: "grey goo fakeout", "Vin Diesel family meme", "divine disaster class"
+
+   **Description = identity, aliases = same referent.** The description states what the concept/entity IS (third person, self-contained), never who invokes it. Aliases are lexical alternatives for the SAME referent (Harry / Harry Potter / the boy who lived) — fold those together into one anchor. Do NOT fold a DISTINCT concept into an entity as an alias just because they co-occur: a contested title ("The Chosen One") or a category term/slur ("Mudblood") is its own anchor with its own description, related by an edge, not merged in.
 
    **IMPORTANT — foil / opposing anchors**: When the speaker contrasts their concept with an opposing force, characterization, or default behavior, extract BOTH SIDES as anchors. The speaker's concept AND the foil they're arguing against are equally valid corpus hooks — without both, downstream relationship edges (CONFLICTS, TENSIONS) can't fire.
 
@@ -688,6 +700,7 @@ Return ONLY valid JSON:
       "type": "slab",
       "title": "brief title",
       "canonical_text": "the FULL text of the process/principle/arc — write 3-10 complete sentences",
+      "description": "ONE dense retrieval sentence, like a wiki index entry — what this slab establishes and the questions it answers, NOT a restatement of canonical_text",
       "justification": "why this matters",
       "confidence": 0.0-1.0
     }},
@@ -695,6 +708,7 @@ Return ONLY valid JSON:
       "type": "anchor",
       "canonical_phrase": "short phrase",
       "aliases": ["alt1", "alt2"],
+      "description": "ONE dense identity sentence — what this concept/entity IS, third person, no relational context, no invoking characters",
       "justification": "why this needs to be a standalone anchor (not part of a slab)",
       "confidence": 0.0-1.0
     }},
@@ -1090,6 +1104,7 @@ class ConversationMiner:
                     "type": p.proposal_type,
                     "canonical_phrase": p.canonical_phrase,
                     "canonical_text": p.canonical_text or "",
+                    "description": p.description,
                     "title": p.title,
                     "label": p.label,
                     "aliases": p.aliases,

@@ -450,8 +450,8 @@ async def process_turn(
     #   1. Collect seeds — the walk's entry points:
     #        frame-active non-base_set nodes (weight >= 0.5),
     #        anchors the matcher fired this turn (lexical + semantic),
-    #        top-K slabs from cosine search (slab-search seeding),
-    #        slabs of any collection the message names.
+    #        top-K slabs from fused lexical+dense search.
+    #        Collection names scope this search but never become seeds.
     #   2. Bound the DOMAIN — a message that names collection(s) restricts
     #        the walk to that subgraph; nothing named → the whole graph.
     #   3. K-hop typed-edge walk from seeds → subspace of candidate
@@ -468,13 +468,36 @@ async def process_turn(
     #        threshold (0.70), catching strong pivots without washing out
     #        the edge signal.
     #
-    # All signals converge on retrieved_ids; full_text split below.
+    # Signals keep both membership and relevance order; the prompt cap is last.
     MAX_REFERENCE_FULL_TEXT = 25
+    import re as _retrieval_re
+    direct_evidence_query = bool(_retrieval_re.search(
+        r"\b(dimensions?|measurements?|configuration|config|spec|specification|"
+        r"volume|capacity|length|width|height|depth|temperature|setting|value)\b",
+        user_text or "", _retrieval_re.IGNORECASE,
+    )) and not bool(_retrieval_re.search(
+        r"\b(infer|inference|implications?|design|recommend|suggest|compare|why|how)\b",
+        user_text or "", _retrieval_re.IGNORECASE,
+    ))
+    reference_full_text_limit = 8 if direct_evidence_query else MAX_REFERENCE_FULL_TEXT
     SUBSPACE_MIN_RANKED = 3          # below this, topic-shift fallback fires
     FLAT_FALLBACK_THRESHOLD = 0.70   # higher bar for flat cosine when fallback
     FRAME_ACTIVATION_THRESHOLD = 0.5
 
     retrieved_ids: set[str] = set()
+    # Membership and ordering are separate concerns: sets make graph operations
+    # cheap, while this list preserves relevance all the way to prompt packing.
+    retrieval_order: list[str] = []
+
+    def _record_ranked(ids, *, promote: bool = False) -> None:
+        ordered = list(dict.fromkeys(sid for sid in ids if sid))
+        if promote:
+            chosen = set(ordered)
+            retrieval_order[:] = ordered + [sid for sid in retrieval_order if sid not in chosen]
+        else:
+            seen = set(retrieval_order)
+            retrieval_order.extend(sid for sid in ordered if sid not in seen)
+
     signal_counts = {
         "seeds": 0,
         "subspace": 0,
@@ -482,6 +505,8 @@ async def process_turn(
         "collection": 0,
         "frame": 0,
         "flat": 0,
+        "dense": 0,
+        "lexical": 0,
         "conflicts": 0,
         "ppr_lift": 0,       # slabs where PR materially changed combined score
         "ranked_mode": None,  # "subspace" | "full_ppr" | None — what mode ranking ran in
@@ -493,10 +518,8 @@ async def process_turn(
     #   - Frame-active nodes with a non-base_set source (anchor cascade,
     #     prior retrieval, user action) and weight above threshold.
     #   - Anchors the matcher fired on this very turn (from match_result).
-    #   - Slabs from any collection the user explicitly named — a
-    #     collection mention is a strong "please pay attention to this"
-    #     signal and those slabs should drive PPR teleport too, not
-    #     just get pulled directly.
+    # Collection names are intentionally NOT seeds. They define the permitted
+    # search domain below; relevance search chooses entry points within it.
     # Anchors, slabs, and bundles are all valid seeds — typed edges
     # radiate from all three node types.
     seed_ids: set[str] = set()
@@ -527,6 +550,7 @@ async def process_turn(
     # live, no need to re-rank them.
     if frame_state is not None and frame_manager:
         before = len(retrieved_ids)
+        frame_ranked: list[str] = []
         for sid, weight in frame_state.active_slabs.items():
             if weight < FRAME_ACTIVATION_THRESHOLD:
                 continue
@@ -535,20 +559,14 @@ async def process_turn(
                 continue
             if sid in frame_manager.corpus.slabs:
                 retrieved_ids.add(sid)
+                frame_ranked.append(sid)
+        _record_ranked(frame_ranked)
         signal_counts["frame"] = len(retrieved_ids) - before
 
     # ── 2. Collection-name detection (runs BEFORE subspace) ──
-    # When the user names a collection, those slabs do double duty:
-    #   (a) Pulled directly into retrieved_ids (user-intent override).
-    #   (b) Added to seed_ids so the subsequent edge walk and PPR
-    #       teleport FROM them — which is what surfaces structurally
-    #       related content in neighboring collections or linked nodes.
-    # Without (b), a query like "compare v5 and v6" populates the
-    # retrieval pool but never feeds those slabs into graph-aware
-    # ranking — exactly the case that produced subspace:0 pre-fix.
-    #
-    # ``mentioned`` also sets the graph-walk DOMAIN (scoping block below):
-    # a named collection bounds the walk to it; nothing named = whole graph.
+    # A named collection is a FILTER, never a retrieval result or graph seed.
+    # Search below chooses a small relevant seed set inside this domain. This
+    # prevents "podv9" from turning all 124 slabs into unordered candidates.
     mentioned: set[str] = set()
     if frame_manager:
         try:
@@ -570,17 +588,7 @@ async def process_turn(
                     if tail == num:
                         mentioned.add(cid)
             if mentioned:
-                before = len(retrieved_ids)
-                for cid in mentioned:
-                    store = _deps.registry.get_store(cid)
-                    if store:
-                        store_slab_ids = set(store.slabs.keys())
-                        retrieved_ids.update(store_slab_ids)
-                        # Feed collection slabs into seed_ids so PPR
-                        # teleports to them and the edge walk can
-                        # radiate from them into neighbors.
-                        seed_ids.update(store_slab_ids)
-                signal_counts["collection"] = len(retrieved_ids) - before
+                signal_counts["collection"] = len(mentioned)
         except Exception as exc:
             logger.warning("collection-name detection failed: %r", exc)
 
@@ -613,31 +621,40 @@ async def process_turn(
         except Exception as exc:
             logger.warning("graph-walk scoping failed for %r: %r", _scope_cids, exc)
 
-    # ── Slab cosine-search as a slicer ──
-    # Anchor search seeds the walk from matched anchors; slab search seeds it
-    # from semantically-close slabs too — so content that's a strong textual
-    # match but ISN'T graph-adjacent to a matched anchor still becomes an
-    # entry point that teleports PPR and expands the K-hop subspace. Bounded
-    # by top-K, and restricted to the domain when a scope is active.
-    if slab_matcher is not None and slab_matcher.has_cache():
+    if scope_slab_ids is not None:
+        # Explicit scope also evicts frame carry-over from other collections.
+        retrieved_ids.intersection_update(scope_slab_ids)
+        retrieval_order[:] = [sid for sid in retrieval_order if sid in scope_slab_ids]
+
+    # ── Hybrid lexical+dense slab search as a slicer ──
+    # Either signal may establish relevance. Reciprocal-rank fusion produces
+    # a small ordered seed set; the graph then expands and reranks from it.
+    if slab_matcher is not None:
         try:
-            slab_hits = await slab_matcher.top_k_for(
-                user_text, id_filter=scope_slab_ids, max_k=10,
+            slab_hits = await slab_matcher.fused_top_k_for(
+                user_text, id_filter=scope_slab_ids, max_k=15,
             )
             if slab_hits:
-                sem_ids = {sid for sid, _score in slab_hits}
-                seed_ids.update(sem_ids)
-                retrieved_ids.update(sem_ids)
-                signal_counts["slab_search"] = len(sem_ids)
-                signal_counts["seeds"] = len(seed_ids)  # recount after seeding
+                hit_ids = [sid for sid, _score, _parts in slab_hits]
+                seed_ids.update(hit_ids)
+                retrieved_ids.update(hit_ids)
+                _record_ranked(hit_ids)
+                signal_counts["slab_search"] = len(hit_ids)
+                signal_counts["dense"] = sum(
+                    1 for _sid, _score, parts in slab_hits if parts.get("dense", 0) > 0
+                )
+                signal_counts["lexical"] = sum(
+                    1 for _sid, _score, parts in slab_hits if parts.get("lexical", 0) > 0
+                )
+                signal_counts["seeds"] = len(seed_ids)
                 logger.info(
-                    "[SLAB-SEED] %d slabs seeded from cosine search "
-                    "(top=%.2f)%s",
-                    len(sem_ids), slab_hits[0][1],
-                    " within scope" if scope_slab_ids else "",
+                    "[SLAB-SEED] %d slabs seeded from fused search "
+                    "(dense=%d lexical=%d top=%s)%s",
+                    len(hit_ids), signal_counts["dense"], signal_counts["lexical"],
+                    hit_ids[0], " within scope" if scope_slab_ids else "",
                 )
         except Exception as exc:
-            logger.warning("slab cosine seeding failed: %r", exc)
+            logger.warning("slab fused seeding failed: %r", exc)
 
     # ── 3. Subspace construction via typed-edge walk ──
     subspace: set[str] = set()
@@ -650,6 +667,7 @@ async def process_turn(
         signal_counts["edges_walked"] = edges_walked
         if conflict_forced:
             retrieved_ids.update(conflict_forced)
+            _record_ranked(sorted(conflict_forced))
             signal_counts["conflicts"] = len(conflict_forced)
 
     # ── Make the seed-reachable slice the authoritative walk domain ──
@@ -723,9 +741,10 @@ async def process_turn(
                     id_filter=scope_slab_ids,
                     ppr_corpus=walk_corpus,
                 )
-            ranked = {sid for sid, _s, _c in hits}
-            retrieved_ids.update(ranked)
-            signal_counts["ranked"] = len(ranked)
+            ranked_ids = [sid for sid, _s, _c in hits]
+            retrieved_ids.update(ranked_ids)
+            _record_ranked(ranked_ids, promote=True)
+            signal_counts["ranked"] = len(ranked_ids)
             # Count slabs whose combined score was materially boosted by
             # PR (ppr or global_pr contribution >= 0.1 after weighting).
             for _sid, _score, comp in hits:
@@ -749,7 +768,6 @@ async def process_turn(
     needs_topic_shift = (
         bool(seed_ids)
         and signal_counts["ranked"] < SUBSPACE_MIN_RANKED
-        and signal_counts["collection"] == 0  # collection override already served
     )
     if (needs_cold_start or needs_topic_shift) and slab_matcher is not None and slab_matcher.has_cache():
         try:
@@ -767,7 +785,9 @@ async def process_turn(
                 ppr_corpus=walk_corpus,
             )
             before = len(retrieved_ids)
-            retrieved_ids.update(sid for sid, _s, _c in hits)
+            fallback_ids = [sid for sid, _s, _c in hits]
+            retrieved_ids.update(fallback_ids)
+            _record_ranked(fallback_ids, promote=True)
             signal_counts["flat"] = len(retrieved_ids) - before
         except Exception as exc:
             logger.warning("flat fallback failed: %r", exc)
@@ -794,15 +814,36 @@ async def process_turn(
     if frame_manager:
         from ..models.enums import SlabType as _SlabType
         all_slabs = frame_manager.corpus.base_set_slabs(oli_mode)
-        for s in all_slabs:
-            if s.type in (_SlabType.CONSTITUTIONAL, _SlabType.CANONICAL):
-                full_text_slabs.append(s)
-            elif s.id in retrieved_ids and reference_count < MAX_REFERENCE_FULL_TEXT:
-                full_text_slabs.append(s)
-                reference_count += 1
-            else:
-                # REFERENCE, not retrieved OR over cap → catalog only
-                catalog_slabs.append(s)
+        slab_by_id = {s.id: s for s in all_slabs}
+
+        # Foundational slabs retain dependency order and are always included.
+        full_text_slabs.extend(
+            s for s in all_slabs
+            if s.type in (_SlabType.CONSTITUTIONAL, _SlabType.CANONICAL)
+        )
+
+        # Reference slabs are selected in retrieval rank order, never corpus
+        # storage order. A compatibility tail handles any unranked legacy signal.
+        selected_reference_ids: set[str] = set()
+        ranked_id_set = set(retrieval_order)
+        ranked_reference_ids = retrieval_order + [
+            s.id for s in all_slabs
+            if s.id in retrieved_ids and s.id not in ranked_id_set
+        ]
+        for sid in ranked_reference_ids:
+            if reference_count >= reference_full_text_limit:
+                break
+            slab = slab_by_id.get(sid)
+            if slab is None or slab.type != _SlabType.REFERENCE:
+                continue
+            full_text_slabs.append(slab)
+            selected_reference_ids.add(sid)
+            reference_count += 1
+
+        catalog_slabs.extend(
+            s for s in all_slabs
+            if s.type == _SlabType.REFERENCE and s.id not in selected_reference_ids
+        )
         try:
             from ..api import deps as _deps
             collection_by_id = _deps.registry.slab_collection_map()
@@ -812,6 +853,22 @@ async def process_turn(
         "[RAG] slabs: full_text=%d (ref=%d) catalog=%d signals=%s",
         len(full_text_slabs), reference_count, len(catalog_slabs), signal_counts,
     )
+
+    # Synthesis must reason over the same evidence admitted to the answer
+    # prompt, plus non-slab seed nodes that connect that evidence.
+    synthesis_corpus = walk_corpus or (frame_manager.corpus if frame_manager else None)
+    if synthesis_corpus is not None and reference_count:
+        try:
+            evidence_nodes = {
+                s.id for s in full_text_slabs if s.type == _SlabType.REFERENCE
+            }
+            evidence_nodes.update(
+                sid for sid in seed_ids
+                if sid in synthesis_corpus.anchors or sid in synthesis_corpus.bundles
+            )
+            synthesis_corpus = synthesis_corpus.subgraph(evidence_nodes)
+        except Exception as exc:
+            logger.warning("synthesis evidence scoping failed: %r", exc)
 
     # ── Step 3.9: Synthesis intent detection + routing ───────────
     # When the user's message looks like a "tell me about X" / "compare X
@@ -825,6 +882,16 @@ async def process_turn(
     # Failures here never block the turn: synthesis is additive context,
     # not infrastructure. Any exception falls through to standard RAG.
     synthesis_prompt: Optional[str] = None
+    direct_evidence_prompt: Optional[str] = (
+        "[DIRECT EVIDENCE MODE]\n"
+        "This is a corpus lookup, not brainstorming or design analysis. "
+        "Answer only with facts explicitly stated in the loaded full-text slabs. "
+        "If the requested configuration is absent, state that plainly and report "
+        "only any explicit baseline or alternative the corpus gives. Do not infer "
+        "optionality, physical implications, required modifications, or possible "
+        "settings unless the user explicitly asks for inference. Refer to evidence by its "
+        "human-readable title and collection; never expose internal object ids."
+    ) if direct_evidence_query else None
     synthesis_meta: Optional[dict] = None
     try:
         from .synthesis_intent import detect_synthesis_intent
@@ -846,10 +913,10 @@ async def process_turn(
         intent = detect_synthesis_intent(
             user_text, anchor_match_count=_anchor_count,
         )
-        if intent.triggered and frame_manager:
+        if intent.triggered and frame_manager and not direct_evidence_query:
             from .synthesis import synthesize
             from .synthesis_compose import compose_synthesis_prompt
-            synth_result = await synthesize(user_text, walk_corpus or frame_manager.corpus)
+            synth_result = await synthesize(user_text, synthesis_corpus or frame_manager.corpus)
             # Only inject the synthesis prompt if selection actually
             # surfaced *something*. An empty walk (cold corpus, no
             # embedding match) falls back gracefully to standard RAG.
@@ -898,6 +965,8 @@ async def process_turn(
                     "(anchors=%d) — falling back to standard RAG",
                     _anchor_count,
                 )
+        elif intent.triggered and direct_evidence_query:
+            logger.info("[SYNTH] bypassed for direct evidence query")
     except Exception as exc:
         logger.warning(
             "synthesis routing failed (falling back to standard RAG): %r",
@@ -915,7 +984,7 @@ async def process_turn(
     system_prompt = build_system_prompt(
         oli_mode, header,
         base_set_slabs=full_text_slabs or None,
-        catalog_slabs=catalog_slabs or None,
+        catalog_slabs=None if direct_evidence_query else (catalog_slabs or None),
         collection_by_id=collection_by_id or None,
     )
 
@@ -928,6 +997,8 @@ async def process_turn(
     # model sees before the user turn — closest to the response.
     if synthesis_prompt:
         messages.append({"role": "system", "content": synthesis_prompt})
+    if direct_evidence_prompt:
+        messages.append({"role": "system", "content": direct_evidence_prompt})
     messages.append({"role": "user", "content": user_text})
 
     # Estimate context usage (chars → tokens) for status bar display

@@ -203,8 +203,10 @@ Return ONLY the rewritten inline dict as raw JSON. For an anchor:
 {"id": "...", "canonical_phrase": "...", "aliases": [...], "invokes": [...], \
 "notes": "..."}
 
-For a slab:
-{"id": "...", "title": "...", "canonical_text": "...", \
+For a slab (keep or improve `description` — one dense retrieval sentence, like a \
+wiki index entry, saying what the slab establishes and the questions it answers; \
+NOT a restatement of canonical_text):
+{"id": "...", "title": "...", "canonical_text": "...", "description": "...", \
 "links": {"anchors": [...], "bundles": [...]}, "version": "v1"}
 
 Rewritten content: """

@@ -80,6 +80,38 @@ class Anchor(BaseModel):
     id: str
     canonical_phrase: str
     aliases: list[str] = Field(default_factory=list)
+    # Identity-facing twin of Slab.description. Same job as the slab
+    # description — one dense, retrieval-oriented sentence written FOR
+    # search — but redirected at IDENTITY instead of a claim: what kind of
+    # thing this concept or entity IS, and what would let someone recognize
+    # it's the one they're looking for. Third-person, self-contained,
+    # stable across the corpus rather than tied to one incident.
+    #
+    # PRIMARY PURPOSE — non-destructive dedup / correct alias classing.
+    # A source often names one entity many ways, so a single slab links
+    # several anchors that are really the SAME referent (Harry Potter /
+    # Harry / the boy who lived). Those excess anchors should collapse
+    # into one canonical anchor + aliases. But some phrases only LOOK like
+    # aliases — a proximity-driven merge would destroy a distinct concept.
+    # The description is the identity signal that lets dedup decide on
+    # sameness-of-referent instead of embedding distance. Three cases:
+    #   - true alias  (COLLAPSE): "the boy who lived" — same referent as
+    #     Harry Potter; fold into his alias list, drop the duplicate anchor.
+    #   - contested title (KEEP + edge): "The Chosen One" — a prophesied
+    #     role ambiguously contested between two candidates; contestedness
+    #     IS its identity, so it is NOT an alias of Harry. Merging it into
+    #     him is destructive.
+    #   - category / slur (KEEP + edge): "Mudblood" — a pejorative for a
+    #     witch/wizard born to non-magical parents. Its identity names no
+    #     specific target; who it gets thrown at (e.g. Hermione) is an
+    #     INVOKES edge from the incident slab, never an alias or part of
+    #     this description. Baking "used to insult Hermione" in would be
+    #     the same collapse error, just less obvious.
+    #
+    # Populated by the universal miner; backwards-compatible — pre-
+    # description anchors default to empty and matching/dedup fall back to
+    # canonical_phrase + aliases.
+    description: str = ""
     invokes: list[str] = Field(default_factory=list)
     notes: str = ""
     lifecycle_status: SlabLifecycleStatus = SlabLifecycleStatus.ACTIVE
@@ -110,6 +142,9 @@ class InlineAnchor(BaseModel):
     id: str
     canonical_phrase: str
     aliases: list[str] = Field(default_factory=list)
+    # Identity description carried verbatim from the corpus Anchor so a
+    # demote→promote round-trip is lossless (see Anchor.description).
+    description: str = ""
     notes: str = ""
     confidence: float = 0.5
 
@@ -126,6 +161,14 @@ class Slab(BaseModel):
     id: str
     title: str = ""
     canonical_text: str
+    # One dense, retrieval-oriented sentence — an index-entry / LLM-wiki
+    # style summary of what this slab establishes and the questions it
+    # answers, written FOR search rather than as a restatement of the
+    # content. Distinct from canonical_text (the content itself): search
+    # embeds and ranks on this so a slab is findable by meaning. Emitted
+    # by the universal miner; backwards-compatible — pre-description slabs
+    # default to empty and fall back to title+canonical_text at search time.
+    description: str = ""
     links: SlabLinks = Field(default_factory=SlabLinks)
     version: str = "v1"
     type: SlabType = SlabType.REFERENCE

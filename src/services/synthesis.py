@@ -113,6 +113,7 @@ class SelectedNode:
     node_type: str           # "anchor" | "slab" | "bundle"
     confidence: float
     text: str                # canonical_phrase / canonical_text / label
+    display_name: str        # human-facing title; internal id stays backend-only
     hop_distance: Optional[int] = None  # graph distance from nearest seed
     cos_sim: Optional[float] = None     # cosine vs query (for divergent)
     via_edge: Optional[str] = None      # edge_type that brought it in
@@ -218,11 +219,20 @@ def _selected_node(corpus: CorpusStore, node_id: str, **extras) -> Optional[Sele
     ntype, text, conf = _node_text(corpus, node_id)
     if not ntype:
         return None
+    if ntype == "slab":
+        display_name = (corpus.slabs[node_id].title or "").strip() or "Untitled corpus reference"
+    elif ntype == "anchor":
+        display_name = corpus.anchors[node_id].canonical_phrase
+    else:
+        payload = getattr(corpus.bundles[node_id], "payload", None)
+        intents = list(getattr(payload, "intent", []) or []) if payload else []
+        display_name = intents[0] if intents else "Corpus bundle"
     return SelectedNode(
         id=node_id,
         node_type=ntype,
         confidence=conf,
         text=text,
+        display_name=display_name,
         approx_tokens=_approx_tokens(text),
         **extras,
     )

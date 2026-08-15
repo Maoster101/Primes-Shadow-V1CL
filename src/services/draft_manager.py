@@ -408,6 +408,7 @@ class DraftManager:
                         or ""
                     ),
                     "canonical_text": prop.get("canonical_text", "") or "",
+                    "description": prop.get("description", "") or "",
                     "links": {"anchors": [], "bundles": []},
                     "version": "v1",
                 }
@@ -1027,10 +1028,14 @@ class DraftManager:
             invokes = _pick("invokes", p_anchor, [], []) or []
             depends_on = _pick("depends_on", p_anchor, [], []) or []
             assumptions = _pick("assumptions", p_anchor, [], []) or []
+            # Identity description — prefer the enriched packet's inline
+            # anchor, else the raw miner output. Empty for legacy anchors.
+            description = _pick("description", p_anchor, ["description"], "") or ""
 
             anchor = Anchor(
                 id=draft_id,
                 canonical_phrase=canonical_phrase,
+                description=description,
                 aliases=list(aliases),
                 invokes=list(invokes),
                 notes=notes,
@@ -1056,6 +1061,10 @@ class DraftManager:
                 "canonical_text", p_slab, ["canonical_text"], ""
             )
 
+            # Retrieval-oriented summary — prefer the packet's inline slab,
+            # else the raw miner output. Empty for legacy-mined slabs.
+            description = _pick("description", p_slab, ["description"], "") or ""
+
             # SlabLinks: the one field with no raw fallback at all. The raw
             # shape doesn't carry cross-draft links; they're a packet-layer
             # phenomenon introduced by the dreaming rewrite. Default empty
@@ -1078,6 +1087,7 @@ class DraftManager:
                 id=draft_id,
                 title=title,
                 canonical_text=canonical_text,
+                description=description,
                 links=slab_links,
                 version="v1",
                 meta=AnchorMeta(version="v1"),

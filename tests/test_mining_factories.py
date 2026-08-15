@@ -41,6 +41,7 @@ def test_anchor_happy_path():
     p = MiningProposal.anchor_from_raw(
         {"canonical_phrase": "  Constitutional AI  ",
          "aliases": ["CAI", "self-critique"],
+         "description": "  An alignment method training a model to critique and revise its own outputs against a set of principles.  ",
          "confidence": 0.9, "justification": "  central concept  "},
         source_topic="alignment", source_pairs=[3, 4],
     )
@@ -48,10 +49,17 @@ def test_anchor_happy_path():
     assert p.proposal_type == "anchor"
     assert p.canonical_phrase == "Constitutional AI"   # stripped
     assert p.aliases == ["CAI", "self-critique"]
+    assert p.description.startswith("An alignment method")  # stripped
     assert p.source_topic == "alignment"
     assert p.source_pairs == [3, 4]
     assert p.confidence == 0.9
     assert p.justification == "central concept"          # stripped
+
+
+def test_anchor_description_defaults_empty():
+    # Backwards-compat: miners that don't emit a description yield "".
+    p = MiningProposal.anchor_from_raw({"canonical_phrase": "Legacy Anchor"})
+    assert p is not None and p.description == ""
 
 
 def test_anchor_empty_phrase_is_none():
@@ -174,10 +182,53 @@ def test_edge_default_type_and_conf():
     assert e.confidence == 0.7               # default_conf
 
 
+# ── Anchor.description schema + lifecycle ──────────────────────────
+
+def test_anchor_schema_description_roundtrips():
+    from src.models.schemas import Anchor
+    desc = "A prophesied role ambiguously contested between two candidates."
+    a = Anchor(id="ANCHOR_X_v1", canonical_phrase="The Chosen One", description=desc)
+    assert a.description == desc
+    # Round-trips through dict (the corpus.py Anchor(**a) load path).
+    assert Anchor(**a.model_dump()).description == desc
+    # Backwards-compat: a legacy anchor dict with no description loads fine.
+    assert Anchor(id="A_v1", canonical_phrase="p").description == ""
+
+
+def test_consolidation_demote_preserves_description():
+    # A single-slab leaf anchor carrying a description gets demoted into
+    # its parent slab's inline anchors WITHOUT losing the description.
+    from src.services.corpus import CorpusStore
+    from src.services.anchor_consolidation import analyze, apply_plan
+    from src.models.schemas import Anchor, Slab, Edge
+    from src.models.enums import EdgeType
+
+    corpus = CorpusStore()
+    corpus.slabs["SLAB_1_v1"] = Slab(id="SLAB_1_v1", canonical_text="body")
+    corpus.anchors["ANCHOR_1_v1"] = Anchor(
+        id="ANCHOR_1_v1", canonical_phrase="Mudblood",
+        description="A pejorative for a witch or wizard born to non-magical parents.",
+    )
+    # Single LINKS edge -> single-slab leaf -> DEMOTE into that slab.
+    corpus.edges["E1"] = Edge(
+        id="E1", type=EdgeType.LINKS, from_node="ANCHOR_1_v1",
+        to_node="SLAB_1_v1", weight=1.0, confidence=1.0,
+    )
+
+    plan = analyze(corpus)
+    assert len(plan.demote) == 1
+    apply_plan(corpus, plan)
+
+    inline = corpus.slabs["SLAB_1_v1"].links.anchors_inline
+    assert len(inline) == 1
+    assert inline[0].description.startswith("A pejorative")
+
+
 # ── standalone runner (mirrors tests/test_gate_eval.py) ───────────
 
 ALL_TESTS = [
     test_anchor_happy_path,
+    test_anchor_description_defaults_empty,
     test_anchor_empty_phrase_is_none,
     test_anchor_alias_scrubbing,
     test_slab_happy_path,
@@ -191,6 +242,8 @@ ALL_TESTS = [
     test_edge_accepts_key_aliases,
     test_edge_missing_endpoint_is_none,
     test_edge_default_type_and_conf,
+    test_anchor_schema_description_roundtrips,
+    test_consolidation_demote_preserves_description,
 ]
 
 
